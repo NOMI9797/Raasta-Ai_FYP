@@ -7,7 +7,7 @@ import { nanoid } from "nanoid";
 
 export async function POST(request) {
   try {
-    const { firstName, lastName, email, password } = await request.json();
+    const { firstName, lastName, email, password, role } = await request.json();
 
     // Validate input
     if (!firstName || !lastName || !email || !password) {
@@ -38,14 +38,22 @@ export async function POST(request) {
       hashedPassword: hashedPassword.substring(0, 20) + "...", // Log partial hash for debugging
     });
 
-    // Create user (default role: sales_operator)
+    // Normalize and validate role from UI (only allow non-admin roles)
+    const requestedRole =
+      typeof role === "string" ? role.trim().toLowerCase() : "sales_operator";
+    const allowedRoles = ["sales_operator", "recruiter"];
+    const finalRole = allowedRoles.includes(requestedRole)
+      ? requestedRole
+      : "sales_operator";
+
+    // Create user (role from UI, default sales_operator)
     const userId = nanoid();
     const newUser = await db.insert(users).values({
       id: userId,
       email,
       name: `${firstName} ${lastName}`,
       password: hashedPassword,
-      role: "sales_operator",
+      role: finalRole,
     }).returning();
     
     console.log("User created:", newUser);
