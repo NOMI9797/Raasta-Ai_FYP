@@ -5,27 +5,33 @@ import { desc, eq, count, and, sql } from "drizzle-orm";
 import { withAuth } from "@/libs/auth-middleware";
 import getRedisClient from "@/libs/redis";
 
-// GET /api/campaigns - Get all campaigns for authenticated user (Redis-first)
+// GET /api/campaigns - Get all campaigns for authenticated user (Redis-first, DB fallback)
 export const GET = withAuth(async (request, { user }) => {
   try {
-    const redis = getRedisClient();
+    let redis = null;
     const cacheKey = `user:${user.id}:campaigns:list`;
-    
-    // ✅ REDIS-FIRST: Try to get from Redis cache first
-    try {
-      const cachedData = await redis.get(cacheKey);
-      if (cachedData) {
-        const parsed = JSON.parse(cachedData);
-        console.log(`✅ REDIS: Returning campaigns from cache for user ${user.id}`);
-        return NextResponse.json({
-          success: true,
-          campaigns: parsed,
-          cached: true,
-        });
+
+    // ✅ REDIS-FIRST: Try cache only when Redis is configured and reachable
+    if (process.env.REDIS_URL) {
+      try {
+        redis = getRedisClient();
+        const cachedData = await Promise.race([
+          redis.get(cacheKey),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('Redis timeout')), 3000)),
+        ]);
+        if (cachedData) {
+          const parsed = JSON.parse(cachedData);
+          console.log(`✅ REDIS: Returning campaigns from cache for user ${user.id}`);
+          return NextResponse.json({
+            success: true,
+            campaigns: parsed,
+            cached: true,
+          });
+        }
+      } catch (redisError) {
+        console.warn(`⚠️ Redis read failed, falling back to DB:`, redisError?.message || redisError);
+        redis = null;
       }
-    } catch (redisError) {
-      console.warn(`⚠️ Redis read failed, falling back to DB:`, redisError.message);
-      // Continue to DB fallback
     }
 
     // ✅ FALLBACK: Query database if Redis cache miss
@@ -118,13 +124,14 @@ export const GET = withAuth(async (request, { user }) => {
       );
     }
 
-    // ✅ REDIS: Cache the result for future requests (5 minutes TTL)
-    try {
-      await redis.setex(cacheKey, 300, JSON.stringify(campaignsWithProgress)); // 5 minutes
-      console.log(`✅ REDIS: Cached campaigns list for user ${user.id}`);
-    } catch (redisError) {
-      console.warn(`⚠️ Redis cache write failed:`, redisError.message);
-      // Don't fail the request if Redis fails
+    // ✅ REDIS: Cache the result for future requests (5 min TTL) when Redis is available
+    if (redis) {
+      try {
+        await redis.setex(cacheKey, 300, JSON.stringify(campaignsWithProgress));
+        console.log(`✅ REDIS: Cached campaigns list for user ${user.id}`);
+      } catch (redisError) {
+        console.warn(`⚠️ Redis cache write failed:`, redisError?.message || redisError);
+      }
     }
 
     return NextResponse.json({
