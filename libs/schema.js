@@ -9,6 +9,7 @@ export const users = pgTable('users', {
   image: text('image'),
   password: text('password'), // For email/password authentication
   googleId: text('google_id').unique(),
+  role: varchar('role', { length: 20 }).notNull().default('sales_operator'),
   stripeCustomerId: text('stripe_customer_id'),
   subscriptionStatus: varchar('subscription_status', { length: 20 }).default('free'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
