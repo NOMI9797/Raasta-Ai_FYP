@@ -3,6 +3,7 @@
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import toast from "react-hot-toast";
 import Sidebar from "@/components/layout/Sidebar";
 import TopBar from "@/components/layout/TopBar";
 
@@ -14,7 +15,6 @@ export default function AdminPage() {
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [error, setError] = useState("");
   const [updatingId, setUpdatingId] = useState(null);
-  const [successMessage, setSuccessMessage] = useState("");
 
   useEffect(() => {
     if (status === "loading") return;
@@ -72,7 +72,6 @@ export default function AdminPage() {
 
   const handleRoleChange = async (userId, newRole) => {
     if (!newRole) return;
-    setSuccessMessage("");
     setError("");
 
     try {
@@ -94,15 +93,10 @@ export default function AdminPage() {
         prev.map((u) => (u.id === data.user.id ? { ...u, role: data.user.role } : u))
       );
 
-      const isSelf = session?.user?.id === data.user.id;
-      setSuccessMessage(
-        `${data.user.email} is now ${data.user.role}${
-          isSelf ? " (this will apply to your next requests automatically)" : ""
-        }`
-      );
-      setTimeout(() => setSuccessMessage(""), 4000);
+      toast.success("Role updated successfully");
     } catch (err) {
       setError(err.message || "Failed to update role");
+      toast.error("Failed to update role");
     } finally {
       setUpdatingId(null);
     }
@@ -153,18 +147,9 @@ export default function AdminPage() {
             </div>
           </div>
 
-          {(error || successMessage) && (
-            <div className="space-y-2">
-              {error && (
-                <div className="alert alert-error shadow-sm">
-                  <span>{error}</span>
-                </div>
-              )}
-              {successMessage && (
-                <div className="alert alert-success shadow-sm">
-                  <span>{successMessage}</span>
-                </div>
-              )}
+          {error && (
+            <div className="alert alert-error shadow-sm">
+              <span>{error}</span>
             </div>
           )}
 
