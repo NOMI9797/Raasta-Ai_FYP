@@ -17,14 +17,24 @@ export const GET = withAuth(async (request, { user }) => {
   try {
     const { searchParams } = new URL(request.url);
     const campaignId = searchParams.get('campaignId');
+    const isAdmin = user.role === "admin";
     
-    console.log(`📊 Fetching stats for user: ${user.id}${campaignId ? `, campaign: ${campaignId}` : ' (all campaigns)'}`);
+    console.log(
+      `📊 Fetching stats for user: ${user.id} (${user.role})${
+        campaignId ? `, campaign: ${campaignId}` : " (all campaigns)"
+      }`
+    );
     
-    // Get all campaigns for the user
-    const userCampaigns = await db.query.campaigns.findMany({
-      where: eq(campaigns.userId, user.id),
-      orderBy: (campaigns, { desc }) => [desc(campaigns.createdAt)]
-    });
+    // Get campaigns visible to this user
+    const campaignQueryOptions = {
+      orderBy: (campaigns, { desc }) => [desc(campaigns.createdAt)],
+    };
+
+    if (!isAdmin) {
+      campaignQueryOptions.where = eq(campaigns.userId, user.id);
+    }
+
+    const userCampaigns = await db.query.campaigns.findMany(campaignQueryOptions);
     
     if (userCampaigns.length === 0) {
       return NextResponse.json({

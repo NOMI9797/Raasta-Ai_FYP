@@ -10,6 +10,7 @@ export const GET = withAuth(async (request, { user }) => {
   try {
     let redis = null;
     const cacheKey = `user:${user.id}:campaigns:list`;
+    const isAdmin = user.role === "admin";
 
     // ✅ REDIS-FIRST: Try cache only when Redis is configured and reachable
     if (process.env.REDIS_URL) {
@@ -17,11 +18,13 @@ export const GET = withAuth(async (request, { user }) => {
         redis = getRedisClient();
         const cachedData = await Promise.race([
           redis.get(cacheKey),
-          new Promise((_, rej) => setTimeout(() => rej(new Error('Redis timeout')), 3000)),
+          new Promise((_, rej) => setTimeout(() => rej(new Error("Redis timeout")), 3000)),
         ]);
         if (cachedData) {
           const parsed = JSON.parse(cachedData);
-          console.log(`✅ REDIS: Returning campaigns from cache for user ${user.id}`);
+          console.log(
+            `✅ REDIS: Returning campaigns from cache for user ${user.id} (${user.role})`
+          );
           return NextResponse.json({
             success: true,
             campaigns: parsed,
@@ -29,17 +32,22 @@ export const GET = withAuth(async (request, { user }) => {
           });
         }
       } catch (redisError) {
-        console.warn(`⚠️ Redis read failed, falling back to DB:`, redisError?.message || redisError);
+        console.warn(
+          `⚠️ Redis read failed, falling back to DB:`,
+          redisError?.message || redisError
+        );
         redis = null;
       }
     }
 
     // ✅ FALLBACK: Query database if Redis cache miss
-    console.log(`📊 DB: Fetching campaigns from database for user ${user.id}`);
-    
+    console.log(
+      `📊 DB: Fetching campaigns from database for user ${user.id} (${user.role})`
+    );
+
     // ✅ OPTIMIZED: Single query with conditional aggregations
     // Gets all campaign data + counts in ONE database round trip
-    const allCampaigns = await db
+    let query = db
       .select({
         id: campaigns.id,
         name: campaigns.name,
@@ -49,20 +57,37 @@ export const GET = withAuth(async (request, { user }) => {
         createdAt: campaigns.createdAt,
         updatedAt: campaigns.updatedAt,
         // Total leads count
-        leadsCount: sql`COUNT(DISTINCT ${leads.id})`.as('leads_count'),
+        leadsCount: sql`COUNT(DISTINCT ${leads.id})`.as("leads_count"),
         // Processed leads count (status = 'completed')
-        processedLeads: sql`COUNT(DISTINCT CASE WHEN ${leads.status} = ${'completed'} THEN ${leads.id} END)`.as('processed_leads'),
+        processedLeads: sql`COUNT(DISTINCT CASE WHEN ${leads.status} = ${"completed"} THEN ${leads.id} END)`.as(
+          "processed_leads"
+        ),
         // Total messages count
-        messagesGenerated: sql`COUNT(DISTINCT ${messages.id})`.as('messages_generated'),
+        messagesGenerated: sql`COUNT(DISTINCT ${messages.id})`.as("messages_generated"),
         // Sent messages count (status = 'sent')
-        messagesSent: sql`COUNT(DISTINCT CASE WHEN ${messages.status} = ${'sent'} THEN ${messages.id} END)`.as('messages_sent'),
+        messagesSent: sql`COUNT(DISTINCT CASE WHEN ${messages.status} = ${"sent"} THEN ${messages.id} END)`.as(
+          "messages_sent"
+        ),
       })
       .from(campaigns)
-      .leftJoin(leads, and(eq(campaigns.id, leads.campaignId), eq(leads.userId, user.id)))
-      .leftJoin(messages, and(eq(campaigns.id, messages.campaignId), eq(messages.userId, user.id)))
-      .where(eq(campaigns.userId, user.id))
-      .groupBy(campaigns.id)
-      .orderBy(desc(campaigns.createdAt));
+      .leftJoin(
+        leads,
+        isAdmin
+          ? eq(campaigns.id, leads.campaignId)
+          : and(eq(campaigns.id, leads.campaignId), eq(leads.userId, user.id))
+      )
+      .leftJoin(
+        messages,
+        isAdmin
+          ? eq(campaigns.id, messages.campaignId)
+          : and(eq(campaigns.id, messages.campaignId), eq(messages.userId, user.id))
+      );
+
+    if (!isAdmin) {
+      query = query.where(eq(campaigns.userId, user.id));
+    }
+
+    const allCampaigns = await query.groupBy(campaigns.id).orderBy(desc(campaigns.createdAt));
 
     // Calculate status and prepare batch updates
     const campaignsWithProgress = [];
@@ -110,17 +135,20 @@ export const GET = withAuth(async (request, { user }) => {
 
     // ✅ OPTIMIZED: Batch update all status changes in one query (if any)
     if (statusUpdates.length > 0) {
-      // Use Promise.all for parallel updates, or use a single batch update if Drizzle supports it
       await Promise.all(
-        statusUpdates.map(({ id, status }) =>
-          db
+        statusUpdates.map(({ id, status }) => {
+          const whereCondition = isAdmin
+            ? eq(campaigns.id, id)
+            : and(eq(campaigns.id, id), eq(campaigns.userId, user.id));
+
+          return db
             .update(campaigns)
             .set({
               status: status,
               updatedAt: new Date(),
             })
-            .where(and(eq(campaigns.id, id), eq(campaigns.userId, user.id)))
-        )
+            .where(whereCondition);
+        })
       );
     }
 
