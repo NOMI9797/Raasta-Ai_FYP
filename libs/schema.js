@@ -16,12 +16,13 @@ export const users = pgTable('users', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
-// Campaigns table - with user isolation
+// Campaigns table - with user isolation (icp_config for AI message generation)
 export const campaigns = pgTable('campaigns', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   name: text('name').notNull(),
   description: text('description'),
+  icpConfig: json('icp_config'),
   status: varchar('status', { length: 20 }).notNull().default('draft'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
