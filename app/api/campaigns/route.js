@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/libs/db";
-import { campaigns, leads, messages } from "@/libs/schema.js";
+import { campaigns, leads, messages } from "@/libs/schema";
 import { desc, eq, count, and, sql } from "drizzle-orm";
 import { withAuth } from "@/libs/auth-middleware";
 import getRedisClient from "@/libs/redis";
