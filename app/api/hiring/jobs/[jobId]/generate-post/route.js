@@ -35,16 +35,20 @@ export const POST = withAuth(async (request, { params, user }) => {
         ? `Salary range: ${job.salaryCurrency || "USD"} ${job.salaryMin || "?"} – ${job.salaryMax || "?"}`
         : "";
 
+    const applyUrl = body.applyUrl || "";
+
     const systemPrompt = `You are an expert recruiter copywriter who creates engaging LinkedIn job posts.
 Write in a ${tone} tone. The post should:
 - Grab attention in the first line
 - Highlight what makes this role exciting
 - List key skills/stack concisely
 - Include practical details (location, type, salary if provided)
-- End with a clear call-to-action
+- End with a clear call-to-action that directs applicants to the apply link (if provided)
 - Use relevant emojis sparingly
 - Be 150–250 words
 Return ONLY the LinkedIn post text, nothing else.`;
+
+    const applyLine = applyUrl ? `\n- Apply link: ${applyUrl}` : "";
 
     const userPrompt = `Create a LinkedIn job post for: "${job.title}"
 
@@ -54,7 +58,7 @@ Details:
 - Experience: ${job.experienceRange || "not specified"}
 - Location: ${job.location || "not specified"} (${job.locationType || "not specified"})
 - Employment type: ${job.employmentType || "full-time"}
-${salaryPart}`;
+${salaryPart}${applyLine}`;
 
     const completion = await groq.chat.completions.create({
       model: "llama-3.1-8b-instant",

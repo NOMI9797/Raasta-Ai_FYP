@@ -10,8 +10,11 @@ import {
   Loader2,
   Copy,
   Check,
+  Users,
+  Link2,
 } from "lucide-react";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 const STATUS_BADGES = {
   draft: "badge-ghost",
@@ -21,15 +24,26 @@ const STATUS_BADGES = {
 
 export default function JobCard({ job, onDelete, onGeneratePost, isGenerating }) {
   const [copied, setCopied] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const router = useRouter();
 
   const skills = job.requiredSkills || [];
   const stack = job.techStack || [];
+  const applyUrl = typeof window !== "undefined"
+    ? `${window.location.origin}/apply/${job.id}`
+    : `/apply/${job.id}`;
 
   const handleCopy = () => {
     if (!job.linkedinPost) return;
     navigator.clipboard.writeText(job.linkedinPost);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(applyUrl);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
   };
 
   return (
@@ -95,6 +109,20 @@ export default function JobCard({ job, onDelete, onGeneratePost, isGenerating })
           ))}
         </div>
       )}
+
+      {/* Apply link + candidates */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <button className="btn btn-ghost btn-xs gap-1" onClick={handleCopyLink}>
+          {copiedLink ? <Check className="h-3.5 w-3.5 text-success" /> : <Link2 className="h-3.5 w-3.5" />}
+          {copiedLink ? "Copied" : "Copy apply link"}
+        </button>
+        <button
+          className="btn btn-ghost btn-xs gap-1"
+          onClick={() => router.push(`/dashboard/hiring/${job.id}/candidates`)}
+        >
+          <Users className="h-3.5 w-3.5" /> View candidates
+        </button>
+      </div>
 
       {/* AI Post section */}
       <div className="border-t border-base-300 pt-3 space-y-2">

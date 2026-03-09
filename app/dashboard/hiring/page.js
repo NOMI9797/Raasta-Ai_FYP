@@ -84,10 +84,11 @@ export default function HiringPage() {
   const handleGeneratePost = async (jobId) => {
     try {
       setGeneratingId(jobId);
+      const applyUrl = `${window.location.origin}/apply/${jobId}`;
       const res = await fetch(`/api/hiring/jobs/${jobId}/generate-post`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tone: "professional" }),
+        body: JSON.stringify({ tone: "professional", applyUrl }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
