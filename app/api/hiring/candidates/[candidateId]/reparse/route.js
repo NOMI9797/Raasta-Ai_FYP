@@ -4,35 +4,11 @@ import { candidates, jobs } from "@/libs/schema";
 import { eq, and } from "drizzle-orm";
 import { withAuth } from "@/libs/auth-middleware";
 import OpenAI from "openai";
-import mammoth from "mammoth";
 
 const groq = new OpenAI({
   apiKey: process.env.GROQ_API_KEY || "",
   baseURL: "https://api.groq.com/openai/v1",
 });
-
-async function extractTextFromFile(file) {
-  const name = file.name?.toLowerCase() || "";
-  const arrayBuffer = await file.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
-
-  if (name.endsWith(".docx")) {
-    try {
-      const result = await mammoth.extractRawText({ buffer });
-      return result.value?.trim() || "";
-    } catch (err) {
-      console.error("mammoth error:", err);
-      return "";
-    }
-  }
-  if (name.endsWith(".txt")) return buffer.toString("utf-8").trim();
-  if (name.endsWith(".pdf")) {
-    const raw = buffer.toString("latin1");
-    const chunks = raw.match(/[A-Za-z0-9 .,:\-\n\r\t@/()&+]{20,}/g) || [];
-    return chunks.join(" ").replace(/\s+/g, " ").trim();
-  }
-  return buffer.toString("utf-8").trim();
-}
 
 async function parseResumeWithLLM(text) {
   const systemPrompt = `You are an expert resume parser. Extract ALL available structured data from the resume.
@@ -103,6 +79,7 @@ Return ONLY the JSON object. No markdown fences, no explanation, no extra text.`
 }
 
 // POST /api/hiring/candidates/[candidateId]/reparse
+// Uses stored resume text from DB — no file upload needed
 export const POST = withAuth(async (request, { params, user }) => {
   try {
     const { candidateId } = params;
@@ -132,32 +109,23 @@ export const POST = withAuth(async (request, { params, user }) => {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    let resumeText = "";
-
-    // 1. Check if a file was uploaded with this reparse request
-    const contentType = request.headers.get("content-type") || "";
-    if (contentType.includes("multipart/form-data")) {
-      const formData = await request.formData();
-      const file = formData.get("resume");
-      if (file && file instanceof File && file.size > 0) {
-        resumeText = await extractTextFromFile(file);
-      }
-    }
-
-    // 2. If no file uploaded, try stored resume text from the original parse
-    if (!resumeText && candidate.parsedData?._resumeText) {
-      resumeText = candidate.parsedData._resumeText;
-    }
-
-    // 3. Build context from all available sources
+    // Build context from stored data
     const contextParts = [];
-    if (resumeText) contextParts.push(resumeText);
-    if (candidate.coverNote) contextParts.push(`Cover Note:\n${candidate.coverNote}`);
-    if (!resumeText) {
-      if (candidate.name) contextParts.push(`Name: ${candidate.name}`);
-      if (candidate.email) contextParts.push(`Email: ${candidate.email}`);
-      if (candidate.linkedinUrl) contextParts.push(`LinkedIn: ${candidate.linkedinUrl}`);
+
+    // Use stored resume text if available
+    if (candidate.parsedData?._resumeText) {
+      contextParts.push(candidate.parsedData._resumeText);
     }
+
+    // Always include cover note
+    if (candidate.coverNote) {
+      contextParts.push(`Cover Note:\n${candidate.coverNote}`);
+    }
+
+    // Include basic info as context
+    if (candidate.name) contextParts.push(`Candidate Name: ${candidate.name}`);
+    if (candidate.email) contextParts.push(`Email: ${candidate.email}`);
+    if (candidate.linkedinUrl) contextParts.push(`LinkedIn: ${candidate.linkedinUrl}`);
 
     if (contextParts.length === 0) {
       return NextResponse.json({ error: "No content to parse" }, { status: 400 });
@@ -165,9 +133,9 @@ export const POST = withAuth(async (request, { params, user }) => {
 
     const parsedData = await parseResumeWithLLM(contextParts.join("\n\n"));
 
-    // Preserve the stored resume text for future re-parses
-    if (resumeText) {
-      parsedData._resumeText = resumeText.slice(0, 10000);
+    // Preserve stored resume text for future re-parses
+    if (candidate.parsedData?._resumeText) {
+      parsedData._resumeText = candidate.parsedData._resumeText;
     }
 
     const [updated] = await db

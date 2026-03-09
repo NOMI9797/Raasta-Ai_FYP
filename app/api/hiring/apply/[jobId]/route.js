@@ -3,7 +3,9 @@ import { db } from "@/libs/db";
 import { candidates, jobs } from "@/libs/schema";
 import { eq } from "drizzle-orm";
 import OpenAI from "openai";
-import mammoth from "mammoth";
+
+let mammoth = null;
+try { mammoth = require("mammoth"); } catch { /* optional dependency */ }
 
 const groq = new OpenAI({
   apiKey: process.env.GROQ_API_KEY || "",
@@ -16,13 +18,19 @@ async function extractTextFromFile(file) {
   const buffer = Buffer.from(arrayBuffer);
 
   if (name.endsWith(".docx")) {
-    try {
-      const result = await mammoth.extractRawText({ buffer });
-      return result.value?.trim() || "";
-    } catch (err) {
-      console.error("mammoth extraction error:", err);
-      return "";
+    if (!mammoth) {
+      try { mammoth = require("mammoth"); } catch { /* not installed */ }
     }
+    if (mammoth) {
+      try {
+        const result = await mammoth.extractRawText({ buffer });
+        return result.value?.trim() || "";
+      } catch (err) {
+        console.error("mammoth extraction error:", err);
+        return "";
+      }
+    }
+    return "";
   }
 
   if (name.endsWith(".txt")) {
