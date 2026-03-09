@@ -405,7 +405,7 @@ export default function CandidatesPage({ params }) {
                         </div>
 
                         {/* Parse error / no data states */}
-                        {(parsed.parseError || !hasParsed) && (
+                        {(p.parseError || !hasParsed) && (
                           <div className="flex items-start gap-2 bg-warning/10 border border-warning/20 rounded-lg p-3">
                             <AlertCircle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
                             <div>
