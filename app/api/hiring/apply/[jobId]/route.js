@@ -43,26 +43,63 @@ async function extractTextFromFile(file) {
   return buffer.toString("utf-8").trim();
 }
 
-async function parseResumeWithLLM(resumeText) {
-  const systemPrompt = `You are an expert resume parser. Extract structured data from the resume text.
-Return a valid JSON object with exactly these fields:
+async function parseResumeWithLLM(text) {
+  const systemPrompt = `You are an expert resume parser. Extract ALL available structured data from the resume.
+Return a valid JSON object with exactly these fields (use null or [] if not found):
 {
-  "skills": ["skill1", "skill2"],
-  "yearsExperience": <number or null>,
-  "education": ["degree - institution"],
-  "jobTitles": ["title1", "title2"],
-  "summary": "1-2 sentence professional summary of the candidate"
+  "name": "full name",
+  "location": "city, country",
+  "email": "email or null",
+  "phone": "phone or null",
+  "github": "github url or null",
+  "linkedin": "linkedin url or null",
+  "summary": "professional summary paragraph from the resume",
+  "skills": ["every skill mentioned: languages, frameworks, tools, databases, cloud, etc"],
+  "skillsByCategory": {
+    "languages": [],
+    "frontend": [],
+    "backend": [],
+    "databases": [],
+    "tools": [],
+    "other": []
+  },
+  "yearsExperience": <number estimate or null>,
+  "jobTitles": ["all job titles or roles mentioned"],
+  "experience": [
+    {
+      "title": "job title",
+      "company": "company or freelance",
+      "period": "date range",
+      "bullets": ["key responsibility or achievement"]
+    }
+  ],
+  "projects": [
+    {
+      "name": "project name",
+      "description": "what it does",
+      "technologies": ["tech used"]
+    }
+  ],
+  "education": [
+    {
+      "degree": "degree name",
+      "institution": "university/school",
+      "period": "graduation year or expected"
+    }
+  ],
+  "availability": "availability info or null",
+  "strengths": ["listed strengths"]
 }
-Return ONLY the JSON object. No explanation, no markdown, no extra text.`;
+Return ONLY the JSON object. No markdown fences, no explanation, no extra text.`;
 
   const completion = await groq.chat.completions.create({
-    model: "llama-3.1-8b-instant",
+    model: "llama-3.3-70b-versatile",
     messages: [
       { role: "system", content: systemPrompt },
-      { role: "user", content: `Parse this resume:\n\n${resumeText.slice(0, 6000)}` },
+      { role: "user", content: `Parse this resume completely:\n\n${text.slice(0, 8000)}` },
     ],
     temperature: 0.1,
-    max_tokens: 800,
+    max_tokens: 2000,
   });
 
   const raw = completion.choices[0]?.message?.content?.trim() || "{}";
