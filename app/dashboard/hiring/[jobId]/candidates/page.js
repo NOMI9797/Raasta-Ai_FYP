@@ -78,6 +78,7 @@ export default function CandidatesPage({ params }) {
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState(null);
   const [reparsingId, setReparsingId] = useState(null);
+  const [reparseFileMap, setReparseFileMap] = useState({});
   const [expandedId, setExpandedId] = useState(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [filter, setFilter] = useState("all");
@@ -128,13 +129,29 @@ export default function CandidatesPage({ params }) {
   };
 
   const handleReparse = async (candidate) => {
+    const file = reparseFileMap[candidate.id];
+    if (!file && !candidate.coverNote) {
+      toast.error("Please upload the resume file to re-parse");
+      return;
+    }
+
     setReparsingId(candidate.id);
     try {
-      const res = await fetch(`/api/hiring/candidates/${candidate.id}/reparse`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ resumeText: "" }),
-      });
+      let res;
+      if (file) {
+        const fd = new FormData();
+        fd.append("resume", file);
+        res = await fetch(`/api/hiring/candidates/${candidate.id}/reparse`, {
+          method: "POST",
+          body: fd,
+        });
+      } else {
+        res = await fetch(`/api/hiring/candidates/${candidate.id}/reparse`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ resumeText: "" }),
+        });
+      }
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setCandidateList((prev) =>
@@ -142,9 +159,10 @@ export default function CandidatesPage({ params }) {
           c.id === candidate.id ? { ...c, parsedData: data.candidate.parsedData } : c
         )
       );
-      toast.success("Resume re-parsed successfully");
+      setReparseFileMap((prev) => { const n = { ...prev }; delete n[candidate.id]; return n; });
+      toast.success("Resume parsed successfully");
     } catch {
-      toast.error("Failed to re-parse resume");
+      toast.error("Failed to parse resume");
     } finally {
       setReparsingId(null);
     }
@@ -388,20 +406,32 @@ export default function CandidatesPage({ params }) {
 
                       {/* AI Resume Analysis */}
                       <div className="p-4 space-y-5">
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
                           <SectionTitle icon={<Sparkles className="h-3.5 w-3.5" />}>
                             AI Resume Analysis
                           </SectionTitle>
-                          <button
-                            className="btn btn-ghost btn-xs gap-1"
-                            disabled={isReparsing}
-                            onClick={(e) => { e.stopPropagation(); handleReparse(c); }}
-                          >
-                            {isReparsing
-                              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              : <Sparkles className="h-3.5 w-3.5" />}
-                            {isReparsing ? "Parsing…" : "Re-parse with AI"}
-                          </button>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <input
+                              type="file"
+                              accept=".txt,.docx,.doc,.pdf"
+                              className="file-input file-input-bordered file-input-xs w-48"
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => {
+                                const f = e.target.files?.[0] || null;
+                                setReparseFileMap((prev) => ({ ...prev, [c.id]: f }));
+                              }}
+                            />
+                            <button
+                              className="btn btn-primary btn-xs gap-1"
+                              disabled={isReparsing}
+                              onClick={(e) => { e.stopPropagation(); handleReparse(c); }}
+                            >
+                              {isReparsing
+                                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                : <Sparkles className="h-3.5 w-3.5" />}
+                              {isReparsing ? "Parsing…" : reparseFileMap[c.id] ? "Parse Resume" : "Re-parse with AI"}
+                            </button>
+                          </div>
                         </div>
 
                         {/* Parse error / no data states */}
@@ -410,14 +440,10 @@ export default function CandidatesPage({ params }) {
                             <AlertCircle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
                             <div>
                               <p className="text-sm font-medium text-warning">
-                                {p.parseError ? "Resume could not be parsed" : "No resume data extracted"}
+                                {p.parseError ? "Resume could not be parsed" : "No resume data extracted yet"}
                               </p>
                               <p className="text-xs text-base-content/60 mt-0.5">
-                                {p.parseError
-                                  ? p.parseError
-                                  : c.resumeUrl
-                                    ? "The file format may be binary. Click 'Re-parse with AI' to extract from cover note."
-                                    : "No resume uploaded. Click 'Re-parse with AI' to analyse the cover note."}
+                                Upload the resume file (.docx recommended) and click "Parse Resume" to extract all info.
                               </p>
                             </div>
                           </div>

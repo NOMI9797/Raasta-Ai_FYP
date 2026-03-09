@@ -10,6 +10,35 @@ const groq = new OpenAI({
   baseURL: "https://api.groq.com/openai/v1",
 });
 
+async function extractTextFromFile(file) {
+  const name = file.name?.toLowerCase() || "";
+  const arrayBuffer = await file.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+
+  if (name.endsWith(".docx")) {
+    try {
+      const mammoth = (await import("mammoth")).default;
+      const result = await mammoth.extractRawText({ buffer });
+      return result.value?.trim() || "";
+    } catch (err) {
+      console.error("mammoth error:", err);
+      return "";
+    }
+  }
+
+  if (name.endsWith(".txt")) {
+    return buffer.toString("utf-8").trim();
+  }
+
+  if (name.endsWith(".pdf")) {
+    const raw = buffer.toString("latin1");
+    const chunks = raw.match(/[A-Za-z0-9 .,:\-\n\r\t@/()&+]{20,}/g) || [];
+    return chunks.join(" ").replace(/\s+/g, " ").trim();
+  }
+
+  return buffer.toString("utf-8").trim();
+}
+
 async function parseResumeWithLLM(text) {
   const systemPrompt = `You are an expert resume parser. Extract ALL available structured data from the resume.
 Return a valid JSON object with exactly these fields (use null or [] if not found):
@@ -20,7 +49,7 @@ Return a valid JSON object with exactly these fields (use null or [] if not foun
   "phone": "phone or null",
   "github": "github url or null",
   "linkedin": "linkedin url or null",
-  "summary": "professional summary paragraph from the resume (verbatim or condensed)",
+  "summary": "professional summary paragraph from the resume",
   "skills": ["every skill mentioned: languages, frameworks, tools, databases, cloud, etc"],
   "skillsByCategory": {
     "languages": [],
@@ -78,7 +107,7 @@ Return ONLY the JSON object. No markdown fences, no explanation, no extra text.`
   }
 }
 
-// POST /api/hiring/candidates/[candidateId]/reparse
+// POST /api/hiring/candidates/[candidateId]/reparse — accepts multipart form with optional resume file
 export const POST = withAuth(async (request, { params, user }) => {
   try {
     const { candidateId } = params;
@@ -108,9 +137,23 @@ export const POST = withAuth(async (request, { params, user }) => {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const body = await request.json().catch(() => ({}));
-    const resumeText = body.resumeText || "";
+    let resumeText = "";
 
+    // Try multipart form data (file upload)
+    const contentType = request.headers.get("content-type") || "";
+    if (contentType.includes("multipart/form-data")) {
+      const formData = await request.formData();
+      const file = formData.get("resume");
+      if (file && file instanceof File && file.size > 0) {
+        resumeText = await extractTextFromFile(file);
+      }
+    } else {
+      // Fallback: JSON body with optional resumeText
+      const body = await request.json().catch(() => ({}));
+      resumeText = body.resumeText || "";
+    }
+
+    // Build context from all available sources
     const contextParts = [];
     if (resumeText) contextParts.push(resumeText);
     if (candidate.coverNote) contextParts.push(`Cover Note:\n${candidate.coverNote}`);
@@ -126,9 +169,16 @@ export const POST = withAuth(async (request, { params, user }) => {
 
     const parsedData = await parseResumeWithLLM(contextParts.join("\n\n"));
 
+    // Update resume URL if a new file was uploaded
+    const updateData = { parsedData, updatedAt: new Date() };
+    if (resumeText && contentType.includes("multipart/form-data")) {
+      const formData = await request.formData().catch(() => null);
+      // resumeUrl already set, no need to update unless file name changed
+    }
+
     const [updated] = await db
       .update(candidates)
-      .set({ parsedData, updatedAt: new Date() })
+      .set(updateData)
       .where(eq(candidates.id, candidateId))
       .returning();
 
