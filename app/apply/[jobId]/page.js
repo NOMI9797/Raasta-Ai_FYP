@@ -175,14 +175,19 @@ export default function ApplyPage({ params }) {
 
           <div className="form-control">
             <label className="label">
-              <span className="label-text">Resume / CV (.txt, .pdf — text content will be parsed)</span>
+              <span className="label-text">Resume / CV</span>
             </label>
             <input
               type="file"
               className="file-input file-input-bordered file-input-sm w-full"
-              accept=".txt,.pdf,.doc,.docx"
+              accept=".txt,.docx,.doc,.pdf"
               onChange={(e) => setResumeFile(e.target.files?.[0] || null)}
             />
+            <label className="label">
+              <span className="label-text-alt text-base-content/50">
+                .docx or .txt recommended for best AI parsing results
+              </span>
+            </label>
           </div>
 
           <div className="form-control">

@@ -9,25 +9,59 @@ const groq = new OpenAI({
   baseURL: "https://api.groq.com/openai/v1",
 });
 
+async function extractTextFromFile(file) {
+  const name = file.name?.toLowerCase() || "";
+  const arrayBuffer = await file.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+
+  // .docx — use mammoth for clean text extraction
+  if (name.endsWith(".docx")) {
+    try {
+      const mammoth = (await import("mammoth")).default;
+      const result = await mammoth.extractRawText({ buffer });
+      return result.value?.trim() || "";
+    } catch (err) {
+      console.error("mammoth extraction error:", err);
+      return "";
+    }
+  }
+
+  // .txt — plain text, safe to decode
+  if (name.endsWith(".txt")) {
+    return buffer.toString("utf-8").trim();
+  }
+
+  // .pdf — attempt plain text decode (works for text-based PDFs, not scanned)
+  if (name.endsWith(".pdf")) {
+    const raw = buffer.toString("latin1");
+    // Extract readable ASCII chunks between PDF binary noise
+    const chunks = raw.match(/[A-Za-z0-9 .,:\-\n\r\t@/()&+]{20,}/g) || [];
+    return chunks.join(" ").replace(/\s+/g, " ").trim();
+  }
+
+  // fallback: try utf-8
+  return buffer.toString("utf-8").trim();
+}
+
 async function parseResumeWithLLM(resumeText) {
   const systemPrompt = `You are an expert resume parser. Extract structured data from the resume text.
-Return a valid JSON object with these fields:
+Return a valid JSON object with exactly these fields:
 {
   "skills": ["skill1", "skill2"],
-  "yearsExperience": number or null,
+  "yearsExperience": <number or null>,
   "education": ["degree - institution"],
   "jobTitles": ["title1", "title2"],
-  "summary": "1-2 sentence summary of the candidate"
+  "summary": "1-2 sentence professional summary of the candidate"
 }
-Return ONLY the JSON, nothing else.`;
+Return ONLY the JSON object. No explanation, no markdown, no extra text.`;
 
   const completion = await groq.chat.completions.create({
     model: "llama-3.1-8b-instant",
     messages: [
       { role: "system", content: systemPrompt },
-      { role: "user", content: `Parse this resume:\n\n${resumeText}` },
+      { role: "user", content: `Parse this resume:\n\n${resumeText.slice(0, 6000)}` },
     ],
-    temperature: 0.2,
+    temperature: 0.1,
     max_tokens: 800,
   });
 
@@ -80,16 +114,17 @@ export async function POST(request, { params }) {
     let parsedData = null;
 
     if (resumeFile && resumeFile instanceof File && resumeFile.size > 0) {
-      const text = await resumeFile.text();
       resumeUrl = `uploaded:${resumeFile.name}`;
-
-      if (text.length > 50) {
-        try {
-          parsedData = await parseResumeWithLLM(text.slice(0, 6000));
-        } catch (err) {
-          console.error("Resume parsing error:", err);
-          parsedData = { parseError: "Failed to parse resume" };
+      try {
+        const text = await extractTextFromFile(resumeFile);
+        if (text.length > 30) {
+          parsedData = await parseResumeWithLLM(text);
+        } else {
+          parsedData = { parseError: "Could not extract readable text from resume" };
         }
+      } catch (err) {
+        console.error("Resume processing error:", err);
+        parsedData = { parseError: "Failed to process resume" };
       }
     }
 
