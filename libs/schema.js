@@ -139,6 +139,46 @@ export const workflowJobs = pgTable('workflow_jobs', {
   pauseCount: integer('pause_count').default(0), // Number of times paused
 });
 
+// Jobs table - Recruiter module (hiring workflow)
+export const jobs = pgTable('jobs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  linkedinAccountId: uuid('linkedin_account_id').references(() => linkedinAccounts.id, { onDelete: 'set null' }),
+  title: text('title').notNull(),
+  requiredSkills: json('required_skills'),
+  experienceRange: varchar('experience_range', { length: 50 }),
+  techStack: json('tech_stack'),
+  salaryMin: integer('salary_min'),
+  salaryMax: integer('salary_max'),
+  salaryCurrency: varchar('salary_currency', { length: 10 }).default('USD'),
+  location: text('location'),
+  locationType: varchar('location_type', { length: 20 }),
+  employmentType: varchar('employment_type', { length: 20 }),
+  linkedinPost: text('linkedin_post'),
+  formalDescription: text('formal_description'),
+  linkedinPostUrl: text('linkedin_post_url'),
+  status: varchar('status', { length: 20 }).notNull().default('draft'),
+  publishedAt: timestamp('published_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// Candidates table - Recruiter module (applicants per job)
+export const candidates = pgTable('candidates', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  jobId: uuid('job_id').references(() => jobs.id, { onDelete: 'cascade' }).notNull(),
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  name: text('name').notNull(),
+  email: text('email').notNull(),
+  linkedinUrl: text('linkedin_url'),
+  coverNote: text('cover_note'),
+  resumeUrl: text('resume_url'),
+  parsedData: json('parsed_data'),
+  status: varchar('status', { length: 20 }).notNull().default('new'),
+  appliedAt: timestamp('applied_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 // Database initialization function
 export async function initializeDatabase() {
   const { migrate } = await import('drizzle-orm/postgres-js/migrator');
