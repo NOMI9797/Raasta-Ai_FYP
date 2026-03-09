@@ -3,6 +3,7 @@ import { db } from "@/libs/db";
 import { candidates, jobs } from "@/libs/schema";
 import { eq } from "drizzle-orm";
 import OpenAI from "openai";
+import mammoth from "mammoth";
 
 const groq = new OpenAI({
   apiKey: process.env.GROQ_API_KEY || "",
@@ -14,10 +15,8 @@ async function extractTextFromFile(file) {
   const arrayBuffer = await file.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
 
-  // .docx — use mammoth for clean text extraction
   if (name.endsWith(".docx")) {
     try {
-      const mammoth = (await import("mammoth")).default;
       const result = await mammoth.extractRawText({ buffer });
       return result.value?.trim() || "";
     } catch (err) {
@@ -26,20 +25,16 @@ async function extractTextFromFile(file) {
     }
   }
 
-  // .txt — plain text, safe to decode
   if (name.endsWith(".txt")) {
     return buffer.toString("utf-8").trim();
   }
 
-  // .pdf — attempt plain text decode (works for text-based PDFs, not scanned)
   if (name.endsWith(".pdf")) {
     const raw = buffer.toString("latin1");
-    // Extract readable ASCII chunks between PDF binary noise
     const chunks = raw.match(/[A-Za-z0-9 .,:\-\n\r\t@/()&+]{20,}/g) || [];
     return chunks.join(" ").replace(/\s+/g, " ").trim();
   }
 
-  // fallback: try utf-8
   return buffer.toString("utf-8").trim();
 }
 
@@ -153,9 +148,11 @@ export async function POST(request, { params }) {
     if (resumeFile && resumeFile instanceof File && resumeFile.size > 0) {
       resumeUrl = `uploaded:${resumeFile.name}`;
       try {
-        const text = await extractTextFromFile(resumeFile);
-        if (text.length > 30) {
-          parsedData = await parseResumeWithLLM(text);
+        const extractedText = await extractTextFromFile(resumeFile);
+        if (extractedText.length > 30) {
+          parsedData = await parseResumeWithLLM(extractedText);
+          // Store raw text so re-parse never needs the file again
+          parsedData._resumeText = extractedText.slice(0, 10000);
         } else {
           parsedData = { parseError: "Could not extract readable text from resume" };
         }

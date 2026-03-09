@@ -4,6 +4,7 @@ import { candidates, jobs } from "@/libs/schema";
 import { eq, and } from "drizzle-orm";
 import { withAuth } from "@/libs/auth-middleware";
 import OpenAI from "openai";
+import mammoth from "mammoth";
 
 const groq = new OpenAI({
   apiKey: process.env.GROQ_API_KEY || "",
@@ -17,7 +18,6 @@ async function extractTextFromFile(file) {
 
   if (name.endsWith(".docx")) {
     try {
-      const mammoth = (await import("mammoth")).default;
       const result = await mammoth.extractRawText({ buffer });
       return result.value?.trim() || "";
     } catch (err) {
@@ -25,17 +25,12 @@ async function extractTextFromFile(file) {
       return "";
     }
   }
-
-  if (name.endsWith(".txt")) {
-    return buffer.toString("utf-8").trim();
-  }
-
+  if (name.endsWith(".txt")) return buffer.toString("utf-8").trim();
   if (name.endsWith(".pdf")) {
     const raw = buffer.toString("latin1");
     const chunks = raw.match(/[A-Za-z0-9 .,:\-\n\r\t@/()&+]{20,}/g) || [];
     return chunks.join(" ").replace(/\s+/g, " ").trim();
   }
-
   return buffer.toString("utf-8").trim();
 }
 
@@ -107,7 +102,7 @@ Return ONLY the JSON object. No markdown fences, no explanation, no extra text.`
   }
 }
 
-// POST /api/hiring/candidates/[candidateId]/reparse — accepts multipart form with optional resume file
+// POST /api/hiring/candidates/[candidateId]/reparse
 export const POST = withAuth(async (request, { params, user }) => {
   try {
     const { candidateId } = params;
@@ -139,7 +134,7 @@ export const POST = withAuth(async (request, { params, user }) => {
 
     let resumeText = "";
 
-    // Try multipart form data (file upload)
+    // 1. Check if a file was uploaded with this reparse request
     const contentType = request.headers.get("content-type") || "";
     if (contentType.includes("multipart/form-data")) {
       const formData = await request.formData();
@@ -147,13 +142,14 @@ export const POST = withAuth(async (request, { params, user }) => {
       if (file && file instanceof File && file.size > 0) {
         resumeText = await extractTextFromFile(file);
       }
-    } else {
-      // Fallback: JSON body with optional resumeText
-      const body = await request.json().catch(() => ({}));
-      resumeText = body.resumeText || "";
     }
 
-    // Build context from all available sources
+    // 2. If no file uploaded, try stored resume text from the original parse
+    if (!resumeText && candidate.parsedData?._resumeText) {
+      resumeText = candidate.parsedData._resumeText;
+    }
+
+    // 3. Build context from all available sources
     const contextParts = [];
     if (resumeText) contextParts.push(resumeText);
     if (candidate.coverNote) contextParts.push(`Cover Note:\n${candidate.coverNote}`);
@@ -169,16 +165,14 @@ export const POST = withAuth(async (request, { params, user }) => {
 
     const parsedData = await parseResumeWithLLM(contextParts.join("\n\n"));
 
-    // Update resume URL if a new file was uploaded
-    const updateData = { parsedData, updatedAt: new Date() };
-    if (resumeText && contentType.includes("multipart/form-data")) {
-      const formData = await request.formData().catch(() => null);
-      // resumeUrl already set, no need to update unless file name changed
+    // Preserve the stored resume text for future re-parses
+    if (resumeText) {
+      parsedData._resumeText = resumeText.slice(0, 10000);
     }
 
     const [updated] = await db
       .update(candidates)
-      .set(updateData)
+      .set({ parsedData, updatedAt: new Date() })
       .where(eq(candidates.id, candidateId))
       .returning();
 

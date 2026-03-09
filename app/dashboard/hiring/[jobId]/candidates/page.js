@@ -130,8 +130,10 @@ export default function CandidatesPage({ params }) {
 
   const handleReparse = async (candidate) => {
     const file = reparseFileMap[candidate.id];
-    if (!file && !candidate.coverNote) {
-      toast.error("Please upload the resume file to re-parse");
+    const hasStoredText = !!candidate.parsedData?._resumeText;
+
+    if (!file && !hasStoredText && !candidate.coverNote) {
+      toast.error("Upload the resume file to parse");
       return;
     }
 
@@ -149,7 +151,7 @@ export default function CandidatesPage({ params }) {
         res = await fetch(`/api/hiring/candidates/${candidate.id}/reparse`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ resumeText: "" }),
+          body: JSON.stringify({}),
         });
       }
       const data = await res.json();
@@ -411,16 +413,19 @@ export default function CandidatesPage({ params }) {
                             AI Resume Analysis
                           </SectionTitle>
                           <div className="flex items-center gap-2 flex-wrap">
-                            <input
-                              type="file"
-                              accept=".txt,.docx,.doc,.pdf"
-                              className="file-input file-input-bordered file-input-xs w-48"
-                              onClick={(e) => e.stopPropagation()}
-                              onChange={(e) => {
-                                const f = e.target.files?.[0] || null;
-                                setReparseFileMap((prev) => ({ ...prev, [c.id]: f }));
-                              }}
-                            />
+                            {/* Show file upload only when no stored text exists */}
+                            {!p._resumeText && (
+                              <input
+                                type="file"
+                                accept=".txt,.docx,.doc,.pdf"
+                                className="file-input file-input-bordered file-input-xs w-48"
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) => {
+                                  const f = e.target.files?.[0] || null;
+                                  setReparseFileMap((prev) => ({ ...prev, [c.id]: f }));
+                                }}
+                              />
+                            )}
                             <button
                               className="btn btn-primary btn-xs gap-1"
                               disabled={isReparsing}
@@ -435,7 +440,7 @@ export default function CandidatesPage({ params }) {
                         </div>
 
                         {/* Parse error / no data states */}
-                        {(p.parseError || !hasParsed) && (
+                        {(p.parseError || !hasParsed) && !reparseFileMap[c.id] && (
                           <div className="flex items-start gap-2 bg-warning/10 border border-warning/20 rounded-lg p-3">
                             <AlertCircle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
                             <div>
@@ -443,7 +448,9 @@ export default function CandidatesPage({ params }) {
                                 {p.parseError ? "Resume could not be parsed" : "No resume data extracted yet"}
                               </p>
                               <p className="text-xs text-base-content/60 mt-0.5">
-                                Upload the resume file (.docx recommended) and click "Parse Resume" to extract all info.
+                                {p._resumeText
+                                  ? "Click \"Re-parse with AI\" to re-extract all information."
+                                  : "Upload the resume file (.docx recommended) and click \"Parse Resume\" to extract all info."}
                               </p>
                             </div>
                           </div>
