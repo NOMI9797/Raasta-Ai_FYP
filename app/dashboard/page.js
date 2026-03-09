@@ -12,6 +12,6 @@ export default async function Dashboard() {
 
   const role = session.user?.role ?? "sales_operator";
   if (role === "admin") redirect("/dashboard/admin");
-  if (role === "recruiter") redirect("/dashboard/hiring");
+  if (role === "recruiter") redirect("/dashboard/recruiter");
   redirect("/dashboard/campaigns");
 }

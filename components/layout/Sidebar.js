@@ -25,6 +25,7 @@ const allMenuItems = [
   { icon: Target, label: "Campaigns", href: "/dashboard/campaigns", key: "campaigns", roles: ["admin", "sales_operator"] },
   { icon: Workflow, label: "Workflows", href: "/dashboard/workflow", key: "workflow", roles: ["admin", "sales_operator"] },
   { icon: UserCheck, label: "Accounts", href: "/dashboard/accounts", key: "accounts", roles: ["admin"] },
+  { icon: BarChart3, label: "Dashboard", href: "/dashboard/recruiter", key: "recruiter", roles: ["recruiter"] },
   { icon: Briefcase, label: "Hiring", href: "/dashboard/hiring", key: "hiring", roles: ["admin", "recruiter"] },
   { icon: TrendingUp, label: "Statistics", href: "/dashboard/statistics", key: "statistics", roles: ["admin", "sales_operator", "recruiter"] },
   { icon: Settings, label: "Settings", href: "/dashboard/settings", key: "settings", roles: ["admin", "sales_operator", "recruiter"] },
@@ -88,7 +89,7 @@ export default function Sidebar({ collapsed, onToggle, activeSection = "campaign
           })}
         </div>
 
-        {/* Quick Actions - only for roles that have campaigns */}
+        {/* Quick Actions */}
         {!collapsed && (role === "admin" || role === "sales_operator") && (
           <div className="mt-6 p-2">
             <div className="text-xs font-semibold text-base-content/60 uppercase tracking-wider mb-2">
@@ -97,6 +98,17 @@ export default function Sidebar({ collapsed, onToggle, activeSection = "campaign
             <Link href="/dashboard/campaigns" className="btn btn-primary btn-sm w-full gap-2">
               <Plus className="h-4 w-4" />
               New Campaign
+            </Link>
+          </div>
+        )}
+        {!collapsed && role === "recruiter" && (
+          <div className="mt-6 p-2">
+            <div className="text-xs font-semibold text-base-content/60 uppercase tracking-wider mb-2">
+              Quick Actions
+            </div>
+            <Link href="/dashboard/hiring" className="btn btn-primary btn-sm w-full gap-2">
+              <Plus className="h-4 w-4" />
+              New Job
             </Link>
           </div>
         )}
