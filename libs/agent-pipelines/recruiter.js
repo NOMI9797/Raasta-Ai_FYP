@@ -11,35 +11,35 @@ const groq = new OpenAI({
 
 export const recruiterPipeline = {
   steps: [
-    // ─── Step 1: Create Job from config preferences ───
+    // ─── Step 1: Load existing job selected by the user ───
     {
-      key: "create_job",
-      label: "Create Job Posting",
+      key: "load_job",
+      label: "Load Selected Job",
       isCheckpoint: false,
       async execute(ctx) {
-        const c = ctx.config;
-        const prefs = c.jobPreferences || {};
+        const { jobId } = ctx.config;
+        if (!jobId) throw new Error("No jobId in agent config — select a job first.");
 
         const [job] = await ctx.db
-          .insert(jobs)
-          .values({
-            userId: ctx.userId,
-            title: prefs.title || "Untitled Position",
-            requiredSkills: prefs.requiredSkills || [],
-            techStack: prefs.techStack || [],
-            experienceRange: prefs.experienceRange || null,
-            location: prefs.location || null,
-            locationType: prefs.locationType || null,
-            employmentType: prefs.employmentType || "full-time",
-            salaryMin: prefs.salaryMin ? Number(prefs.salaryMin) : null,
-            salaryMax: prefs.salaryMax ? Number(prefs.salaryMax) : null,
-            salaryCurrency: prefs.salaryCurrency || "USD",
-            linkedinAccountId: c.accountId || null,
-            status: "draft",
-          })
-          .returning();
+          .select()
+          .from(jobs)
+          .where(eq(jobs.id, jobId))
+          .limit(1);
 
-        return { jobId: job.id, title: job.title };
+        if (!job) throw new Error("Selected job not found in the database.");
+
+        return {
+          jobId: job.id,
+          title: job.title,
+          requiredSkills: job.requiredSkills || [],
+          techStack: job.techStack || [],
+          experienceRange: job.experienceRange,
+          location: job.location,
+          locationType: job.locationType,
+          employmentType: job.employmentType,
+          existingPost: job.linkedinPost || null,
+          status: job.status,
+        };
       },
     },
 
@@ -49,7 +49,7 @@ export const recruiterPipeline = {
       label: "Generate AI LinkedIn Post",
       isCheckpoint: false,
       async execute(ctx) {
-        const { jobId } = ctx.stepOutputs.create_job;
+        const { jobId } = ctx.stepOutputs.load_job;
         const tone = ctx.config.postTone || "professional";
 
         const [job] = await ctx.db
@@ -209,7 +209,7 @@ ${salaryPart}
       label: "Monitor Incoming Candidates",
       isCheckpoint: false,
       async execute(ctx) {
-        const { jobId } = ctx.stepOutputs.create_job;
+        const { jobId } = ctx.stepOutputs.load_job;
 
         const allCandidates = await ctx.db
           .select()
@@ -238,7 +238,7 @@ ${salaryPart}
       label: "AI Screen & Rank Candidates",
       isCheckpoint: false,
       async execute(ctx) {
-        const { jobId } = ctx.stepOutputs.create_job;
+        const { jobId } = ctx.stepOutputs.load_job;
         const criteria = ctx.config.autoScreenCriteria || {};
         const minSkillMatch = criteria.minSkillMatch || 2;
 
