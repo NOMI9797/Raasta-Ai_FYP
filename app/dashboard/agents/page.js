@@ -122,30 +122,33 @@ export default function AgentsPage() {
 
   if (status === "loading" || loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-base-200">
-        <Loader2 className="animate-spin text-primary" size={32} />
+      <div className="min-h-screen flex items-center justify-center bg-base-100">
+        <div className="loading loading-spinner loading-lg text-primary" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-base-200 flex">
-      <Sidebar collapsed={sidebarCollapsed} setCollapsed={setSidebarCollapsed} />
-      <div className="flex-1 flex flex-col">
-        <TopBar collapsed={sidebarCollapsed} setCollapsed={setSidebarCollapsed} />
-        <main className="flex-1 p-4 md:p-6 max-w-6xl mx-auto w-full">
+    <div className="h-screen bg-base-100 flex overflow-hidden">
+      <Sidebar
+        collapsed={sidebarCollapsed}
+        onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+        activeSection="agents"
+      />
+      <div
+        className={`flex-1 transition-all duration-300 ${
+          sidebarCollapsed ? "ml-16" : "ml-64"
+        } flex flex-col h-full overflow-hidden`}
+      >
+        <TopBar />
+        <main className="flex-1 p-6 overflow-auto space-y-6">
           {/* Header */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-gradient-to-br from-primary/20 to-secondary/20">
-                <Bot size={24} className="text-primary" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold">AI Agents</h1>
-                <p className="text-sm text-base-content/50">
-                  Configure and run autonomous pipelines for recruiting & sales
-                </p>
-              </div>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-base-content">AI Agents</h1>
+              <p className="text-sm text-base-content/70 mt-1">
+                Configure and run autonomous pipelines for recruiting &amp; sales
+              </p>
             </div>
             <button className="btn btn-primary btn-sm gap-2" onClick={() => { setEditConfig(null); setShowForm(true); }}>
               <Plus size={16} /> New Agent
@@ -153,74 +156,76 @@ export default function AgentsPage() {
           </div>
 
           {/* Summary cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-            <div className="bg-base-100 rounded-xl border border-base-300 p-4">
-              <p className="text-xs text-base-content/50 uppercase tracking-wide">Configs</p>
-              <p className="text-2xl font-bold mt-1">{configs.length}</p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="stat bg-base-200 rounded-xl shadow-sm border border-base-300">
+              <div className="stat-title text-xs uppercase tracking-wide text-base-content/60">Configs</div>
+              <div className="stat-value text-2xl">{configs.length}</div>
             </div>
-            <div className="bg-base-100 rounded-xl border border-base-300 p-4">
-              <p className="text-xs text-base-content/50 uppercase tracking-wide">Active Runs</p>
-              <p className="text-2xl font-bold mt-1 text-info">{activeRuns.length}</p>
+            <div className="stat bg-base-200 rounded-xl shadow-sm border border-base-300">
+              <div className="stat-title text-xs uppercase tracking-wide text-base-content/60">Active Runs</div>
+              <div className="stat-value text-2xl text-info">{activeRuns.length}</div>
             </div>
-            <div className="bg-base-100 rounded-xl border border-base-300 p-4">
-              <p className="text-xs text-base-content/50 uppercase tracking-wide">Completed</p>
-              <p className="text-2xl font-bold mt-1 text-success">
+            <div className="stat bg-base-200 rounded-xl shadow-sm border border-base-300">
+              <div className="stat-title text-xs uppercase tracking-wide text-base-content/60">Completed</div>
+              <div className="stat-value text-2xl text-success">
                 {runs.filter((r) => r.status === "completed").length}
-              </p>
+              </div>
             </div>
-            <div className="bg-base-100 rounded-xl border border-base-300 p-4">
-              <p className="text-xs text-base-content/50 uppercase tracking-wide">Failed</p>
-              <p className="text-2xl font-bold mt-1 text-error">
+            <div className="stat bg-base-200 rounded-xl shadow-sm border border-base-300">
+              <div className="stat-title text-xs uppercase tracking-wide text-base-content/60">Failed</div>
+              <div className="stat-value text-2xl text-error">
                 {runs.filter((r) => r.status === "failed").length}
-              </p>
+              </div>
             </div>
           </div>
 
           {/* Agent Configs */}
-          <section className="mb-8">
-            <h2 className="text-lg font-bold mb-3 flex items-center gap-2">
-              <Settings2 size={18} /> Agent Configurations
+          <div>
+            <h2 className="text-base font-semibold text-base-content mb-3 flex items-center gap-2">
+              <Settings2 size={16} className="text-base-content/60" /> Agent Configurations
             </h2>
             {configs.length === 0 ? (
-              <div className="bg-base-100 border border-dashed border-base-300 rounded-xl p-8 text-center">
-                <Bot size={32} className="mx-auto text-base-content/20 mb-2" />
+              <div className="bg-base-200 border border-dashed border-base-300 rounded-xl p-10 text-center">
+                <Bot size={28} className="mx-auto text-base-content/20 mb-2" />
                 <p className="text-base-content/50 text-sm">No agent configs yet. Create one to get started.</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {configs.map((cfg) => {
                   const isRecruiter = cfg.pipelineType === "recruiter";
                   return (
                     <div
                       key={cfg.id}
-                      className={`bg-base-100 border rounded-xl p-4 ${
-                        cfg.isActive ? "border-base-300" : "border-base-300 opacity-60"
+                      className={`bg-base-200 border border-base-300 rounded-xl p-4 shadow-sm ${
+                        !cfg.isActive ? "opacity-60" : ""
                       }`}
                     >
                       <div className="flex items-start justify-between mb-3">
                         <div className="flex items-center gap-2">
                           {isRecruiter ? (
-                            <Users size={16} className="text-secondary" />
+                            <Users size={15} className="text-secondary" />
                           ) : (
-                            <Briefcase size={16} className="text-accent" />
+                            <Briefcase size={15} className="text-accent" />
                           )}
-                          <span className="font-semibold text-sm">{cfg.name}</span>
+                          <span className="font-semibold text-sm text-base-content">{cfg.name}</span>
                         </div>
                         <button
                           onClick={() => handleToggleActive(cfg)}
-                          className="text-base-content/40 hover:text-primary"
+                          className="text-base-content/40 hover:text-primary transition-colors"
                         >
-                          {cfg.isActive ? <ToggleRight size={20} className="text-success" /> : <ToggleLeft size={20} />}
+                          {cfg.isActive
+                            ? <ToggleRight size={20} className="text-success" />
+                            : <ToggleLeft size={20} />}
                         </button>
                       </div>
 
-                      <div className="flex flex-wrap gap-2 mb-3">
-                        <span className="badge badge-sm badge-outline">{isRecruiter ? "Recruiter" : "Sales"}</span>
-                        <span className="badge badge-sm badge-outline">
+                      <div className="flex flex-wrap gap-1.5 mb-4">
+                        <span className="badge badge-xs badge-outline">{isRecruiter ? "Recruiter" : "Sales"}</span>
+                        <span className="badge badge-xs badge-outline">
                           {cfg.mode === "full_auto" ? "Full-Auto" : "Semi-Auto"}
                         </span>
                         {cfg.config?.dailyInviteLimit && (
-                          <span className="badge badge-sm badge-outline">
+                          <span className="badge badge-xs badge-outline">
                             {cfg.config.dailyInviteLimit}/day
                           </span>
                         )}
@@ -232,11 +237,9 @@ export default function AgentsPage() {
                           onClick={() => handleLaunch(cfg)}
                           disabled={launchingId === cfg.id || !cfg.isActive}
                         >
-                          {launchingId === cfg.id ? (
-                            <Loader2 size={12} className="animate-spin" />
-                          ) : (
-                            <Play size={12} />
-                          )}
+                          {launchingId === cfg.id
+                            ? <Loader2 size={11} className="animate-spin" />
+                            : <Play size={11} />}
                           Launch
                         </button>
                         <button
@@ -246,7 +249,7 @@ export default function AgentsPage() {
                           <Settings2 size={12} />
                         </button>
                         <button
-                          className="btn btn-ghost btn-xs text-error"
+                          className="btn btn-ghost btn-xs text-error hover:bg-error/10"
                           onClick={() => handleDeleteConfig(cfg.id)}
                         >
                           <Trash2 size={12} />
@@ -257,25 +260,25 @@ export default function AgentsPage() {
                 })}
               </div>
             )}
-          </section>
+          </div>
 
           {/* Active Runs */}
           {activeRuns.length > 0 && (
-            <section className="mb-8">
-              <h2 className="text-lg font-bold mb-3 flex items-center gap-2">
-                <Zap size={18} className="text-info" /> Active Runs
+            <div>
+              <h2 className="text-base font-semibold text-base-content mb-3 flex items-center gap-2">
+                <Zap size={16} className="text-info" /> Active Runs
               </h2>
               <div className="space-y-2">
                 {activeRuns.map((run) => (
                   <AgentRunCard key={run.id} run={run} onRefresh={fetchData} />
                 ))}
               </div>
-            </section>
+            </div>
           )}
 
           {/* Run History */}
-          <section>
-            <h2 className="text-lg font-bold mb-3">Run History</h2>
+          <div>
+            <h2 className="text-base font-semibold text-base-content mb-3">Run History</h2>
             {pastRuns.length === 0 ? (
               <p className="text-sm text-base-content/40">No completed runs yet.</p>
             ) : (
@@ -285,7 +288,7 @@ export default function AgentsPage() {
                 ))}
               </div>
             )}
-          </section>
+          </div>
         </main>
       </div>
 
