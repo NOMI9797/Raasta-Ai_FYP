@@ -214,11 +214,16 @@ export default function AgentsPage() {
                         </button>
                       </div>
 
-                      <div className="flex gap-2 mb-3">
+                      <div className="flex flex-wrap gap-2 mb-3">
                         <span className="badge badge-sm badge-outline">{isRecruiter ? "Recruiter" : "Sales"}</span>
                         <span className="badge badge-sm badge-outline">
                           {cfg.mode === "full_auto" ? "Full-Auto" : "Semi-Auto"}
                         </span>
+                        {cfg.config?.dailyInviteLimit && (
+                          <span className="badge badge-sm badge-outline">
+                            {cfg.config.dailyInviteLimit}/day
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex gap-2">

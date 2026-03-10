@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/libs/db";
-import { agentRuns } from "@/libs/schema";
+import { agentRuns, agentConfigs } from "@/libs/schema";
 import { eq, and } from "drizzle-orm";
 import { withAuth } from "@/libs/auth-middleware";
 import { AgentRunner, getPipelineDefinition } from "@/libs/agent-runner";
@@ -26,6 +26,17 @@ export const POST = withAuth(async (request, { user, params }) => {
       );
     }
 
+    // Load the original config from the agent config record
+    let runConfig = {};
+    if (run.agentConfigId) {
+      const [cfg] = await db
+        .select()
+        .from(agentConfigs)
+        .where(eq(agentConfigs.id, run.agentConfigId))
+        .limit(1);
+      if (cfg) runConfig = cfg.config || {};
+    }
+
     const pipeline = await getPipelineDefinition(run.pipelineType);
 
     const runner = new AgentRunner({
@@ -33,7 +44,7 @@ export const POST = withAuth(async (request, { user, params }) => {
       pipeline,
       mode: run.mode,
       userId: run.userId,
-      config: run.results || {},
+      config: runConfig,
     });
 
     // Resume in background

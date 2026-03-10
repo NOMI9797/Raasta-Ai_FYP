@@ -1,96 +1,125 @@
-import { campaigns, leads, messages } from "@/libs/schema";
-import { eq, and, desc, count } from "drizzle-orm";
+import { campaigns, leads, messages, linkedinAccounts } from "@/libs/schema";
+import { eq, and } from "drizzle-orm";
 import { generatePersonalizedMessage } from "@/libs/groq-service";
+import { testLinkedInSession, cleanupBrowserSession } from "@/libs/linkedin-session-validator";
+import { processInvitesDirectly } from "@/libs/linkedin-invite-automation";
+import { checkConnectionAcceptances } from "@/libs/linkedin-connection-checker";
+import { fetchEligibleLeads } from "@/libs/lead-status-manager";
+import { checkDailyLimit, incrementDailyCounter } from "@/libs/rate-limit-manager";
 
 export const salesOperatorPipeline = {
   steps: [
-    {
-      key: "create_campaign",
-      label: "Create Campaign",
-      isCheckpoint: false,
-      async execute(ctx) {
-        const c = ctx.config.campaignDefaults || {};
-
-        const [campaign] = await ctx.db
-          .insert(campaigns)
-          .values({
-            userId: ctx.userId,
-            name: c.name || "Agent Campaign",
-            description: c.description || "Created by AI agent",
-            icpConfig: c.icpConfig || null,
-            status: "active",
-          })
-          .returning();
-
-        return { campaignId: campaign.id, name: campaign.name };
-      },
-    },
-    {
-      key: "add_leads",
-      label: "Import Leads",
-      isCheckpoint: false,
-      async execute(ctx) {
-        const { campaignId } = ctx.stepOutputs.create_campaign;
-        const leadUrls = ctx.config.leadUrls || [];
-
-        if (!leadUrls.length) {
-          return { campaignId, added: 0, note: "No lead URLs provided in config" };
-        }
-
-        const inserted = [];
-        for (const url of leadUrls) {
-          const [lead] = await ctx.db
-            .insert(leads)
-            .values({
-              userId: ctx.userId,
-              campaignId,
-              url,
-              status: "pending",
-            })
-            .returning();
-          inserted.push(lead.id);
-        }
-
-        return { campaignId, added: inserted.length, leadIds: inserted };
-      },
-    },
+    // ─── Step 1: Scrape lead profiles via Apify ───
     {
       key: "scrape_profiles",
       label: "Scrape Lead Profiles",
       isCheckpoint: false,
       async execute(ctx) {
-        const { campaignId } = ctx.stepOutputs.create_campaign;
+        const { campaignId } = ctx.config;
+        if (!campaignId) throw new Error("No campaignId in agent config");
 
         const campaignLeads = await ctx.db
           .select()
           .from(leads)
-          .where(and(eq(leads.campaignId, campaignId), eq(leads.status, "pending")));
+          .where(eq(leads.campaignId, campaignId));
 
-        // Profile scraping would call the existing scraping-utils / Apify actor
-        // For now we mark leads as "scraped" if they have basic info
-        let scraped = 0;
-        for (const lead of campaignLeads) {
-          await ctx.db
-            .update(leads)
-            .set({ status: "scraped", updatedAt: new Date() })
-            .where(eq(leads.id, lead.id));
-          scraped++;
+        if (campaignLeads.length === 0) {
+          return { campaignId, scraped: 0, note: "No leads in this campaign. Add leads first." };
         }
 
-        return {
-          campaignId,
-          totalLeads: campaignLeads.length,
-          scraped,
-          note: "Profile scraping placeholder — integrate with Apify/scraping-utils for full data.",
-        };
+        const pendingLeads = campaignLeads.filter((l) => l.status === "pending");
+        if (pendingLeads.length === 0) {
+          return {
+            campaignId,
+            totalLeads: campaignLeads.length,
+            scraped: 0,
+            note: "All leads already scraped or processed.",
+          };
+        }
+
+        // Call the Apify scraping API (server-side internal call)
+        const leadUrls = pendingLeads.map((l) => l.url);
+        let scrapedCount = 0;
+
+        try {
+          const token = process.env.APIFY_API_TOKEN || process.env.apify_api_token || process.env.APIFY_TOKEN;
+          if (token) {
+            const { ApifyClient } = await import("apify-client");
+            const client = new ApifyClient({ token });
+
+            const run = await client.actor("Wpp1BZ6yGWjySadk3").call({
+              urls: leadUrls,
+              limitPerSource: 10,
+              deepScrape: true,
+              rawData: false,
+            });
+            const { items } = await client.dataset(run.defaultDatasetId).listItems();
+
+            // Process scraped items and update leads
+            const { extractLeadInfo, cleanScrapedPosts } = await import("@/libs/scraping-utils");
+
+            for (const lead of pendingLeads) {
+              const leadItems = items.filter(
+                (item) =>
+                  (item.inputUrl || item.sourceUrl || "")
+                    .toLowerCase()
+                    .includes(lead.url.toLowerCase().replace(/\/$/, "").split("/").pop())
+              );
+
+              if (leadItems.length > 0) {
+                const info = extractLeadInfo(leadItems);
+                const cleanedPosts = cleanScrapedPosts(leadItems);
+
+                await ctx.db
+                  .update(leads)
+                  .set({
+                    name: info.name || lead.name,
+                    title: info.title || lead.title,
+                    company: info.company || lead.company,
+                    profilePicture: info.profilePicture || lead.profilePicture,
+                    posts: cleanedPosts,
+                    status: "scraped",
+                    updatedAt: new Date(),
+                  })
+                  .where(eq(leads.id, lead.id));
+                scrapedCount++;
+              }
+            }
+          } else {
+            // No Apify token — mark leads as scraped so pipeline continues
+            for (const lead of pendingLeads) {
+              await ctx.db
+                .update(leads)
+                .set({ status: "scraped", updatedAt: new Date() })
+                .where(eq(leads.id, lead.id));
+              scrapedCount++;
+            }
+          }
+        } catch (err) {
+          console.error("Apify scrape error:", err.message);
+          // Mark remaining leads as scraped to unblock pipeline
+          for (const lead of pendingLeads) {
+            if (lead.status === "pending") {
+              await ctx.db
+                .update(leads)
+                .set({ status: "scraped", updatedAt: new Date() })
+                .where(eq(leads.id, lead.id));
+              scrapedCount++;
+            }
+          }
+        }
+
+        return { campaignId, totalLeads: campaignLeads.length, scraped: scrapedCount };
       },
     },
+
+    // ─── Step 2: Generate personalized messages via Groq ───
     {
       key: "generate_messages",
       label: "Generate Personalized Messages",
       isCheckpoint: false,
       async execute(ctx) {
-        const { campaignId } = ctx.stepOutputs.create_campaign;
+        const { campaignId } = ctx.config;
         const promptTemplate = ctx.config.customPrompt || "";
 
         const campaignLeads = await ctx.db
@@ -100,6 +129,15 @@ export const salesOperatorPipeline = {
 
         let generated = 0;
         for (const lead of campaignLeads) {
+          // Skip leads that already have a message
+          const existing = await ctx.db
+            .select()
+            .from(messages)
+            .where(and(eq(messages.leadId, lead.id), eq(messages.campaignId, campaignId)))
+            .limit(1);
+
+          if (existing.length > 0) continue;
+
           try {
             const response = await generatePersonalizedMessage({
               leadName: lead.name || "there",
@@ -129,70 +167,246 @@ export const salesOperatorPipeline = {
         return { campaignId, totalLeads: campaignLeads.length, generated };
       },
     },
+
+    // ─── Step 3: Checkpoint — human reviews messages before sending ───
     {
       key: "approve_messages",
       label: "Review & Approve Messages",
       isCheckpoint: true,
       async execute() {},
     },
+
+    // ─── Step 4: Send LinkedIn connection invites (real Playwright automation) ───
     {
       key: "send_invites",
-      label: "Send LinkedIn Connection Invites",
+      label: "Send LinkedIn Invites",
       isCheckpoint: false,
       async execute(ctx) {
-        const { campaignId } = ctx.stepOutputs.create_campaign;
+        const { campaignId, accountId, dailyInviteLimit } = ctx.config;
+        if (!accountId) throw new Error("No LinkedIn accountId in agent config");
 
-        // This would call the existing LinkedIn invite automation
-        // (processInvitesDirectly from libs/linkedin-invite-automation.js)
-        // For now we record the intent — real invites need a browser context
+        // Fetch the LinkedIn account from DB
+        const [account] = await ctx.db
+          .select()
+          .from(linkedinAccounts)
+          .where(eq(linkedinAccounts.id, accountId))
+          .limit(1);
+
+        if (!account) throw new Error("LinkedIn account not found");
+
+        // Override daily limit if the user configured a custom one
+        if (dailyInviteLimit && dailyInviteLimit !== account.dailyLimit) {
+          await ctx.db
+            .update(linkedinAccounts)
+            .set({ dailyLimit: dailyInviteLimit })
+            .where(eq(linkedinAccounts.id, accountId));
+        }
+
+        // Check daily limit
+        const limitCheck = await checkDailyLimit(accountId);
+        if (!limitCheck.canSend) {
+          return {
+            campaignId,
+            sent: 0,
+            note: `Daily invite limit reached (${limitCheck.sent}/${limitCheck.limit}). Resets at ${limitCheck.resetsAt.toLocaleString()}.`,
+          };
+        }
+
+        // Fetch eligible leads (not yet invited)
+        const { eligibleLeads } = await fetchEligibleLeads(campaignId);
+        if (!eligibleLeads || eligibleLeads.length === 0) {
+          return { campaignId, sent: 0, note: "No eligible leads to invite." };
+        }
+
+        // Cap to remaining daily allowance
+        const maxToSend = Math.min(
+          eligibleLeads.length,
+          limitCheck.remaining,
+          dailyInviteLimit || limitCheck.limit
+        );
+        const leadsToProcess = eligibleLeads.slice(0, maxToSend);
+
+        // Validate LinkedIn session & get browser
+        const sessionCheck = await testLinkedInSession(account, true);
+        if (!sessionCheck.isValid) {
+          throw new Error(`LinkedIn session invalid: ${sessionCheck.reason}`);
+        }
+
+        let results;
+        try {
+          results = await processInvitesDirectly(
+            sessionCheck.context,
+            sessionCheck.page,
+            leadsToProcess,
+            "",
+            campaignId
+          );
+
+          // Increment daily counter
+          if (results.sent > 0) {
+            await incrementDailyCounter(accountId, results.sent);
+          }
+        } finally {
+          await cleanupBrowserSession(sessionCheck.context);
+        }
+
+        return {
+          campaignId,
+          sent: results.sent,
+          alreadyConnected: results.alreadyConnected,
+          alreadyPending: results.alreadyPending,
+          failed: results.failed,
+          total: leadsToProcess.length,
+        };
+      },
+    },
+
+    // ─── Step 5: Wait, then check which invites were accepted ───
+    {
+      key: "wait_and_check",
+      label: "Wait & Check Connections",
+      isCheckpoint: false,
+      async execute(ctx) {
+        const { accountId, waitMinutes } = ctx.config;
+        const waitMs = (waitMinutes || 30) * 60 * 1000;
+
+        console.log(`⏳ Waiting ${waitMinutes || 30} minutes before checking connection acceptance...`);
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+
+        // Fetch the account again for fresh data
+        const [account] = await ctx.db
+          .select()
+          .from(linkedinAccounts)
+          .where(eq(linkedinAccounts.id, accountId))
+          .limit(1);
+
+        if (!account) throw new Error("LinkedIn account not found");
+
+        const result = await checkConnectionAcceptances(account, ctx.userId);
+
+        return {
+          matched: result.matched || 0,
+          updated: result.updated || 0,
+          messagesSent: result.messagesSent || 0,
+          total: result.total || 0,
+        };
+      },
+    },
+
+    // ─── Step 6: Send messages to accepted connections ───
+    {
+      key: "send_messages",
+      label: "Send Messages to Accepted",
+      isCheckpoint: false,
+      async execute(ctx) {
+        const { campaignId, accountId } = ctx.config;
+
+        // checkConnectionAcceptances in step 5 already sends messages to accepted
+        // connections that have generated messages. This step reports the final state.
 
         const campaignLeads = await ctx.db
           .select()
           .from(leads)
-          .where(and(eq(leads.campaignId, campaignId), eq(leads.inviteSent, false)));
+          .where(eq(leads.campaignId, campaignId));
 
-        return {
-          campaignId,
-          pendingInvites: campaignLeads.length,
-          note: "Invite sending queued. Requires active LinkedIn browser session to execute.",
-        };
-      },
-    },
-    {
-      key: "check_connections",
-      label: "Check Connection Acceptance",
-      isCheckpoint: false,
-      async execute(ctx) {
-        const { campaignId } = ctx.stepOutputs.create_campaign;
+        const accepted = campaignLeads.filter((l) => l.inviteStatus === "accepted");
+        const messaged = campaignLeads.filter((l) => l.messageSent === true);
+        const pendingMsg = accepted.filter((l) => !l.messageSent);
 
-        const sentLeads = await ctx.db
-          .select()
-          .from(leads)
-          .where(and(eq(leads.campaignId, campaignId), eq(leads.inviteSent, true)));
+        // If there are still accepted leads without messages sent, try sending
+        if (pendingMsg.length > 0) {
+          const [account] = await ctx.db
+            .select()
+            .from(linkedinAccounts)
+            .where(eq(linkedinAccounts.id, accountId))
+            .limit(1);
 
-        const accepted = sentLeads.filter((l) => l.inviteStatus === "accepted").length;
-        const pending = sentLeads.filter((l) => l.inviteStatus === "sent").length;
+          if (account) {
+            try {
+              const { checkDailyMessageLimit, incrementMessageCounter } = await import(
+                "@/libs/rate-limit-manager"
+              );
+              const { sendMessageToLead, randomDelay } = await import("@/libs/linkedin-message-sender");
 
-        return {
-          campaignId,
-          totalSent: sentLeads.length,
-          accepted,
-          pending,
-        };
-      },
-    },
-    {
-      key: "report_results",
-      label: "Generate Results Report",
-      isCheckpoint: false,
-      async execute(ctx) {
-        const { campaignId } = ctx.stepOutputs.create_campaign;
+              const msgLimitCheck = await checkDailyMessageLimit(accountId);
+              if (msgLimitCheck.canSend) {
+                const sessionCheck = await testLinkedInSession(account, true);
+                if (sessionCheck.isValid) {
+                  let sent = 0;
+                  try {
+                    for (const lead of pendingMsg) {
+                      const currentLimit = await checkDailyMessageLimit(accountId);
+                      if (!currentLimit.canSend) break;
 
-        const allLeads = await ctx.db
+                      const [msg] = await ctx.db
+                        .select()
+                        .from(messages)
+                        .where(and(eq(messages.leadId, lead.id), eq(messages.campaignId, campaignId)))
+                        .limit(1);
+
+                      if (!msg) continue;
+
+                      const result = await sendMessageToLead(
+                        sessionCheck.page,
+                        lead.url,
+                        msg.content,
+                        lead.name || "Lead"
+                      );
+
+                      if (result.success) {
+                        await ctx.db
+                          .update(leads)
+                          .set({ messageSent: true, messageSentAt: new Date(), messageError: null })
+                          .where(eq(leads.id, lead.id));
+                        await ctx.db
+                          .update(messages)
+                          .set({ status: "sent", sentAt: new Date() })
+                          .where(eq(messages.id, msg.id));
+                        await incrementMessageCounter(accountId);
+                        sent++;
+
+                        if (sent < pendingMsg.length) {
+                          await randomDelay(30, 90);
+                        }
+                      }
+                    }
+                  } finally {
+                    await cleanupBrowserSession(sessionCheck.context);
+                  }
+                }
+              }
+            } catch (err) {
+              console.error("Additional message sending error:", err.message);
+            }
+          }
+        }
+
+        // Refresh state
+        const finalLeads = await ctx.db
           .select()
           .from(leads)
           .where(eq(leads.campaignId, campaignId));
 
+        return {
+          campaignId,
+          totalLeads: finalLeads.length,
+          invitesSent: finalLeads.filter((l) => l.inviteSent).length,
+          accepted: finalLeads.filter((l) => l.inviteStatus === "accepted").length,
+          messagesSent: finalLeads.filter((l) => l.messageSent).length,
+          pending: finalLeads.filter((l) => l.inviteStatus === "sent").length,
+        };
+      },
+    },
+
+    // ─── Step 7: Final report ───
+    {
+      key: "report_results",
+      label: "Results Report",
+      isCheckpoint: false,
+      async execute(ctx) {
+        const { campaignId } = ctx.config;
+
+        const allLeads = await ctx.db.select().from(leads).where(eq(leads.campaignId, campaignId));
         const allMessages = await ctx.db
           .select()
           .from(messages)
@@ -202,8 +416,10 @@ export const salesOperatorPipeline = {
           campaignId,
           summary: {
             totalLeads: allLeads.length,
+            profilesScraped: allLeads.filter((l) => l.status !== "pending").length,
             invitesSent: allLeads.filter((l) => l.inviteSent).length,
             connectionsAccepted: allLeads.filter((l) => l.inviteStatus === "accepted").length,
+            connectionsPending: allLeads.filter((l) => l.inviteStatus === "sent").length,
             messagesGenerated: allMessages.length,
             messagesSent: allMessages.filter((m) => m.status === "sent").length,
           },

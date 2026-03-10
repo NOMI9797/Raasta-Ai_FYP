@@ -11,6 +11,7 @@ export const GET = withAuth(async (request, { user }) => {
     // Transform sessions to account format
     const accounts = sessions.map(session => ({
       id: session.sessionId,
+      dbId: session.id,
       email: session.email,
       name: session.userName || session.email, // Use actual name, fallback to email
       profileImageUrl: session.profileImageUrl || null,
