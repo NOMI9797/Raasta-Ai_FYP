@@ -30,7 +30,11 @@ export const linkedinAccountApi = {
     const result = await response.json();
 
     if (!result.success) {
-      throw new Error(result.message || "Failed to connect LinkedIn account");
+      // Attach screenshots to the error so callers can display them
+      const err = new Error(result.message || "Failed to connect LinkedIn account");
+      err.debugScreenshots = result.debugScreenshots || [];
+      err.errorCode = result.error;
+      throw err;
     }
 
     return result;

@@ -62,12 +62,26 @@ function urlMatchesPatterns(url, patterns) {
   return patterns.some(pattern => url.includes(pattern));
 }
 
+// Capture a screenshot and return as base64 data URI
+async function captureScreenshot(page, label) {
+  try {
+    const buffer = await page.screenshot({ type: 'jpeg', quality: 70, fullPage: false });
+    const base64 = buffer.toString('base64');
+    const dataUri = `data:image/jpeg;base64,${base64}`;
+    console.log(`📸 Screenshot captured: ${label}`);
+    return { label, dataUri, url: page.url(), timestamp: new Date().toISOString() };
+  } catch (err) {
+    console.warn(`⚠️ Screenshot failed for "${label}":`, err.message);
+    return { label, dataUri: null, url: page.url(), timestamp: new Date().toISOString(), error: err.message };
+  }
+}
+
 // Browser-based LinkedIn connection with automated login
 async function connectLinkedInViaBrowser(sessionId, email, password) {
   console.log('🚀 Starting automated LinkedIn connection...');
-  
-  // Launch browser context (no persistent storage needed since we save to database)
-  // Configure for serverless environments (Vercel)
+
+  const screenshots = [];
+
   const browser = await chromium.launch({
     headless: true,
     slowMo: 1000,
@@ -89,15 +103,17 @@ async function connectLinkedInViaBrowser(sessionId, email, password) {
   const page = context.pages()[0] || await context.newPage();
 
   try {
+    // ── Step 1: Open login page ──
     console.log('🌐 Opening LinkedIn login page...');
     await page.goto('https://www.linkedin.com/login');
     await page.waitForLoadState('domcontentloaded');
     await humanLikeDelay(page, 2000, 4000);
     await simulateHumanBehavior(page);
+    screenshots.push(await captureScreenshot(page, 'Login page loaded'));
 
+    // ── Step 2: Fill credentials ──
     console.log('🔐 Attempting automated login...');
     
-    // Fill in email
     const emailField = page.locator('#username');
     await emailField.waitFor({ state: 'visible', timeout: 10000 });
     await emailField.click();
@@ -105,84 +121,81 @@ async function connectLinkedInViaBrowser(sessionId, email, password) {
     await emailField.fill(email);
     await humanLikeDelay(page, 500, 1000);
 
-    // Fill in password
     const passwordField = page.locator('#password');
     await passwordField.waitFor({ state: 'visible', timeout: 10000 });
     await passwordField.click();
     await humanLikeDelay(page, 500, 1000);
     await passwordField.fill(password);
     await humanLikeDelay(page, 1000, 2000);
+    screenshots.push(await captureScreenshot(page, 'Credentials filled'));
 
-    // Click sign in button
+    // ── Step 3: Submit form ──
     const signInButton = page.locator('button[type="submit"]');
     await signInButton.waitFor({ state: 'visible', timeout: 10000 });
     await signInButton.click();
     
     console.log('📝 Login credentials submitted, waiting for response...');
     await humanLikeDelay(page, 3000, 5000);
+    screenshots.push(await captureScreenshot(page, 'After submit'));
     
     // Quick check for immediate 2FA redirect after login
     const immediateUrl = await page.url();
     if (immediateUrl.includes('/checkpoint/') || immediateUrl.includes('/challenge/')) {
+      screenshots.push(await captureScreenshot(page, '2FA checkpoint detected'));
       console.log('❌ 2FA/OTP verification detected immediately after login');
-      console.log('🛑 Account has 2FA enabled - stopping process');
       throw new Error('2FA_NOT_SUPPORTED');
     }
     
-    // Wait for login to complete and check for success or errors
+    // ── Step 4: Poll for login success ──
     try {
       let loginCompleted = false;
       let attempts = 0;
-      const maxAttempts = 30; // 2.5 minutes with 5-second intervals
+      const maxAttempts = 30;
       
       while (!loginCompleted && attempts < maxAttempts) {
         const currentUrl = await page.url();
         console.log(`🔍 Checking login status... (${attempts + 1}/${maxAttempts}) - Current URL: ${currentUrl}`);
         
-        // Check for successful login pages
         const isSuccessPage = urlMatchesPatterns(currentUrl, LINKEDIN_PATTERNS.SUCCESS);
-        
-        // Check for intermediate pages that indicate 2FA or other verification
         const isIntermediatePage = urlMatchesPatterns(currentUrl, LINKEDIN_PATTERNS.INTERMEDIATE);
-        
-        // Check if we're still on login page (could indicate wrong credentials)
         const isLoginPage = urlMatchesPatterns(currentUrl, LINKEDIN_PATTERNS.LOGIN);
         
-        // Immediate 2FA/checkpoint detection - stop process right away
         if (currentUrl.includes('/checkpoint/') || currentUrl.includes('/challenge/')) {
+          screenshots.push(await captureScreenshot(page, '2FA checkpoint during polling'));
           console.log('❌ 2FA/OTP verification detected - Account has 2FA enabled');
-          console.log('🛑 Stopping login process immediately');
           throw new Error('2FA_NOT_SUPPORTED');
         }
         
-        // Check for error messages on the page
         const errorMessage = await page.locator('.form__input--error, .alert, .error-message, [data-test-id="error-message"]').first().textContent().catch(() => null);
         
         if (isSuccessPage) {
           console.log('✅ LinkedIn login successful!');
+          screenshots.push(await captureScreenshot(page, 'Login successful — feed loaded'));
           loginCompleted = true;
           break;
         } else if (isIntermediatePage) {
+          screenshots.push(await captureScreenshot(page, 'Intermediate/2FA page'));
           console.log('❌ Account requires 2FA/verification which is not supported');
           throw new Error('2FA_NOT_SUPPORTED');
         } else if (isLoginPage && attempts > 5) {
-          // Check for specific error messages
           if (errorMessage) {
             console.log('❌ Login error detected:', errorMessage);
             if (errorMessage.toLowerCase().includes('password') || errorMessage.toLowerCase().includes('credentials')) {
+              screenshots.push(await captureScreenshot(page, 'Invalid credentials error'));
               throw new Error('INVALID_CREDENTIALS');
             }
           }
+          screenshots.push(await captureScreenshot(page, 'Login failed — still on login page'));
           console.log('❌ Login failed - still on login page');
           throw new Error('LOGIN_FAILED');
         }
         
-        // Wait before next check
         await page.waitForTimeout(5000);
         attempts++;
       }
       
       if (!loginCompleted) {
+        screenshots.push(await captureScreenshot(page, 'Login timeout'));
         console.log('⚠️ Login timeout after 2.5 minutes');
         throw new Error('LOGIN_TIMEOUT');
       }
@@ -194,62 +207,53 @@ async function connectLinkedInViaBrowser(sessionId, email, password) {
       throw error;
     }
 
-    // Wait a bit for the page to fully load
     await humanLikeDelay(page, 2000, 4000);
 
-    // Extract user profile information
-    let userName = 'browser-login'; // Default fallback
+    // ── Step 5: Extract profile info ──
+    let userName = 'browser-login';
     let profileImageUrl = null;
 
     try {
       console.log('👤 Extracting user profile information...');
       
-      // Try to open the Me dropdown to get profile info
       const meButton = page.locator('#global-nav button[aria-label*="Me" i], #global-nav button:has-text("Me")').first();
       await meButton.waitFor({ state: 'visible', timeout: 10000 });
       await meButton.click();
-
-      // Wait for profile card to appear
       await page.waitForTimeout(2000);
+      screenshots.push(await captureScreenshot(page, 'Me dropdown opened'));
 
-      // Extract name
       const nameLocator = page.locator('.profile-card-name').first();
       if (await nameLocator.isVisible().catch(() => false)) {
         userName = (await nameLocator.innerText()).trim();
       } else {
-        // Try alternative selectors
         const altName = page.locator('#global-nav :is(h3.profile-card-name, .profile-card-name)').first();
         if (await altName.isVisible().catch(() => false)) {
           userName = (await altName.innerText()).trim();
         }
       }
 
-      // Extract profile image
       const imgLocator = page.locator('img.profile-card-profile-picture').first();
       if (await imgLocator.isVisible().catch(() => false)) {
         const src = await imgLocator.getAttribute('src');
-        if (src && /^https?:\/\//.test(src)) {
-          profileImageUrl = src;
-        }
+        if (src && /^https?:\/\//.test(src)) profileImageUrl = src;
       } else {
-        // Try alternative image selectors
         const altImg = page.locator('#global-nav img[alt^="Photo of "]').first();
         if (await altImg.isVisible().catch(() => false)) {
           const src = await altImg.getAttribute('src');
-          if (src && /^https?:\/\//.test(src)) {
-            profileImageUrl = src;
-          }
+          if (src && /^https?:\/\//.test(src)) profileImageUrl = src;
         }
       }
 
       console.log(`👤 Extracted name: ${userName}`);
       console.log(`🖼️ Profile image: ${profileImageUrl || 'Not found'}`);
+      screenshots.push(await captureScreenshot(page, `Profile extracted — ${userName}`));
 
     } catch (error) {
       console.log('⚠️ Could not extract profile info, using defaults');
+      screenshots.push(await captureScreenshot(page, 'Profile extraction failed'));
     }
 
-    // Get session data
+    // ── Step 6: Capture session data ──
     const cookies = await context.cookies();
     const localStorage = await page.evaluate(() => {
       const storage = {};
@@ -269,22 +273,21 @@ async function connectLinkedInViaBrowser(sessionId, email, password) {
       return storage;
     });
 
-    // Close browser and context
+    screenshots.push(await captureScreenshot(page, 'Session data captured — done'));
+
     await context.close();
     await browser.close();
     
-    return { 
-      cookies, 
-      localStorage, 
-      sessionStorage, 
-      userName, 
-      profileImageUrl 
-    };
+    return { cookies, localStorage, sessionStorage, userName, profileImageUrl, screenshots };
 
   } catch (error) {
-    // Clean up on error
+    // Capture final error state before closing
+    try {
+      screenshots.push(await captureScreenshot(page, `Error state — ${error.message}`));
+    } catch {}
     await context.close();
     await browser.close();
+    error.screenshots = screenshots;
     throw error;
   }
 }
@@ -357,7 +360,8 @@ export const POST = withAuth(async (request, { user }) => {
         message: 'LinkedIn account connected successfully',
         sessionId,
         accountId: savedSession.id,
-        accountName: sessionData.userName
+        accountName: sessionData.userName,
+        debugScreenshots: sessionData.screenshots || [],
       });
 
     } catch (error) {
@@ -368,51 +372,38 @@ export const POST = withAuth(async (request, { user }) => {
       console.log('🔓 Removed user from active connections (error)');
       
       // Handle specific error types
+      const debugScreenshots = error.screenshots || [];
+
       if (error.message === 'INVALID_CREDENTIALS') {
         return NextResponse.json(
-          { 
-            error: 'INVALID_CREDENTIALS',
-            message: 'Invalid email or password. Please check your LinkedIn credentials and try again.'
-          },
+          { error: 'INVALID_CREDENTIALS', message: 'Invalid email or password. Please check your LinkedIn credentials and try again.', debugScreenshots },
           { status: 401 }
         );
       }
       
       if (error.message === '2FA_NOT_SUPPORTED') {
         return NextResponse.json(
-          { 
-            error: '2FA_NOT_SUPPORTED',
-            message: 'This LinkedIn account has Two-Factor Authentication (2FA) enabled. Our system does not support 2FA accounts. Please disable 2FA in your LinkedIn security settings and try connecting again.'
-          },
+          { error: '2FA_NOT_SUPPORTED', message: 'This LinkedIn account has Two-Factor Authentication (2FA) enabled. Please disable 2FA in your LinkedIn security settings and try again.', debugScreenshots },
           { status: 400 }
         );
       }
       
       if (error.message === 'LOGIN_TIMEOUT') {
         return NextResponse.json(
-          { 
-            error: 'LOGIN_TIMEOUT',
-            message: 'Login process timed out. Please try again.'
-          },
+          { error: 'LOGIN_TIMEOUT', message: 'Login process timed out. Please try again.', debugScreenshots },
           { status: 408 }
         );
       }
       
       if (error.message === 'LOGIN_FAILED') {
         return NextResponse.json(
-          { 
-            error: 'LOGIN_FAILED',
-            message: 'Failed to log in to LinkedIn. Please check your credentials and try again.'
-          },
+          { error: 'LOGIN_FAILED', message: 'Failed to log in to LinkedIn. Please check your credentials and try again.', debugScreenshots },
           { status: 401 }
         );
       }
 
       return NextResponse.json(
-        { 
-          error: 'CONNECTION_ERROR',
-          message: error.message || 'Failed to connect to LinkedIn'
-        },
+        { error: 'CONNECTION_ERROR', message: error.message || 'Failed to connect to LinkedIn', debugScreenshots },
         { status: 500 }
       );
     }

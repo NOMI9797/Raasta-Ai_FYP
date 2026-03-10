@@ -38,6 +38,9 @@ export default function AccountsPage() {
   const [showLimitModal, setShowLimitModal] = useState(false);
   const [selectedAccountForLimit, setSelectedAccountForLimit] = useState(null);
   const [tempDailyLimit, setTempDailyLimit] = useState(30);
+  const [debugScreenshots, setDebugScreenshots] = useState([]);
+  const [showDebugModal, setShowDebugModal] = useState(false);
+  const [debugScreenshotIndex, setDebugScreenshotIndex] = useState(0);
 
   // Use React Query hooks for LinkedIn accounts
   const {
@@ -108,35 +111,46 @@ export default function AccountsPage() {
     console.log('🚀 Starting LinkedIn connection with email:', linkedInCredentials.email);
 
     try {
-      await connectAccount(linkedInCredentials.email, linkedInCredentials.password);
+      const result = await connectAccount(linkedInCredentials.email, linkedInCredentials.password);
       
-      // Success - close modal and reset form
+      // Success
       setShowLinkedInModal(false);
       setLinkedInCredentials({ email: '', password: '' });
-      
-      // Show success message
       showToast('LinkedIn account connected successfully!', 'success', 3000);
+
+      // Show debug screenshots on success too (for verification)
+      if (result.debugScreenshots?.length) {
+        setDebugScreenshots(result.debugScreenshots);
+        setDebugScreenshotIndex(0);
+        setShowDebugModal(true);
+      }
       
     } catch (error) {
       console.log('❌ Connection error caught in frontend:', error);
       
-      // Handle different error types
       let errorMessage = 'Failed to connect LinkedIn account';
       if (error.message.includes('CONNECTION_IN_PROGRESS')) {
-        errorMessage = 'A LinkedIn connection is already in progress. Please wait for it to complete.';
+        errorMessage = 'A LinkedIn connection is already in progress. Please wait.';
       } else if (error.message.includes('INVALID_CREDENTIALS')) {
-        errorMessage = 'Invalid email or password. Please check your LinkedIn credentials.';
+        errorMessage = 'Invalid email or password.';
       } else if (error.message.includes('2FA_NOT_SUPPORTED')) {
-        errorMessage = 'This account has Two-Factor Authentication (2FA) enabled. Please disable 2FA in your LinkedIn security settings and try again.';
+        errorMessage = '2FA is enabled on this account. Disable it in LinkedIn security settings and retry.';
       } else if (error.message.includes('LOGIN_TIMEOUT')) {
-        errorMessage = 'Login process timed out. Please try again.';
+        errorMessage = 'Login timed out. Please try again.';
       } else if (error.message.includes('LOGIN_FAILED')) {
-        errorMessage = 'LinkedIn login failed. Please check your credentials and try again.';
+        errorMessage = 'LinkedIn login failed. Check your credentials.';
       } else {
         errorMessage = error.message || errorMessage;
       }
       
       showToast(errorMessage, 'error');
+
+      // Always show debug screenshots if available
+      if (error.debugScreenshots?.length) {
+        setDebugScreenshots(error.debugScreenshots);
+        setDebugScreenshotIndex(0);
+        setShowDebugModal(true);
+      }
     }
   };
 
@@ -858,6 +872,74 @@ export default function AccountsPage() {
                 ) : (
                   'Save Changes'
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Debug Screenshots Modal */}
+      {showDebugModal && debugScreenshots.length > 0 && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+          <div className="bg-base-100 rounded-xl shadow-2xl w-full max-w-3xl flex flex-col gap-4 p-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-base-content">
+                Debug Screenshots ({debugScreenshotIndex + 1} / {debugScreenshots.length})
+              </h3>
+              <button
+                className="btn btn-sm btn-circle btn-ghost"
+                onClick={() => setShowDebugModal(false)}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Step label + URL */}
+            <div className="text-sm text-base-content/70 space-y-0.5">
+              <p className="font-medium">{debugScreenshots[debugScreenshotIndex]?.label}</p>
+              <p className="text-xs font-mono truncate">{debugScreenshots[debugScreenshotIndex]?.url}</p>
+              <p className="text-xs text-base-content/50">{debugScreenshots[debugScreenshotIndex]?.timestamp}</p>
+            </div>
+
+            {/* Screenshot */}
+            <div className="rounded-lg overflow-hidden border border-base-300 bg-base-200 flex items-center justify-center min-h-[300px]">
+              {debugScreenshots[debugScreenshotIndex]?.dataUri ? (
+                <img
+                  src={debugScreenshots[debugScreenshotIndex].dataUri}
+                  alt={debugScreenshots[debugScreenshotIndex].label}
+                  className="w-full object-contain"
+                />
+              ) : (
+                <p className="text-sm text-base-content/50">No screenshot available — {debugScreenshots[debugScreenshotIndex]?.error}</p>
+              )}
+            </div>
+
+            {/* Navigation */}
+            <div className="flex items-center justify-between">
+              <button
+                className="btn btn-sm btn-outline gap-1"
+                disabled={debugScreenshotIndex === 0}
+                onClick={() => setDebugScreenshotIndex(i => i - 1)}
+              >
+                <ChevronLeft className="h-4 w-4" /> Prev
+              </button>
+
+              <div className="flex gap-1">
+                {debugScreenshots.map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setDebugScreenshotIndex(i)}
+                    className={`w-2.5 h-2.5 rounded-full transition-colors ${i === debugScreenshotIndex ? 'bg-primary' : 'bg-base-300'}`}
+                  />
+                ))}
+              </div>
+
+              <button
+                className="btn btn-sm btn-outline gap-1"
+                disabled={debugScreenshotIndex === debugScreenshots.length - 1}
+                onClick={() => setDebugScreenshotIndex(i => i + 1)}
+              >
+                Next <ChevronRight className="h-4 w-4" />
               </button>
             </div>
           </div>
