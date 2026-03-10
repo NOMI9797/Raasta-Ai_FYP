@@ -29,23 +29,37 @@ export default function AgentConfigForm({ onClose, onCreated, editConfig }) {
   const [dailyInviteLimit, setDailyInviteLimit] = useState(editConfig?.config?.dailyInviteLimit || 10);
   const [waitMinutes, setWaitMinutes] = useState(editConfig?.config?.waitMinutes || 30);
 
+  // Recruiter specific config
+  const [jobTitle, setJobTitle] = useState(editConfig?.config?.jobPreferences?.title || "");
+  const [requiredSkills, setRequiredSkills] = useState(editConfig?.config?.jobPreferences?.requiredSkills?.join(", ") || "");
+  const [techStack, setTechStack] = useState(editConfig?.config?.jobPreferences?.techStack?.join(", ") || "");
+  const [experienceRange, setExperienceRange] = useState(editConfig?.config?.jobPreferences?.experienceRange || "");
+  const [location, setLocation] = useState(editConfig?.config?.jobPreferences?.location || "");
+  const [locationType, setLocationType] = useState(editConfig?.config?.jobPreferences?.locationType || "remote");
+  const [employmentType, setEmploymentType] = useState(editConfig?.config?.jobPreferences?.employmentType || "full-time");
+  const [postTone, setPostTone] = useState(editConfig?.config?.postTone || "professional");
+  const [recruiterAccountId, setRecruiterAccountId] = useState(editConfig?.config?.accountId || "");
+
   // Data for dropdowns
   const [campaignsList, setCampaignsList] = useState([]);
   const [accountsList, setAccountsList] = useState([]);
   const [loadingData, setLoadingData] = useState(false);
 
   useEffect(() => {
-    if (pipelineType === "sales_operator") {
+    if (pipelineType === "sales_operator" || pipelineType === "recruiter") {
       setLoadingData(true);
-      Promise.all([
-        fetch("/api/campaigns").then((r) => r.json()),
-        fetch("/api/linkedin/accounts").then((r) => r.json()),
-      ])
-        .then(([campData, accData]) => {
-          if (campData.campaigns) setCampaignsList(campData.campaigns);
-          else if (Array.isArray(campData)) setCampaignsList(campData);
+      const fetches = [fetch("/api/linkedin/accounts").then((r) => r.json())];
+      if (pipelineType === "sales_operator") {
+        fetches.push(fetch("/api/campaigns").then((r) => r.json()));
+      }
+      Promise.all(fetches)
+        .then(([accData, campData]) => {
           if (accData.accounts) setAccountsList(accData.accounts);
           else if (Array.isArray(accData)) setAccountsList(accData);
+          if (campData) {
+            if (campData.campaigns) setCampaignsList(campData.campaigns);
+            else if (Array.isArray(campData)) setCampaignsList(campData);
+          }
         })
         .catch((err) => console.error("Failed to load dropdown data:", err))
         .finally(() => setLoadingData(false));
@@ -59,6 +73,21 @@ export default function AgentConfigForm({ onClose, onCreated, editConfig }) {
         accountId,
         dailyInviteLimit: Number(dailyInviteLimit) || 10,
         waitMinutes: Number(waitMinutes) || 30,
+      };
+    }
+    if (pipelineType === "recruiter") {
+      return {
+        accountId: recruiterAccountId || null,
+        postTone,
+        jobPreferences: {
+          title: jobTitle,
+          requiredSkills: requiredSkills.split(",").map((s) => s.trim()).filter(Boolean),
+          techStack: techStack.split(",").map((s) => s.trim()).filter(Boolean),
+          experienceRange: experienceRange || null,
+          location: location || null,
+          locationType,
+          employmentType,
+        },
       };
     }
     return {};
@@ -100,10 +129,12 @@ export default function AgentConfigForm({ onClose, onCreated, editConfig }) {
   };
 
   const isSalesOp = pipelineType === "sales_operator";
+  const isRecruiter = pipelineType === "recruiter";
   const canSubmit =
     name.trim() &&
     pipelineType &&
-    (!isSalesOp || (campaignId && accountId));
+    (!isSalesOp || (campaignId && accountId)) &&
+    (!isRecruiter || jobTitle.trim());
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 overflow-y-auto py-8">
@@ -241,6 +272,128 @@ export default function AgentConfigForm({ onClose, onCreated, editConfig }) {
                       value={waitMinutes}
                       onChange={(e) => setWaitMinutes(e.target.value)}
                     />
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Recruiter specific fields */}
+          {isRecruiter && (
+            <div className="space-y-4 p-4 bg-base-200/50 rounded-xl border border-base-300">
+              <p className="text-xs font-semibold text-base-content/60 uppercase tracking-wider">Job Preferences</p>
+
+              {loadingData ? (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 size={18} className="animate-spin text-primary" />
+                  <span className="ml-2 text-sm text-base-content/50">Loading accounts...</span>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">Job Title *</label>
+                    <input
+                      type="text"
+                      className="input input-bordered w-full"
+                      placeholder="e.g. Senior React Developer"
+                      value={jobTitle}
+                      onChange={(e) => setJobTitle(e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">Required Skills <span className="text-base-content/40 font-normal">(comma-separated)</span></label>
+                    <input
+                      type="text"
+                      className="input input-bordered w-full"
+                      placeholder="e.g. React, Node.js, TypeScript"
+                      value={requiredSkills}
+                      onChange={(e) => setRequiredSkills(e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">Tech Stack <span className="text-base-content/40 font-normal">(comma-separated)</span></label>
+                    <input
+                      type="text"
+                      className="input input-bordered w-full"
+                      placeholder="e.g. Next.js, PostgreSQL, AWS"
+                      value={techStack}
+                      onChange={(e) => setTechStack(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-sm font-medium mb-1 block">Experience</label>
+                      <input
+                        type="text"
+                        className="input input-bordered w-full"
+                        placeholder="e.g. 3-5 years"
+                        value={experienceRange}
+                        onChange={(e) => setExperienceRange(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium mb-1 block">Location</label>
+                      <input
+                        type="text"
+                        className="input input-bordered w-full"
+                        placeholder="e.g. San Francisco"
+                        value={location}
+                        onChange={(e) => setLocation(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-sm font-medium mb-1 block">Location Type</label>
+                      <select className="select select-bordered w-full" value={locationType} onChange={(e) => setLocationType(e.target.value)}>
+                        <option value="remote">Remote</option>
+                        <option value="onsite">Onsite</option>
+                        <option value="hybrid">Hybrid</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium mb-1 block">Employment Type</label>
+                      <select className="select select-bordered w-full" value={employmentType} onChange={(e) => setEmploymentType(e.target.value)}>
+                        <option value="full-time">Full-time</option>
+                        <option value="part-time">Part-time</option>
+                        <option value="contract">Contract</option>
+                        <option value="internship">Internship</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">Post Tone</label>
+                    <select className="select select-bordered w-full" value={postTone} onChange={(e) => setPostTone(e.target.value)}>
+                      <option value="professional">Professional</option>
+                      <option value="casual">Casual / Friendly</option>
+                      <option value="enthusiastic">Enthusiastic</option>
+                      <option value="formal">Formal</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">LinkedIn Account <span className="text-base-content/40 font-normal">(for auto-posting)</span></label>
+                    <select
+                      className="select select-bordered w-full"
+                      value={recruiterAccountId}
+                      onChange={(e) => setRecruiterAccountId(e.target.value)}
+                    >
+                      <option value="">None (publish locally only)</option>
+                      {accountsList.map((a) => (
+                        <option key={a.dbId || a.id} value={a.dbId || a.id}>
+                          {a.name || a.email} {a.isActive ? "" : "(inactive)"}
+                        </option>
+                      ))}
+                    </select>
+                    {accountsList.length === 0 && (
+                      <p className="text-xs text-base-content/50 mt-1">No LinkedIn accounts connected. Post will be published locally.</p>
+                    )}
                   </div>
                 </>
               )}
