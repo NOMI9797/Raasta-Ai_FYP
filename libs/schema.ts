@@ -176,6 +176,49 @@ export const candidates = pgTable('candidates', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+// Agent Configs — reusable agent configurations per user
+export const agentConfigs = pgTable('agent_configs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  pipelineType: varchar('pipeline_type', { length: 30 }).notNull(),
+  name: text('name').notNull(),
+  mode: varchar('mode', { length: 20 }).notNull().default('semi_auto'),
+  config: json('config').notNull(),
+  isActive: boolean('is_active').default(true).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// Agent Runs — tracks each execution of an agent pipeline
+export const agentRuns = pgTable('agent_runs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  agentConfigId: uuid('agent_config_id').references(() => agentConfigs.id, { onDelete: 'set null' }),
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  pipelineType: varchar('pipeline_type', { length: 30 }).notNull(),
+  mode: varchar('mode', { length: 20 }).notNull(),
+  status: varchar('status', { length: 30 }).notNull().default('queued'),
+  currentStep: varchar('current_step', { length: 50 }),
+  totalSteps: integer('total_steps'),
+  results: json('results'),
+  errorMessage: text('error_message'),
+  startedAt: timestamp('started_at'),
+  completedAt: timestamp('completed_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// Agent Steps — logs each step of a run
+export const agentSteps = pgTable('agent_steps', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  agentRunId: uuid('agent_run_id').references(() => agentRuns.id, { onDelete: 'cascade' }).notNull(),
+  stepKey: varchar('step_key', { length: 50 }).notNull(),
+  stepIndex: integer('step_index').notNull(),
+  status: varchar('status', { length: 30 }).notNull().default('pending'),
+  input: json('input'),
+  output: json('output'),
+  startedAt: timestamp('started_at'),
+  completedAt: timestamp('completed_at'),
+});
+
 // Database initialization function
 export async function initializeDatabase() {
   const { migrate } = await import('drizzle-orm/postgres-js/migrator');

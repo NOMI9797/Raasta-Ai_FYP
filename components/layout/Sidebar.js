@@ -18,6 +18,7 @@ import {
   TrendingUp,
   Briefcase,
   Shield,
+  Bot,
 } from "lucide-react";
 
 const allMenuItems = [
@@ -27,6 +28,7 @@ const allMenuItems = [
   { icon: UserCheck, label: "Accounts", href: "/dashboard/accounts", key: "accounts", roles: ["admin"] },
   { icon: BarChart3, label: "Dashboard", href: "/dashboard/recruiter", key: "recruiter", roles: ["recruiter"] },
   { icon: Briefcase, label: "Hiring", href: "/dashboard/hiring", key: "hiring", roles: ["admin", "recruiter"] },
+  { icon: Bot, label: "Agents", href: "/dashboard/agents", key: "agents", roles: ["admin", "sales_operator", "recruiter"] },
   { icon: TrendingUp, label: "Statistics", href: "/dashboard/statistics", key: "statistics", roles: ["admin", "sales_operator", "recruiter"] },
   { icon: Settings, label: "Settings", href: "/dashboard/settings", key: "settings", roles: ["admin", "sales_operator", "recruiter"] },
 ];

@@ -7,12 +7,37 @@ import CampaignsList from "@/app/dashboard/campaigns/components/CampaignsList";
 import CampaignWorkspace from "@/app/dashboard/campaigns/components/CampaignWorkspace";
 import Sidebar from "@/components/layout/Sidebar";
 import TopBar from "@/components/layout/TopBar";
+import toast from "react-hot-toast";
+import { Bot, Loader2 } from "lucide-react";
 
 export default function CampaignsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [selectedCampaign, setSelectedCampaign] = useState(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [launchingAgent, setLaunchingAgent] = useState(false);
+
+  const handleLaunchSalesAgent = async () => {
+    setLaunchingAgent(true);
+    try {
+      const res = await fetch("/api/agents/runs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pipelineType: "sales_operator", mode: "semi_auto", config: {} }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success("Sales agent launched! Check the Agents page for status.");
+        router.push("/dashboard/agents");
+      } else {
+        toast.error(data.error || "Failed to launch agent");
+      }
+    } catch {
+      toast.error("Network error");
+    } finally {
+      setLaunchingAgent(false);
+    }
+  };
 
   // Redirect if not authenticated or not allowed (campaigns: sales_operator, admin)
   useEffect(() => {
@@ -52,8 +77,22 @@ export default function CampaignsPage() {
         sidebarCollapsed ? "ml-16" : "ml-64"
       } flex flex-col h-full overflow-hidden`}>
         {/* Top Bar */}
-        <div className="flex-shrink-0">
-          <TopBar title="Campaigns" />
+        <div className="flex-shrink-0 flex items-center">
+          <div className="flex-1">
+            <TopBar title="Campaigns" />
+          </div>
+          {!selectedCampaign && (
+            <div className="pr-4">
+              <button
+                className="btn btn-outline btn-sm gap-1"
+                onClick={handleLaunchSalesAgent}
+                disabled={launchingAgent}
+              >
+                {launchingAgent ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}
+                Run Agent
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Content Area */}

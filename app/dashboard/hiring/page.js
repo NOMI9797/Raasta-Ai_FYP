@@ -4,7 +4,7 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useCallback } from "react";
 import toast from "react-hot-toast";
-import { Plus, Briefcase } from "lucide-react";
+import { Plus, Briefcase, Bot, Loader2 } from "lucide-react";
 import Sidebar from "@/components/layout/Sidebar";
 import TopBar from "@/components/layout/TopBar";
 import CreateJobModal from "./components/CreateJobModal";
@@ -20,6 +20,7 @@ export default function HiringPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
   const [generatingId, setGeneratingId] = useState(null);
+  const [launchingAgent, setLaunchingAgent] = useState(false);
 
   useEffect(() => {
     if (status === "loading") return;
@@ -103,6 +104,28 @@ export default function HiringPage() {
     }
   };
 
+  const handleLaunchRecruiterAgent = async () => {
+    setLaunchingAgent(true);
+    try {
+      const res = await fetch("/api/agents/runs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pipelineType: "recruiter", mode: "semi_auto", config: {} }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success("Recruiter agent launched! Check the Agents page for status.");
+        router.push("/dashboard/agents");
+      } else {
+        toast.error(data.error || "Failed to launch agent");
+      }
+    } catch {
+      toast.error("Network error");
+    } finally {
+      setLaunchingAgent(false);
+    }
+  };
+
   if (status === "loading") {
     return (
       <div className="min-h-screen bg-base-100 flex items-center justify-center">
@@ -140,9 +163,19 @@ export default function HiringPage() {
                 Create job preferences and generate AI-powered LinkedIn posts
               </p>
             </div>
-            <button className="btn btn-primary btn-sm gap-1" onClick={() => setShowCreate(true)}>
-              <Plus className="h-4 w-4" /> New job
-            </button>
+            <div className="flex gap-2">
+              <button
+                className="btn btn-outline btn-sm gap-1"
+                onClick={handleLaunchRecruiterAgent}
+                disabled={launchingAgent}
+              >
+                {launchingAgent ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}
+                Run Agent
+              </button>
+              <button className="btn btn-primary btn-sm gap-1" onClick={() => setShowCreate(true)}>
+                <Plus className="h-4 w-4" /> New job
+              </button>
+            </div>
           </div>
 
           {/* Summary cards */}
