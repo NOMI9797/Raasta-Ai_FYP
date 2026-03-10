@@ -1,16 +1,25 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSession } from "next-auth/react";
 import { X, Bot, Briefcase, Users, Loader2 } from "lucide-react";
 
-const PIPELINE_OPTIONS = [
-  { value: "recruiter", label: "Recruiter", icon: Users, description: "Job posting, candidate screening & shortlisting" },
-  { value: "sales_operator", label: "Sales Operator", icon: Briefcase, description: "Campaign outreach, invites & messaging" },
+const ALL_PIPELINE_OPTIONS = [
+  { value: "recruiter", label: "Recruiter", icon: Users, description: "Job posting, candidate screening & shortlisting", roles: ["recruiter", "admin"] },
+  { value: "sales_operator", label: "Sales Operator", icon: Briefcase, description: "Campaign outreach, invites & messaging", roles: ["sales_operator", "admin"] },
 ];
 
 export default function AgentConfigForm({ onClose, onCreated, editConfig }) {
+  const { data: session } = useSession();
+  const userRole = session?.user?.role || "sales_operator";
+
+  const pipelineOptions = ALL_PIPELINE_OPTIONS.filter((opt) => opt.roles.includes(userRole));
+
   const [name, setName] = useState(editConfig?.name || "");
-  const [pipelineType, setPipelineType] = useState(editConfig?.pipelineType || "");
+  // For recruiter/sales_operator roles, auto-select their single option
+  const defaultPipeline = editConfig?.pipelineType ||
+    (pipelineOptions.length === 1 ? pipelineOptions[0].value : "");
+  const [pipelineType, setPipelineType] = useState(defaultPipeline);
   const [mode, setMode] = useState(editConfig?.mode || "semi_auto");
   const [saving, setSaving] = useState(false);
 
@@ -123,11 +132,11 @@ export default function AgentConfigForm({ onClose, onCreated, editConfig }) {
             />
           </div>
 
-          {!editConfig && (
+          {!editConfig && pipelineOptions.length > 1 && (
             <div>
               <label className="text-sm font-medium mb-2 block">Pipeline Type</label>
               <div className="grid grid-cols-2 gap-3">
-                {PIPELINE_OPTIONS.map((opt) => {
+                {pipelineOptions.map((opt) => {
                   const Icon = opt.icon;
                   return (
                     <button
