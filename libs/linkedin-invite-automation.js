@@ -62,12 +62,13 @@ async function getProfileHeaderContainer(page) {
   
   // Multiple possible selectors for the profile header/actions area
   const headerSelectors = [
-    '.pv-top-card', // Most common - profile top card
+    '.pvs-profile-actions',                    // Primary actions container (Connect / Message / More)
+    '.pv-top-card-v2-ctas',                   // Newer top card CTA container
+    '.pv-top-card',                           // Fallback - profile top card
     '.scaffold-layout__main .pv-top-card',
     'section.artdeco-card.pv-top-card',
-    '.profile-background-image ~ div', // Container after background image
-    'main .ph5', // Main content area
-    '.scaffold-layout__main section:first-of-type' // First section in main layout
+    '.profile-background-image ~ div',
+    '.scaffold-layout__main section:first-of-type'
   ];
   
   for (const selector of headerSelectors) {
@@ -276,12 +277,18 @@ export async function findConnectButton(page) {
             
             // Check if this is Connect button
             if (buttonText && buttonText.toLowerCase().includes('connect')) {
-              // Skip Connect buttons that live in the right-hand suggestions/aside
+              // Skip Connect buttons that live in the right-hand suggestions/aside / browsemap
               const isInAside = await buttonHandle.evaluate(el => {
-                return !!el.closest('aside') || !!el.closest('.scaffold-layout__aside');
+                return (
+                  !!el.closest('aside') ||
+                  !!el.closest('.scaffold-layout__aside') ||
+                  !!el.closest('.pv-browsemap-section') ||
+                  !!el.closest('.scaffold-layout__aside-sticky-container') ||
+                  !!el.closest('[data-view-name="profile-card"]')
+                );
               });
               if (isInAside) {
-                console.log('↪️ Skipping Connect button in sidebar suggestions');
+                console.log('↪️ Skipping Connect button in sidebar/suggestions');
                 continue;
               }
 
