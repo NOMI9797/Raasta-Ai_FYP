@@ -105,11 +105,6 @@ const AIResponseColumn = memo(function AIResponseColumn({
             <Wand2 className="h-8 w-8 mx-auto mb-2 opacity-50" />
             <p className="text-sm">Select a lead to generate messages</p>
           </div>
-        ) : selectedLead.status !== "completed" ? (
-          <div className="text-center text-base-content/60 py-8">
-            <Loader2 className="h-8 w-8 mx-auto mb-2 opacity-50 animate-spin" />
-            <p className="text-sm">Wait for lead processing to complete</p>
-          </div>
         ) : (
           <>
             {/* Generate Button */}
