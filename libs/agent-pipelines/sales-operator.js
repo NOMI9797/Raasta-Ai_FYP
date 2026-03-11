@@ -40,122 +40,123 @@ export const salesOperatorPipeline = {
           };
         }
 
-        // Call the Apify scraping API (server-side internal call)
+        // Call the same scraping endpoint the manual "Run All" flow uses
         const leadUrls = pendingLeads.map((l) => l.url);
         let scrapedCount = 0;
 
         try {
-          const token =
-            process.env.APIFY_API_TOKEN ||
-            process.env.apify_api_token ||
-            process.env.APIFY_TOKEN;
-          if (token) {
-            const { ApifyClient } = await import("apify-client");
-            const client = new ApifyClient({ token });
+          const baseUrl =
+            process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL;
+          if (!baseUrl) {
+            throw new Error(
+              "Base URL not configured (NEXTAUTH_URL or NEXT_PUBLIC_APP_URL)"
+            );
+          }
 
-            const apifyInput = {
+          const endpoint = new URL("/api/scrape", baseUrl).toString();
+          console.log("🤖 [sales_operator] Calling internal /api/scrape", {
+            endpoint,
+            leadCount: leadUrls.length,
+          });
+
+          const resp = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
               urls: leadUrls,
               limitPerSource: 10,
               deepScrape: true,
               rawData: false,
-            };
+              streamProgress: false,
+            }),
+          });
+
+          const data = await resp.json();
+          if (!resp.ok) {
+            throw new Error(data.error || "Failed to scrape profiles via /api/scrape");
+          }
+
+          const items = data.items || [];
+          console.log(
+            "🤖 [sales_operator] /api/scrape items (agent scrape_profiles):",
+            items.length
+          );
+          if (items.length > 0) {
             console.log(
-              "🤖 [sales_operator] Apify input (agent scrape_profiles):",
-              apifyInput
+              "🤖 [sales_operator] Sample item structure (agent via /api/scrape):",
+              JSON.stringify(items[0], null, 2)
+            );
+          }
+
+          // Process scraped items and update leads (same as manual flow)
+          const { extractLeadInfo, cleanScrapedPosts } = await import(
+            "@/libs/scraping-utils"
+          );
+
+          for (const lead of pendingLeads) {
+            const leadItems = items.filter(
+              (item) =>
+                (item.inputUrl || item.sourceUrl || "")
+                  .toLowerCase()
+                  .includes(
+                    lead.url.toLowerCase().replace(/\/$/, "").split("/").pop()
+                  )
             );
 
-            const run = await client
-              .actor("Wpp1BZ6yGWjySadk3")
-              .call(apifyInput);
-            const { items } = await client
-              .dataset(run.defaultDatasetId)
-              .listItems();
+            if (leadItems.length > 0) {
+              const info = extractLeadInfo(leadItems);
+              const cleanedPosts = cleanScrapedPosts(leadItems);
 
-            console.log(
-              "🤖 [sales_operator] Apify raw items (agent scrape_profiles):",
-              items.length
-            );
-            if (items.length > 0) {
-              console.log(
-                "🤖 [sales_operator] Sample item structure (agent scrape_profiles):",
-                JSON.stringify(items[0], null, 2)
-              );
-            }
-
-            // Process scraped items and update leads
-            const { extractLeadInfo, cleanScrapedPosts } = await import(
-              "@/libs/scraping-utils"
-            );
-
-            for (const lead of pendingLeads) {
-              const leadItems = items.filter(
-                (item) =>
-                  (item.inputUrl || item.sourceUrl || "")
-                    .toLowerCase()
-                    .includes(lead.url.toLowerCase().replace(/\/$/, "").split("/").pop())
-              );
-
-              if (leadItems.length > 0) {
-                const info = extractLeadInfo(leadItems);
-                const cleanedPosts = cleanScrapedPosts(leadItems);
-
-                // Update lead basic info + embedded posts JSON (for backwards compatibility)
-                await ctx.db
-                  .update(leads)
-                  .set({
-                    name: info.name || lead.name,
-                    title: info.title || lead.title,
-                    company: info.company || lead.company,
-                    profilePicture: info.profilePicture || lead.profilePicture,
-                    posts: cleanedPosts,
-                    status: "scraped",
-                    updatedAt: new Date(),
-                  })
-                  .where(eq(leads.id, lead.id));
-
-                // Also persist posts into the dedicated posts table so the
-                // campaigns UI (Recent Posts panel) and message generator
-                // can read them via /api/leads/[id]/posts.
-                if (Array.isArray(cleanedPosts) && cleanedPosts.length > 0) {
-                  const rows = cleanedPosts.map((p) => {
-                    const likes = Number(p.numLikes || 0) || 0;
-                    const comments = Number(p.numComments || 0) || 0;
-                    const shares = Number(p.numShares || 0) || 0;
-                    return {
-                      userId: ctx.userId,
-                      leadId: lead.id,
-                      content: p.content || "",
-                      timestamp: new Date(p.timestamp || new Date()),
-                      likes,
-                      comments,
-                      shares,
-                      engagement: likes + comments * 2 + shares * 3,
-                    };
-                  });
-
-                  // Replace any existing posts for this lead
-                  await ctx.db
-                    .delete(posts)
-                    .where(and(eq(posts.leadId, lead.id), eq(posts.userId, ctx.userId)));
-
-                  await ctx.db.insert(posts).values(rows);
-                }
-
-                scrapedCount++;
-              }
-            }
-          } else {
-            // No Apify token — mark leads as scraped so pipeline continues
-            for (const lead of pendingLeads) {
+              // Update lead basic info + embedded posts JSON (for backwards compatibility)
               await ctx.db
                 .update(leads)
-                .set({ status: "scraped", updatedAt: new Date() })
+                .set({
+                  name: info.name || lead.name,
+                  title: info.title || lead.title,
+                  company: info.company || lead.company,
+                  profilePicture: info.profilePicture || lead.profilePicture,
+                  posts: cleanedPosts,
+                  status: "scraped",
+                  updatedAt: new Date(),
+                })
                 .where(eq(leads.id, lead.id));
+
+              // Also persist posts into the dedicated posts table so the
+              // campaigns UI (Recent Posts panel) and message generator
+              // can read them via /api/leads/[id]/posts.
+              if (Array.isArray(cleanedPosts) && cleanedPosts.length > 0) {
+                const rows = cleanedPosts.map((p) => {
+                  const likes = Number(p.numLikes || 0) || 0;
+                  const comments = Number(p.numComments || 0) || 0;
+                  const shares = Number(p.numShares || 0) || 0;
+                  return {
+                    userId: ctx.userId,
+                    leadId: lead.id,
+                    content: p.content || "",
+                    timestamp: new Date(p.timestamp || new Date()),
+                    likes,
+                    comments,
+                    shares,
+                    engagement: likes + comments * 2 + shares * 3,
+                  };
+                });
+
+                // Replace any existing posts for this lead
+                await ctx.db
+                  .delete(posts)
+                  .where(and(eq(posts.leadId, lead.id), eq(posts.userId, ctx.userId)));
+
+                await ctx.db.insert(posts).values(rows);
+              }
+
               scrapedCount++;
             }
           }
         } catch (err) {
-          console.error("Apify scrape error:", err.message);
+          console.error(
+            "Agent scrape_profiles via internal /api/scrape error:",
+            err.message
+          );
           // Mark remaining leads as scraped to unblock pipeline
           for (const lead of pendingLeads) {
             if (lead.status === "pending") {
