@@ -45,21 +45,47 @@ export const salesOperatorPipeline = {
         let scrapedCount = 0;
 
         try {
-          const token = process.env.APIFY_API_TOKEN || process.env.apify_api_token || process.env.APIFY_TOKEN;
+          const token =
+            process.env.APIFY_API_TOKEN ||
+            process.env.apify_api_token ||
+            process.env.APIFY_TOKEN;
           if (token) {
             const { ApifyClient } = await import("apify-client");
             const client = new ApifyClient({ token });
 
-            const run = await client.actor("Wpp1BZ6yGWjySadk3").call({
+            const apifyInput = {
               urls: leadUrls,
               limitPerSource: 10,
               deepScrape: true,
               rawData: false,
-            });
-            const { items } = await client.dataset(run.defaultDatasetId).listItems();
+            };
+            console.log(
+              "🤖 [sales_operator] Apify input (agent scrape_profiles):",
+              apifyInput
+            );
+
+            const run = await client
+              .actor("Wpp1BZ6yGWjySadk3")
+              .call(apifyInput);
+            const { items } = await client
+              .dataset(run.defaultDatasetId)
+              .listItems();
+
+            console.log(
+              "🤖 [sales_operator] Apify raw items (agent scrape_profiles):",
+              items.length
+            );
+            if (items.length > 0) {
+              console.log(
+                "🤖 [sales_operator] Sample item structure (agent scrape_profiles):",
+                JSON.stringify(items[0], null, 2)
+              );
+            }
 
             // Process scraped items and update leads
-            const { extractLeadInfo, cleanScrapedPosts } = await import("@/libs/scraping-utils");
+            const { extractLeadInfo, cleanScrapedPosts } = await import(
+              "@/libs/scraping-utils"
+            );
 
             for (const lead of pendingLeads) {
               const leadItems = items.filter(
