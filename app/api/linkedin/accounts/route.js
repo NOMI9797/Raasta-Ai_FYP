@@ -6,7 +6,11 @@ const sessionManager = new LinkedInSessionManager();
 
 export const GET = withAuth(async (request, { user }) => {
   try {
-    const sessions = await sessionManager.getAllSessions(user.id);
+    // Allow operators (admin / sales_operator / recruiter) to see all connected accounts
+    const sharedRoles = ['admin', 'sales_operator', 'recruiter'];
+    const sessions = sharedRoles.includes(user.role)
+      ? await sessionManager.getAllSessions()
+      : await sessionManager.getAllSessions(user.id);
     
     // Transform sessions to account format
     const accounts = sessions.map(session => ({
