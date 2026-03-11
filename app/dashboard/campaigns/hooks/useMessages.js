@@ -112,6 +112,9 @@ export function useMessages() {
 
     setCurrentLeadId(leadId);
 
+    // Always refetch from server so agent-generated messages show up
+    queryClient.invalidateQueries({ queryKey: messageKeys.forLead(leadId) });
+
     // Only set cached message if we're not currently streaming
     if (!isStreaming) {
       const cachedMessages = queryClient.getQueryData(messageKeys.forLead(leadId));
