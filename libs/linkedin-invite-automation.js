@@ -10,6 +10,20 @@ import { updateLeadStatus } from './lead-status-manager';
 // Debug mode: Enable screenshots and verbose logging
 const DEBUG_MODE = process.env.ENABLE_DEBUG === 'true' || process.env.NODE_ENV === 'development';
 
+async function captureStepScreenshot(page, leadId, step) {
+  if (!DEBUG_MODE) return;
+  try {
+    const fs = await import('fs');
+    const dir = './debug-invites';
+    await fs.promises.mkdir(dir, { recursive: true });
+    const filePath = `${dir}/invite-${leadId}-${step}-${Date.now()}.png`;
+    await page.screenshot({ path: filePath, fullPage: false });
+    console.log(`📸 [${leadId}] Screenshot for step "${step}" saved to ${filePath}`);
+  } catch (e) {
+    console.log(`⚠️ Failed to capture screenshot for step "${step}":`, e.message);
+  }
+}
+
 /**
  * Wait for LinkedIn profile page to stabilize
  * @param {Page} page - Playwright page object
@@ -674,15 +688,11 @@ export async function processInvitesDirectly(context, page, leads, customMessage
       // OPTIMIZATION: Reduced page load waits
       await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
       await page.waitForTimeout(1000);  // Reduced from 3s → 1s
+      await captureStepScreenshot(page, lead.id, 'after_navigate');
       
       // Stage 3: Checking connection status (40% of this lead)
       await sendProgress('checking', 0.4);
-
-      // OPTIMIZATION: Take screenshot only in debug mode
-      if (DEBUG_MODE) {
-        const screenshotPath = `./debug-profile-${lead.id}-${Date.now()}.png`;
-        await page.screenshot({ path: screenshotPath, fullPage: false });
-      }
+      await captureStepScreenshot(page, lead.id, 'before_check_status');
 
       // Check if already connected or pending
       const isAlreadyProcessed = await checkConnectionStatus(page, campaignId, lead, results);
@@ -741,12 +751,7 @@ export async function processInvitesDirectly(context, page, leads, customMessage
 
       // Stage 5: Clicking Connect button (60% of this lead)
       await sendProgress('clicking', 0.6);
-
-      // OPTIMIZATION: Take screenshot only in debug mode
-      if (DEBUG_MODE) {
-        const beforeClickPath = `./debug-before-click-${lead.id}-${Date.now()}.png`;
-        await page.screenshot({ path: beforeClickPath, fullPage: false });
-      }
+      await captureStepScreenshot(page, lead.id, 'before_click_connect');
 
       // Click Connect button
       const clickSuccess = await clickConnectButton(connectButton, page);
@@ -764,15 +769,12 @@ export async function processInvitesDirectly(context, page, leads, customMessage
       
       // Stage 6: Waiting for modal (70% of this lead)
       await sendProgress('waiting_modal', 0.7);
+      await captureStepScreenshot(page, lead.id, 'after_click_connect');
       
       // OPTIMIZATION: Reduced modal wait from 3s → 1.5s
       await page.waitForTimeout(1500);
       
-      // OPTIMIZATION: Take screenshot only in debug mode
-      if (DEBUG_MODE) {
-        const modalScreenshotPath = `./debug-modal-${lead.id}-${Date.now()}.png`;
-        await page.screenshot({ path: modalScreenshotPath, fullPage: true });
-      }
+      await captureStepScreenshot(page, lead.id, 'before_handle_modal');
       
       // Stage 7: Sending invite (80% of this lead)
       await sendProgress('sending', 0.8);
