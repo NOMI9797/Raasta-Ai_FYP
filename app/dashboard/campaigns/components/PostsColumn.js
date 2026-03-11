@@ -27,7 +27,7 @@ const PostsColumn = memo(function PostsColumn({ selectedLead, collapsed, onToggl
   } = usePosts();
 
   useEffect(() => {
-    if (selectedLead && selectedLead.status === "completed") {
+    if (selectedLead) {
       const leadId = selectedLead._id || selectedLead.id;
       fetchPosts(leadId);
     }
@@ -89,16 +89,16 @@ const PostsColumn = memo(function PostsColumn({ selectedLead, collapsed, onToggl
             <MessageCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
             <p className="text-sm">Select a lead to view posts</p>
           </div>
-        ) : selectedLead.status !== "completed" ? (
-          <div className="p-4 text-center text-base-content/60">
-            <Loader2 className="h-8 w-8 mx-auto mb-2 opacity-50 animate-spin" />
-            <p className="text-sm">Processing lead...</p>
-            <p className="text-xs">Posts will appear once processing is complete</p>
-          </div>
         ) : isLoading ? (
           <div className="p-4 text-center text-base-content/60">
             <Loader2 className="h-8 w-8 mx-auto mb-2 animate-spin" />
             <p className="text-sm">Fetching posts...</p>
+          </div>
+        ) : posts.length === 0 && selectedLead.status !== "completed" ? (
+          <div className="p-4 text-center text-base-content/60">
+            <Loader2 className="h-8 w-8 mx-auto mb-2 opacity-50 animate-spin" />
+            <p className="text-sm">Processing lead...</p>
+            <p className="text-xs">Posts will appear once processing is complete</p>
           </div>
         ) : posts.length === 0 ? (
           <div className="p-4 text-center text-base-content/60">

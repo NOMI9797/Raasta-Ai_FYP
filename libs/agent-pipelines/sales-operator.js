@@ -116,7 +116,7 @@ export const salesOperatorPipeline = {
                   company: info.company || lead.company,
                   profilePicture: info.profilePicture || lead.profilePicture,
                   posts: cleanedPosts,
-                  status: "scraped",
+                  status: "completed",
                   updatedAt: new Date(),
                 })
                 .where(eq(leads.id, lead.id));
@@ -162,9 +162,8 @@ export const salesOperatorPipeline = {
             if (lead.status === "pending") {
               await ctx.db
                 .update(leads)
-                .set({ status: "scraped", updatedAt: new Date() })
+                .set({ status: "error", updatedAt: new Date() })
                 .where(eq(leads.id, lead.id));
-              scrapedCount++;
             }
           }
         }
