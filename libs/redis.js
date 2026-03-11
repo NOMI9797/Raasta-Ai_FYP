@@ -40,6 +40,10 @@ export function getRedisClient() {
         maxRetriesPerRequest: 3,
         lazyConnect: true,
         keepAlive: 30000,
+        // For Redis Cloud over rediss://, allow their certificate chain
+        tls: {
+          rejectUnauthorized: false,
+        },
       });
     } else {
       redis = new Redis(redisConfig);
