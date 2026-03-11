@@ -15,46 +15,31 @@ function logRedisError(prefix, error) {
 }
 
 // Redis configuration - Support both URL and individual config
-const redisConfig = process.env.REDIS_URL 
-  ? {
-      // Use Redis URL (Upstash format) - ioredis will parse the URL
-      url: process.env.REDIS_URL,
-      retryDelayOnFailover: 100,
-      maxRetriesPerRequest: 3,
-      lazyConnect: true,
-      keepAlive: 30000,
-      // Upstash requires TLS
-      tls: {},
-      // Force connection to use the URL
-      family: 4,
-    }
-  : {
-      // Individual config (for other providers)
-      host: process.env.REDIS_HOST,
-      port: process.env.REDIS_PORT,
-      password: process.env.REDIS_PASSWORD,
-      retryDelayOnFailover: 100,
-      maxRetriesPerRequest: 3,
-      lazyConnect: true,
-      keepAlive: 30000,
-      // Enable TLS for cloud Redis
-      tls: process.env.REDIS_TLS === 'true' ? {} : undefined,
-    };
+const redisConfig = {
+  // For non-URL setups (fallback)
+  host: process.env.REDIS_HOST,
+  port: process.env.REDIS_PORT,
+  password: process.env.REDIS_PASSWORD,
+  retryDelayOnFailover: 100,
+  maxRetriesPerRequest: 3,
+  lazyConnect: true,
+  keepAlive: 30000,
+  // Enable TLS for cloud Redis only when explicitly requested
+  tls: process.env.REDIS_TLS === 'true' ? {} : undefined,
+};
 
 // Create Redis instance
 let redis = null;
 
 export function getRedisClient() {
   if (!redis) {
-    // Redis config loaded
-    // For Upstash, use the URL directly
+    // For URL-based config (Upstash, Redis Cloud, etc.), let the URL decide TLS/host/port
     if (process.env.REDIS_URL) {
       redis = new Redis(process.env.REDIS_URL, {
         retryDelayOnFailover: 100,
         maxRetriesPerRequest: 3,
         lazyConnect: true,
         keepAlive: 30000,
-        tls: {},
       });
     } else {
       redis = new Redis(redisConfig);
