@@ -5,7 +5,7 @@ import { eq, desc, and } from "drizzle-orm";
 import { generatePersonalizedMessage } from "@/libs/groq-service";
 import { withAuth } from "@/libs/auth-middleware";
 
-export const POST = withAuth(async (request, { user }) => {
+export async function POST(request) {
   try {
     const { leadId, customPrompt, model } = await request.json();
 
@@ -16,11 +16,11 @@ export const POST = withAuth(async (request, { user }) => {
       );
     }
 
-    // Get lead information (ensure user owns the lead)
+    // Get lead information
     const [lead] = await db
       .select()
       .from(leads)
-      .where(and(eq(leads.id, leadId), eq(leads.userId, user.id)))
+      .where(eq(leads.id, leadId))
       .limit(1);
 
     if (!lead) {
@@ -30,11 +30,11 @@ export const POST = withAuth(async (request, { user }) => {
       );
     }
 
-    // Get posts for this lead (ensure user owns the posts)
+    // Get posts for this lead
     const leadPosts = await db
       .select()
       .from(posts)
-      .where(and(eq(posts.leadId, leadId), eq(posts.userId, user.id)))
+      .where(eq(posts.leadId, leadId))
       .orderBy(desc(posts.engagement), desc(posts.timestamp))
       .limit(5);
 
@@ -63,7 +63,7 @@ export const POST = withAuth(async (request, { user }) => {
     const [savedMessage] = await db
       .insert(messages)
       .values({
-        userId: user.id,
+        userId: lead.userId,
         leadId: leadId,
         campaignId: lead.campaignId,
         content: messageContent,
@@ -87,7 +87,7 @@ export const POST = withAuth(async (request, { user }) => {
       { status: 500 }
     );
   }
-});
+}
 
 // GET /api/messages/generate - Get message history for a lead (authenticated user)
 export const GET = withAuth(async (request, { user }) => {

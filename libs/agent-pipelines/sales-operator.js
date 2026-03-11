@@ -203,26 +203,36 @@ export const salesOperatorPipeline = {
           if (existing.length > 0) continue;
 
           try {
-            const response = await generatePersonalizedMessage({
-              leadName: lead.name || "there",
-              leadTitle: lead.title || "",
-              leadCompany: lead.company || "",
-              posts: lead.posts || [],
-              customPrompt: promptTemplate,
+            const baseUrl =
+              process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL;
+            if (!baseUrl) {
+              throw new Error(
+                "Base URL not configured (NEXTAUTH_URL or NEXT_PUBLIC_APP_URL)"
+              );
+            }
+
+            const endpoint = new URL("/api/messages/generate", baseUrl).toString();
+            console.log("🤖 [sales_operator] Calling internal /api/messages/generate", {
+              endpoint,
+              leadId: lead.id,
             });
 
-            if (response?.message) {
-              await ctx.db.insert(messages).values({
-                userId: ctx.userId,
+            const resp = await fetch(endpoint, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
                 leadId: lead.id,
-                campaignId,
-                content: response.message,
                 model: "llama-3.1-8b-instant",
-                customPrompt: promptTemplate || null,
-                status: "draft",
-              });
-              generated++;
+                customPrompt: promptTemplate || "",
+              }),
+            });
+
+            const data = await resp.json();
+            if (!resp.ok || !data.success) {
+              throw new Error(data.error || "Failed to generate message via /api/messages/generate");
             }
+
+            generated++;
           } catch (err) {
             console.error(`Message gen failed for lead ${lead.id}:`, err.message);
           }
