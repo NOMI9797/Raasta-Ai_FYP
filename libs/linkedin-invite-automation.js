@@ -218,7 +218,25 @@ export async function findConnectButton(page) {
 
   // Get profile header container to limit search scope
   const profileHeader = await getProfileHeaderContainer(page);
-  const searchContext = profileHeader || page;
+
+  // Prefer the main content area over the entire page to avoid sidebar suggestions
+  let searchContext = profileHeader;
+  if (!searchContext) {
+    try {
+      const main = page.locator('main.scaffold-layout__main').first();
+      if (await main.isVisible({ timeout: 3000 })) {
+        console.log('✅ Using main.scaffold-layout__main as search context for Connect button');
+        searchContext = main;
+      }
+    } catch (e) {
+      // ignore and fallback below
+    }
+  }
+
+  if (!searchContext) {
+    console.log('⚠️ Falling back to full page search context for Connect button');
+    searchContext = page;
+  }
 
   // STRATEGY 1: Look for direct Connect button first
   const directConnectSelectors = [
@@ -258,6 +276,15 @@ export async function findConnectButton(page) {
             
             // Check if this is Connect button
             if (buttonText && buttonText.toLowerCase().includes('connect')) {
+              // Skip Connect buttons that live in the right-hand suggestions/aside
+              const isInAside = await buttonHandle.evaluate(el => {
+                return !!el.closest('aside') || !!el.closest('.scaffold-layout__aside');
+              });
+              if (isInAside) {
+                console.log('↪️ Skipping Connect button in sidebar suggestions');
+                continue;
+              }
+
               // Exclude unwanted buttons
               if (buttonText.toLowerCase().includes('message') || 
                   buttonText.toLowerCase().includes('pending') ||
