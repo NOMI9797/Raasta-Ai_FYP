@@ -60,21 +60,19 @@ async function waitForPageStabilization(page) {
 async function getProfileHeaderContainer(page) {
   console.log(`🔍 Finding profile header container...`);
   
-  // Multiple possible selectors for the profile header/actions area
   const headerSelectors = [
-    '.pvs-profile-actions',                    // Primary actions container (Connect / Message / More)
-    '.pv-top-card-v2-ctas',                   // Newer top card CTA container
-    '.pv-top-card',                           // Fallback - profile top card
-    '.scaffold-layout__main .pv-top-card',
-    'section.artdeco-card.pv-top-card',
-    '.profile-background-image ~ div',
-    '.scaffold-layout__main section:first-of-type'
+    '.pvs-profile-actions',                          // action buttons bar (most specific)
+    '.pv-top-card-v2-ctas',                          // CTA container
+    '.pv-top-card--actions',                         // older variant
+    'section.pv-top-card',                           // top card section
+    'div.ph5.pb5',                                   // profile top area
+    'main section:first-of-type .ph5',               // first section in main
   ];
   
   for (const selector of headerSelectors) {
     try {
       const container = page.locator(selector).first();
-      if (await container.isVisible({ timeout: 3000 })) {
+      if (await container.isVisible({ timeout: 2000 })) {
         console.log(`✅ Found profile header with: ${selector}`);
         return container;
       }
@@ -83,7 +81,16 @@ async function getProfileHeaderContainer(page) {
     }
   }
   
-  console.log(`⚠️ Profile header not found, will search entire page (less accurate)`);
+  // LAST RESORT: scope to first section inside main only
+  try {
+    const firstSection = page.locator('main > div > div > div section').first();
+    if (await firstSection.isVisible({ timeout: 2000 })) {
+      console.log(`✅ Using first main section as profile header`);
+      return firstSection;
+    }
+  } catch (e) {}
+  
+  console.log(`⚠️ Profile header not found`);
   return null;
 }
 
@@ -299,7 +306,25 @@ export async function findConnectButton(page) {
                   buttonText.toLowerCase() === 'connected') {
                 continue;
               }
-              
+
+              // Double-check: button must NOT be in sidebar or people-you-may-know
+              const isSafe = await buttonHandle.evaluate(el => {
+                const bad = [
+                  'aside',
+                  '.scaffold-layout__aside',
+                  '.pv-browsemap-section',
+                  '.scaffold-layout__aside-sticky-container',
+                  '[data-view-name="profile-card"]',
+                  '.pv-side-panel',
+                ];
+                return !bad.some(sel => !!el.closest(sel));
+              });
+
+              if (!isSafe) {
+                console.log('↪️ Skipping sidebar Connect button');
+                continue;
+              }
+
               console.log(`✅ Found direct Connect button`);
               return button;
             }
