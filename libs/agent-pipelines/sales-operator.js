@@ -15,6 +15,9 @@ export const salesOperatorPipeline = {
       label: "Scrape Lead Profiles",
       isCheckpoint: false,
       async execute(ctx) {
+        console.log("🤖 [sales_operator] Step scrape_profiles: started", {
+          campaignId: ctx.config?.campaignId,
+        });
         const { campaignId } = ctx.config;
         if (!campaignId) throw new Error("No campaignId in agent config");
 
@@ -139,7 +142,9 @@ export const salesOperatorPipeline = {
           }
         }
 
-        return { campaignId, totalLeads: campaignLeads.length, scraped: scrapedCount };
+        const result = { campaignId, totalLeads: campaignLeads.length, scraped: scrapedCount };
+        console.log("🤖 [sales_operator] Step scrape_profiles: completed", result);
+        return result;
       },
     },
 
@@ -149,6 +154,9 @@ export const salesOperatorPipeline = {
       label: "Generate Personalized Messages",
       isCheckpoint: false,
       async execute(ctx) {
+        console.log("🤖 [sales_operator] Step generate_messages: started", {
+          campaignId: ctx.config?.campaignId,
+        });
         const { campaignId } = ctx.config;
         const promptTemplate = ctx.config.customPrompt || "";
 
@@ -194,7 +202,9 @@ export const salesOperatorPipeline = {
           }
         }
 
-        return { campaignId, totalLeads: campaignLeads.length, generated };
+        const result = { campaignId, totalLeads: campaignLeads.length, generated };
+        console.log("🤖 [sales_operator] Step generate_messages: completed", result);
+        return result;
       },
     },
 
@@ -212,6 +222,10 @@ export const salesOperatorPipeline = {
       label: "Send LinkedIn Invites",
       isCheckpoint: false,
       async execute(ctx) {
+        console.log("🤖 [sales_operator] Step send_invites: started", {
+          campaignId: ctx.config?.campaignId,
+          accountId: ctx.config?.accountId,
+        });
         const { campaignId, accountId, dailyInviteLimit } = ctx.config;
         if (!accountId) throw new Error("No LinkedIn accountId in agent config");
 
@@ -235,11 +249,13 @@ export const salesOperatorPipeline = {
         // Check daily limit
         const limitCheck = await checkDailyLimit(accountId);
         if (!limitCheck.canSend) {
-          return {
+          const result = {
             campaignId,
             sent: 0,
             note: `Daily invite limit reached (${limitCheck.sent}/${limitCheck.limit}). Resets at ${limitCheck.resetsAt.toLocaleString()}.`,
           };
+          console.log("🤖 [sales_operator] Step send_invites: completed (limit reached)", result);
+          return result;
         }
 
         // Fetch eligible leads (not yet invited)
@@ -280,7 +296,7 @@ export const salesOperatorPipeline = {
           await cleanupBrowserSession(sessionCheck.context);
         }
 
-        return {
+        const result = {
           campaignId,
           sent: results.sent,
           alreadyConnected: results.alreadyConnected,
@@ -288,6 +304,8 @@ export const salesOperatorPipeline = {
           failed: results.failed,
           total: leadsToProcess.length,
         };
+        console.log("🤖 [sales_operator] Step send_invites: completed", result);
+        return result;
       },
     },
 
@@ -297,6 +315,10 @@ export const salesOperatorPipeline = {
       label: "Wait & Check Connections",
       isCheckpoint: false,
       async execute(ctx) {
+        console.log("🤖 [sales_operator] Step wait_and_check: started", {
+          accountId: ctx.config?.accountId,
+          waitMinutes: ctx.config?.waitMinutes,
+        });
         const { accountId, waitMinutes } = ctx.config;
         const waitMs = (waitMinutes || 30) * 60 * 1000;
 
@@ -314,12 +336,14 @@ export const salesOperatorPipeline = {
 
         const result = await checkConnectionAcceptances(account, ctx.userId);
 
-        return {
+        const summary = {
           matched: result.matched || 0,
           updated: result.updated || 0,
           messagesSent: result.messagesSent || 0,
           total: result.total || 0,
         };
+        console.log("🤖 [sales_operator] Step wait_and_check: completed", summary);
+        return summary;
       },
     },
 
@@ -329,6 +353,10 @@ export const salesOperatorPipeline = {
       label: "Send Messages to Accepted",
       isCheckpoint: false,
       async execute(ctx) {
+        console.log("🤖 [sales_operator] Step send_messages: started", {
+          campaignId: ctx.config?.campaignId,
+          accountId: ctx.config?.accountId,
+        });
         const { campaignId, accountId } = ctx.config;
 
         // checkConnectionAcceptances in step 5 already sends messages to accepted
@@ -416,8 +444,7 @@ export const salesOperatorPipeline = {
           .select()
           .from(leads)
           .where(eq(leads.campaignId, campaignId));
-
-        return {
+        const result = {
           campaignId,
           totalLeads: finalLeads.length,
           invitesSent: finalLeads.filter((l) => l.inviteSent).length,
@@ -425,6 +452,8 @@ export const salesOperatorPipeline = {
           messagesSent: finalLeads.filter((l) => l.messageSent).length,
           pending: finalLeads.filter((l) => l.inviteStatus === "sent").length,
         };
+        console.log("🤖 [sales_operator] Step send_messages: completed", result);
+        return result;
       },
     },
 
@@ -434,6 +463,9 @@ export const salesOperatorPipeline = {
       label: "Results Report",
       isCheckpoint: false,
       async execute(ctx) {
+        console.log("🤖 [sales_operator] Step report_results: started", {
+          campaignId: ctx.config?.campaignId,
+        });
         const { campaignId } = ctx.config;
 
         const allLeads = await ctx.db.select().from(leads).where(eq(leads.campaignId, campaignId));
@@ -441,8 +473,7 @@ export const salesOperatorPipeline = {
           .select()
           .from(messages)
           .where(eq(messages.campaignId, campaignId));
-
-        return {
+        const summary = {
           campaignId,
           summary: {
             totalLeads: allLeads.length,
@@ -454,6 +485,8 @@ export const salesOperatorPipeline = {
             messagesSent: allMessages.filter((m) => m.status === "sent").length,
           },
         };
+        console.log("🤖 [sales_operator] Step report_results: completed", summary);
+        return summary;
       },
     },
   ],
