@@ -24,8 +24,7 @@ const redisConfig = {
   maxRetriesPerRequest: 3,
   lazyConnect: true,
   keepAlive: 30000,
-  // Enable TLS for cloud Redis only when explicitly requested
-  tls: process.env.REDIS_TLS === 'true' ? {} : undefined,
+  // No TLS here – use redis:// vs rediss:// in URL instead
 };
 
 // Create Redis instance
@@ -40,10 +39,7 @@ export function getRedisClient() {
         maxRetriesPerRequest: 3,
         lazyConnect: true,
         keepAlive: 30000,
-        // For Redis Cloud over rediss://, allow their certificate chain
-        tls: {
-          rejectUnauthorized: false,
-        },
+        // IMPORTANT: no tls override here – protocol (redis/rediss) controls SSL
       });
     } else {
       redis = new Redis(redisConfig);
