@@ -209,51 +209,10 @@ async function connectLinkedInViaBrowser(sessionId, email, password) {
 
     await humanLikeDelay(page, 2000, 4000);
 
-    // ── Step 5: Extract profile info ──
-    let userName = 'browser-login';
-    let profileImageUrl = null;
+    // ── Step 5: Capture session data only (no profile scraping) ──
+    const userName = email || 'linkedin-account';
+    const profileImageUrl = null;
 
-    try {
-      console.log('👤 Extracting user profile information...');
-      
-      const meButton = page.locator('#global-nav button[aria-label*="Me" i], #global-nav button:has-text("Me")').first();
-      await meButton.waitFor({ state: 'visible', timeout: 10000 });
-      await meButton.click();
-      await page.waitForTimeout(2000);
-      screenshots.push(await captureScreenshot(page, 'Me dropdown opened'));
-
-      const nameLocator = page.locator('.profile-card-name').first();
-      if (await nameLocator.isVisible().catch(() => false)) {
-        userName = (await nameLocator.innerText()).trim();
-      } else {
-        const altName = page.locator('#global-nav :is(h3.profile-card-name, .profile-card-name)').first();
-        if (await altName.isVisible().catch(() => false)) {
-          userName = (await altName.innerText()).trim();
-        }
-      }
-
-      const imgLocator = page.locator('img.profile-card-profile-picture').first();
-      if (await imgLocator.isVisible().catch(() => false)) {
-        const src = await imgLocator.getAttribute('src');
-        if (src && /^https?:\/\//.test(src)) profileImageUrl = src;
-      } else {
-        const altImg = page.locator('#global-nav img[alt^="Photo of "]').first();
-        if (await altImg.isVisible().catch(() => false)) {
-          const src = await altImg.getAttribute('src');
-          if (src && /^https?:\/\//.test(src)) profileImageUrl = src;
-        }
-      }
-
-      console.log(`👤 Extracted name: ${userName}`);
-      console.log(`🖼️ Profile image: ${profileImageUrl || 'Not found'}`);
-      screenshots.push(await captureScreenshot(page, `Profile extracted — ${userName}`));
-
-    } catch (error) {
-      console.log('⚠️ Could not extract profile info, using defaults');
-      screenshots.push(await captureScreenshot(page, 'Profile extraction failed'));
-    }
-
-    // ── Step 6: Capture session data ──
     const cookies = await context.cookies();
     const localStorage = await page.evaluate(() => {
       const storage = {};
@@ -294,9 +253,6 @@ async function connectLinkedInViaBrowser(sessionId, email, password) {
 
 export const POST = withAuth(async (request, { user }) => {
   try {
-    console.log('🚀 Starting LinkedIn connection process...');
-    console.log('👤 User ID:', user.id);
-    
     // Check if user already has an active connection
     if (activeConnections.has(user.id)) {
       console.log('⚠️ User already has an active connection in progress');
@@ -311,12 +267,10 @@ export const POST = withAuth(async (request, { user }) => {
     
     // Add user to active connections
     activeConnections.add(user.id);
-    console.log('🔒 Added user to active connections');
     
     // Parse request body to get email and password
     const body = await request.json();
     const { email, password } = body;
-    console.log('📧 Email:', email);
     
     // Validate required fields
     if (!email || !password) {
@@ -348,12 +302,9 @@ export const POST = withAuth(async (request, { user }) => {
         sessionData.userName,
         user.id // Pass user ID for database storage
       );
-      
-      console.log('💾 Session data saved successfully');
 
-      // Remove user from active connections
+      // Remove user from active connections (keep internal tracking clean, no noisy logs)
       activeConnections.delete(user.id);
-      console.log('🔓 Removed user from active connections');
 
       return NextResponse.json({
         success: true,
@@ -369,7 +320,6 @@ export const POST = withAuth(async (request, { user }) => {
       
       // Remove user from active connections on error
       activeConnections.delete(user.id);
-      console.log('🔓 Removed user from active connections (error)');
       
       // Handle specific error types
       const debugScreenshots = error.screenshots || [];
@@ -413,7 +363,6 @@ export const POST = withAuth(async (request, { user }) => {
     
     // Remove user from active connections on API error
     activeConnections.delete(user.id);
-    console.log('🔓 Removed user from active connections (API error)');
     
     return NextResponse.json(
       { 
