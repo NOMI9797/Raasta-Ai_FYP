@@ -1,5 +1,19 @@
 import Redis from 'ioredis';
 
+// Centralized Redis error logger – silences noisy DNS errors like ENOTFOUND
+function logRedisError(prefix, error) {
+  if (!error) return;
+  const message = String(error.message || '');
+  const code = error.code || '';
+
+  // Don't spam logs when Redis host is unreachable / misconfigured
+  if (code === 'ENOTFOUND' || message.includes('ENOTFOUND')) {
+    return;
+  }
+
+  console.error(prefix, error);
+}
+
 // Redis configuration - Support both URL and individual config
 const redisConfig = process.env.REDIS_URL 
   ? {
@@ -33,7 +47,6 @@ let redis = null;
 export function getRedisClient() {
   if (!redis) {
     // Redis config loaded
-    
     // For Upstash, use the URL directly
     if (process.env.REDIS_URL) {
       redis = new Redis(process.env.REDIS_URL, {
@@ -53,7 +66,7 @@ export function getRedisClient() {
     });
     
     redis.on('error', (error) => {
-      console.error('❌ Redis error:', error);
+      logRedisError('❌ Redis error:', error);
     });
   }
   
@@ -68,7 +81,7 @@ export async function testRedisConnection() {
     console.log('✅ Redis ping successful');
     return true;
   } catch (error) {
-    console.error('❌ Redis ping failed:', error);
+    logRedisError('❌ Redis ping failed:', error);
     return false;
   }
 }
@@ -99,7 +112,7 @@ export class RedisStreamManager {
       // Lead added to stream
       return messageId;
     } catch (error) {
-      console.error('❌ Error adding lead to stream:', error);
+      logRedisError('❌ Error adding lead to stream:', error);
       throw error;
     }
   }
@@ -112,7 +125,7 @@ export class RedisStreamManager {
       if (error.message.includes('BUSYGROUP')) {
         // Consumer group already exists
       } else {
-        console.error('❌ Error creating consumer group:', error);
+        logRedisError('❌ Error creating consumer group:', error);
         throw error;
       }
     }
@@ -128,7 +141,7 @@ export class RedisStreamManager {
       );
       return result;
     } catch (error) {
-      console.error('❌ Error reading from stream:', error);
+      logRedisError('❌ Error reading from stream:', error);
       throw error;
     }
   }
@@ -139,7 +152,7 @@ export class RedisStreamManager {
       await this.redis.xack(streamName, groupName, messageId);
       // Message acknowledged
     } catch (error) {
-      console.error('❌ Error acknowledging message:', error);
+      logRedisError('❌ Error acknowledging message:', error);
       throw error;
     }
   }
@@ -150,7 +163,7 @@ export class RedisStreamManager {
       const info = await this.redis.xinfo('STREAM', streamName);
       return info;
     } catch (error) {
-      console.error('❌ Error getting stream info:', error);
+      logRedisError('❌ Error getting stream info:', error);
       throw error;
     }
   }
@@ -161,7 +174,7 @@ export class RedisStreamManager {
       const pendingInfo = await this.redis.xpending(streamName, groupName);
       return pendingInfo ? pendingInfo[0] : 0; // First element is pending count
     } catch (error) {
-      console.error('❌ Error getting pending count:', error);
+      logRedisError('❌ Error getting pending count:', error);
       return 0; // Return 0 if error (stream might not exist)
     }
   }
@@ -185,7 +198,7 @@ export class RedisStreamManager {
       console.log(`📦 BATCH: Added batch ${batchData.batch_id} to stream ${streamName}`);
       return messageId;
     } catch (error) {
-      console.error('❌ Error adding batch to stream:', error);
+      logRedisError('❌ Error adding batch to stream:', error);
       throw error;
     }
   }
@@ -200,7 +213,7 @@ export class RedisStreamManager {
       );
       return result;
     } catch (error) {
-      console.error('❌ Error reading batch from stream:', error);
+      logRedisError('❌ Error reading batch from stream:', error);
       throw error;
     }
   }
@@ -211,7 +224,7 @@ export class RedisStreamManager {
       await this.redis.xack(streamName, groupName, messageId);
       console.log(`✅ BATCH: Acknowledged batch ${messageId}`);
     } catch (error) {
-      console.error('❌ Error acknowledging batch:', error);
+      logRedisError('❌ Error acknowledging batch:', error);
       throw error;
     }
   }
@@ -222,7 +235,7 @@ export class RedisStreamManager {
       const info = await this.redis.xinfo('STREAM', streamName);
       return info;
     } catch (error) {
-      console.error('❌ Error getting batch info:', error);
+      logRedisError('❌ Error getting batch info:', error);
       throw error;
     }
   }
@@ -233,7 +246,7 @@ export class RedisStreamManager {
       const pendingInfo = await this.redis.xpending(streamName, groupName);
       return pendingInfo ? pendingInfo[0] : 0;
     } catch (error) {
-      console.error('❌ Error getting batch pending count:', error);
+      logRedisError('❌ Error getting batch pending count:', error);
       return 0;
     }
   }
@@ -247,7 +260,7 @@ export class RedisStreamManager {
       const result = await this.redis.set(lockKey, lockValue, 'NX', 'EX', ttlSeconds);
       return result === 'OK' ? lockValue : null;
     } catch (error) {
-      console.error('❌ Error acquiring batch lock:', error);
+      logRedisError('❌ Error acquiring batch lock:', error);
       return null;
     }
   }
@@ -265,7 +278,7 @@ export class RedisStreamManager {
       const result = await this.redis.eval(script, 1, lockKey, lockValue);
       return result === 1;
     } catch (error) {
-      console.error('❌ Error releasing batch lock:', error);
+      logRedisError('❌ Error releasing batch lock:', error);
       return false;
     }
   }
@@ -276,7 +289,7 @@ export class RedisStreamManager {
       const lockValue = await this.redis.get(lockKey);
       return lockValue !== null;
     } catch (error) {
-      console.error('❌ Error checking batch lock:', error);
+      logRedisError('❌ Error checking batch lock:', error);
       return false;
     }
   }
