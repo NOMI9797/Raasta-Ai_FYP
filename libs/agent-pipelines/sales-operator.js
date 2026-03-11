@@ -64,7 +64,7 @@ export const salesOperatorPipeline = {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               urls: leadUrls,
-              limitPerSource: 10,
+              limitPerSource: 2,
               deepScrape: true,
               rawData: false,
               streamProgress: false,
