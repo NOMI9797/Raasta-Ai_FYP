@@ -1,4 +1,4 @@
-import { campaigns, leads, messages, linkedinAccounts } from "@/libs/schema";
+import { campaigns, leads, messages, linkedinAccounts, posts } from "@/libs/schema";
 import { eq, and } from "drizzle-orm";
 import { generatePersonalizedMessage } from "@/libs/groq-service";
 import { testLinkedInSession, cleanupBrowserSession } from "@/libs/linkedin-session-validator";
@@ -70,6 +70,7 @@ export const salesOperatorPipeline = {
                 const info = extractLeadInfo(leadItems);
                 const cleanedPosts = cleanScrapedPosts(leadItems);
 
+                // Update lead basic info + embedded posts JSON (for backwards compatibility)
                 await ctx.db
                   .update(leads)
                   .set({
@@ -82,6 +83,35 @@ export const salesOperatorPipeline = {
                     updatedAt: new Date(),
                   })
                   .where(eq(leads.id, lead.id));
+
+                // Also persist posts into the dedicated posts table so the
+                // campaigns UI (Recent Posts panel) and message generator
+                // can read them via /api/leads/[id]/posts.
+                if (Array.isArray(cleanedPosts) && cleanedPosts.length > 0) {
+                  const rows = cleanedPosts.map((p) => {
+                    const likes = Number(p.numLikes || 0) || 0;
+                    const comments = Number(p.numComments || 0) || 0;
+                    const shares = Number(p.numShares || 0) || 0;
+                    return {
+                      userId: ctx.userId,
+                      leadId: lead.id,
+                      content: p.content || "",
+                      timestamp: new Date(p.timestamp || new Date()),
+                      likes,
+                      comments,
+                      shares,
+                      engagement: likes + comments * 2 + shares * 3,
+                    };
+                  });
+
+                  // Replace any existing posts for this lead
+                  await ctx.db
+                    .delete(posts)
+                    .where(and(eq(posts.leadId, lead.id), eq(posts.userId, ctx.userId)));
+
+                  await ctx.db.insert(posts).values(rows);
+                }
+
                 scrapedCount++;
               }
             }
