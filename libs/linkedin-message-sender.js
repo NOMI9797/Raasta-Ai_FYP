@@ -128,9 +128,27 @@ export async function openMessageDialog(messageButton, page) {
     await messageButton.scrollIntoViewIfNeeded().catch(() => {});
     await page.waitForTimeout(500);
 
-    // Click the message button
-    await messageButton.click({ timeout: 5000 });
-    console.log('✅ Clicked Message button');
+    // Try to read href – sometimes Message is an <a> to /messaging/compose
+    let href = null;
+    try {
+      href = await messageButton.getAttribute('href');
+    } catch (_) {
+      href = null;
+    }
+
+    // If it's a compose link, navigate directly to avoid Premium overlays intercepting clicks
+    if (href && href.includes('/messaging/compose')) {
+      const absoluteUrl = href.startsWith('http')
+        ? href
+        : `https://www.linkedin.com${href}`;
+      console.log(`🔁 Opening messaging compose via direct navigation: ${absoluteUrl}`);
+      await page.goto(absoluteUrl, { waitUntil: 'networkidle' });
+      console.log('✅ Navigated to messaging compose page');
+    } else {
+      // Otherwise click the message button as usual
+      await messageButton.click({ timeout: 5000 });
+      console.log('✅ Clicked Message button');
+    }
 
     // Wait for message dialog to appear
     await page.waitForTimeout(2000);
