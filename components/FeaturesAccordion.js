@@ -16,7 +16,7 @@ const features = [
   {
     title: "AI Message Generation",
     description:
-      "Stop writing the same message 200 times. Reachly's AI reads each lead's profile, recent posts, and company news to craft hyper-personalised connection requests and follow-up messages automatically.",
+      "Stop writing the same message 200 times. Raasta-AI's AI reads each lead's profile, recent posts, and company news to craft hyper-personalised connection requests and follow-up messages automatically.",
     svg: (
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
         <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
@@ -26,7 +26,7 @@ const features = [
   {
     title: "Automated Invites & Follow-ups",
     description:
-      "Set your daily invite limit, configure delays between actions, and let Reachly send invites and automatically message accepted connections — all within LinkedIn's safe limits.",
+      "Set your daily invite limit, configure delays between actions, and let Raasta-AI send invites and automatically message accepted connections — all within LinkedIn's safe limits.",
     svg: (
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
         <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
@@ -108,7 +108,7 @@ const FeaturesAccordion = () => {
           </span>
         </h2>
         <p className="text-base-content/60 text-lg mb-16 max-w-xl">
-          From first touch to signed contract — Reachly handles the full
+          From first touch to signed contract — Raasta-AI handles the full
           LinkedIn outreach and recruitment workflow.
         </p>
 

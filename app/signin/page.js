@@ -47,7 +47,7 @@ export default function SignIn() {
       <div className="w-full max-w-md">
         {/* Logo/Brand Section */}
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-primary mb-2">Reachly</h1>
+          <h1 className="text-4xl font-bold text-primary mb-2">Raasta-AI</h1>
           <p className="text-neutral/70">Welcome back! Sign in to your account</p>
         </div>
 

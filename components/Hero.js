@@ -17,7 +17,7 @@ const Hero = () => {
         </h1>
 
         <p className="text-lg text-base-content/70 leading-relaxed">
-          Reachly runs your entire B2B sales and recruitment pipeline — from
+          Raasta-AI runs your entire B2B sales and recruitment pipeline — from
           lead discovery to signed deals and hired talent — completely on
           autopilot.
         </p>
@@ -87,7 +87,7 @@ const Hero = () => {
             <p className="text-sm text-base-content/80 leading-relaxed">
               &ldquo;Hi Sarah, I noticed your team at{" "}
               <span className="text-primary font-medium">Acme Corp</span> recently
-              expanded into EMEA — congrats! I&apos;d love to show you how Reachly
+              expanded into EMEA — congrats! I&apos;d love to show you how Raasta-AI
               can help your SDRs...&rdquo;
             </p>
           </div>

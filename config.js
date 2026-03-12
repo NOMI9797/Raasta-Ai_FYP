@@ -1,7 +1,7 @@
 import themes from "daisyui/src/theming/themes";
 
 const config = {
-  appName: "Reachly",
+  appName: "Raasta-AI",
   appDescription:
     "AI-powered LinkedIn outreach and recruitment automation. Run your entire B2B sales and hiring pipeline on autopilot.",
   domainName: "reachly.ai",
@@ -56,8 +56,8 @@ const config = {
   },
   mailgun: {
     subdomain: "mg",
-    fromNoReply: `Reachly <noreply@mg.reachly.ai>`,
-    fromAdmin: `Reachly Team <hello@mg.reachly.ai>`,
+    fromNoReply: `Raasta-AI <noreply@mg.reachly.ai>`,
+    fromAdmin: `Raasta-AI Team <hello@mg.reachly.ai>`,
     supportEmail: "support@reachly.ai",
     forwardRepliesTo: "support@reachly.ai",
   },

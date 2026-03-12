@@ -45,7 +45,7 @@ export default function Sidebar({ collapsed, onToggle, activeSection = "campaign
               <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
                 <Target className="h-5 w-5 text-primary-content" />
               </div>
-              <span className="font-bold text-lg text-base-content">Reachly</span>
+              <span className="font-bold text-lg text-base-content">Raasta-AI</span>
             </div>
           )}
           <button
@@ -114,7 +114,7 @@ export default function Sidebar({ collapsed, onToggle, activeSection = "campaign
       <div className="p-4 border-t border-base-300">
         {!collapsed ? (
           <div className="text-xs text-base-content/60 text-center">
-            <div className="font-semibold">Reachly v1.0</div>
+            <div className="font-semibold">Raasta-AI v1.0</div>
             <div>LinkedIn Outreach Tool</div>
           </div>
         ) : (

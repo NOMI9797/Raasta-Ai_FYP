@@ -101,7 +101,7 @@ export function useScraping() {
       // Small delay to make progress visible
       await new Promise(resolve => setTimeout(resolve, 300));
 
-      // Process scraped data exactly like Reachly
+      // Process scraped data using shared utilities
       const { extractLeadInfo, cleanScrapedPosts } = await import('@/libs/scraping-utils');
       const cleanedPosts = cleanScrapedPosts(items);
       const leadInfo = extractLeadInfo(cleanedPosts);

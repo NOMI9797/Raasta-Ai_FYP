@@ -4,15 +4,14 @@ import { useRef, useState } from "react";
 
 const faqList = [
   {
-    question: "How does Reachly connect to my LinkedIn account?",
+    question: "How does Raasta-AI connect to my LinkedIn account?",
     answer: (
       <div className="space-y-2 leading-relaxed">
         <p>
-          You provide your LinkedIn email and password once. Reachly uses a
+          You provide your LinkedIn email and password once. Raasta-AI uses a
           secure browser automation session to log in on your behalf, capture
           your session cookies, and store them encrypted in the database. Your
           credentials are never stored in plain text.
-        </p>
         <p>
           We recommend using a LinkedIn account that does <strong>not</strong>{" "}
           have Two-Factor Authentication (2FA) enabled, as automated sessions
@@ -25,16 +24,15 @@ const faqList = [
     question: "Is LinkedIn automation safe? Will my account get banned?",
     answer: (
       <p>
-        Reachly is built with safety-first defaults — daily invite limits (10–20
+        Raasta-AI is built with safety-first defaults — daily invite limits (10–20
         per day), randomised delays between actions, and human-like interaction
         patterns to stay within LinkedIn&apos;s acceptable use boundaries. No
         tool can guarantee zero risk, but we mirror natural usage behaviour as
         closely as possible.
-      </p>
     ),
   },
   {
-    question: "Can I use Reachly just for recruiting (not sales)?",
+    question: "Can I use Raasta-AI just for recruiting (not sales)?",
     answer: (
       <p>
         Absolutely. The Recruiter role gives you access to job management, an

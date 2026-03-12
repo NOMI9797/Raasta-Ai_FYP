@@ -4,7 +4,7 @@ import { leads, posts } from "@/libs/schema";
 import { eq, desc, and } from "drizzle-orm";
 import { withAuth } from "@/libs/auth-middleware";
 
-// GET /api/leads/[id]/posts - Get posts for a lead (like Reachly)
+// GET /api/leads/[id]/posts - Get posts for a lead
 export const GET = withAuth(async (request, { params, user }) => {
   try {
     const leadId = params.id;
@@ -41,7 +41,7 @@ export const GET = withAuth(async (request, { params, user }) => {
   }
 });
 
-// POST /api/leads/[id]/posts - Save posts for a lead (like Reachly)
+// POST /api/leads/[id]/posts - Save posts for a lead
 export const POST = withAuth(async (request, { params, user }) => {
   try {
     const leadId = params.id;

@@ -25,8 +25,6 @@ export async function POST(request) {
     };
 
     console.log("Apify input:", input);
-
-    // Regular non-streaming response (matching Reachly exactly)
     const run = await client.actor('Wpp1BZ6yGWjySadk3').call(input);
     const { items } = await client.dataset(run.defaultDatasetId).listItems();
 

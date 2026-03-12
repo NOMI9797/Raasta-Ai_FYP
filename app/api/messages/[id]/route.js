@@ -4,7 +4,7 @@ import { messages } from "@/libs/schema";
 import { eq, and } from "drizzle-orm";
 import { withAuth } from "@/libs/auth-middleware";
 
-// DELETE /api/messages/[id] - Delete a message (like Reachly)
+// DELETE /api/messages/[id] - Delete a message
 export const DELETE = withAuth(async (request, { params, user }) => {
   try {
     const messageId = params.id;
@@ -37,7 +37,7 @@ export const DELETE = withAuth(async (request, { params, user }) => {
   }
 });
 
-// PUT /api/messages/[id] - Update a message (like Reachly)
+// PUT /api/messages/[id] - Update a message
 export async function PUT(request, { params }) {
   try {
     const messageId = params.id;

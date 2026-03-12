@@ -1,4 +1,4 @@
-// Utility functions for processing scraped data (copied exactly from Reachly)
+// Utility functions for processing scraped data
 
 /**
  * Extract lead information from scraped posts

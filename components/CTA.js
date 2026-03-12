@@ -8,7 +8,7 @@ const CTA = () => {
           Ready to put your LinkedIn outreach on autopilot?
         </h2>
         <p className="text-lg opacity-80 max-w-xl leading-relaxed">
-          Join hundreds of sales reps and recruiters who use Reachly to fill
+          Join hundreds of sales reps and recruiters who use Raasta-AI to fill
           their pipelines without the manual grind.
         </p>
 

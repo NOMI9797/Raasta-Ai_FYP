@@ -105,7 +105,7 @@ export default function SignUp() {
       <div className="w-full max-w-md">
         {/* Logo/Brand Section */}
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-primary mb-2">Reachly</h1>
+          <h1 className="text-4xl font-bold text-primary mb-2">Raasta-AI</h1>
           <p className="text-neutral/70">Create your account and start reaching out</p>
         </div>
 
@@ -163,7 +163,7 @@ export default function SignUp() {
               <div className="form-control">
                 <label className="label">
                   <span className="label-text font-medium text-neutral">
-                    How will you use Reachly?
+                    How will you use Raasta-AI?
                   </span>
                 </label>
                 <div className="join join-vertical sm:join-horizontal w-full">
