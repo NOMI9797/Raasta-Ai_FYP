@@ -50,11 +50,31 @@ export async function publishLinkedInPost(page, postText) {
     await randomDelay(2000, 4000);
     await captureStepScreenshot(page, "after_navigate_feed");
 
-    // Click the "Start a post" button
-    const startPostBtn = page.locator(
-      'button.share-box-feed-entry__trigger, button[aria-label*="Start a post" i], .share-box-feed-entry__trigger'
-    );
-    await startPostBtn.waitFor({ state: "visible", timeout: 15000 });
+    // Click the "Start a post" trigger
+    const startPostSelectors = [
+      // New UI: div with aria-label and visible "Start a post" text
+      'div[aria-label*="Start a post" i]',
+      'div[aria-label*="Start a post" i] p:has-text("Start a post")',
+      // Legacy button-based selectors
+      'button.share-box-feed-entry__trigger',
+      'button[aria-label*="Start a post" i]',
+      '.share-box-feed-entry__trigger',
+    ];
+
+    let startPostBtn = null;
+    for (const selector of startPostSelectors) {
+      const candidate = page.locator(selector).first();
+      if (await candidate.isVisible({ timeout: 3000 }).catch(() => false)) {
+        startPostBtn = candidate;
+        console.log(`✅ Found "Start a post" trigger with selector: ${selector}`);
+        break;
+      }
+    }
+
+    if (!startPostBtn) {
+      throw new Error('Could not find "Start a post" trigger on feed page');
+    }
+
     await startPostBtn.click();
     console.log("✅ Post composer opened");
     await randomDelay(1500, 3000);
@@ -80,10 +100,29 @@ export async function publishLinkedInPost(page, postText) {
     await captureStepScreenshot(page, "after_enter_text");
 
     // Click the Post button
-    const postBtn = page.locator(
-      'button.share-actions__primary-action, button[aria-label*="Post" i]:not([aria-label*="Start"]):not([aria-label*="post" i][aria-label*="Start"]), button:has-text("Post"):visible'
-    ).first();
-    await postBtn.waitFor({ state: "visible", timeout: 10000 });
+    const postSelectors = [
+      // Primary: button with inner span.artdeco-button__text = "Post"
+      'button:has(span.artdeco-button__text:text-is("Post"))',
+      // Fallbacks
+      'button.share-actions__primary-action',
+      'button[aria-label*="Post" i]:not([aria-label*="Start"])',
+      'button:has-text("Post")',
+    ];
+
+    let postBtn = null;
+    for (const selector of postSelectors) {
+      const candidate = page.locator(selector).first();
+      if (await candidate.isVisible({ timeout: 4000 }).catch(() => false)) {
+        postBtn = candidate;
+        console.log(`✅ Found "Post" button with selector: ${selector}`);
+        break;
+      }
+    }
+
+    if (!postBtn) {
+      throw new Error('Could not find "Post" button in composer');
+    }
+
     await postBtn.click();
     console.log("✅ Post button clicked — publishing...");
     await randomDelay(3000, 6000);
