@@ -9,7 +9,7 @@ module.exports = {
     extend: {
       backgroundImage: {
         gradient:
-          "linear-gradient(60deg, #f79533, #f37055, #ef4e7b, #a166ab, #5073b8, #1098ad, #07b39b, #6fba82)",
+          "linear-gradient(60deg, #6366F1, #4F46E5, #4338CA, #a166ab, #5073b8, #1098ad, #07b39b, #6fba82)",
       },
       animation: {
         opacity: "opacity 0.25s ease-in-out",
@@ -62,8 +62,8 @@ module.exports = {
     themes: [
       {
         reachly: {
-          "primary": "#F87941",        // Precious Persimmon - main brand color
-          "primary-focus": "#e6693a",  // Darker shade for focus states
+          "primary": "#6366F1",        // Electric Indigo - main brand color
+          "primary-focus": "#4F46E5",  // Darker Indigo for focus states
           "primary-content": "#ffffff", // White text on primary
           "secondary": "#F9B095",      // No Way Rosé - softer accent
           "secondary-focus": "#f7a285", // Darker shade for focus
@@ -97,8 +97,8 @@ module.exports = {
       },
       {
         "reachly-dark": {
-          "primary": "#F87941",        // Keep same Precious Persimmon - main brand color
-          "primary-focus": "#e6693a",  // Darker shade for focus states
+          "primary": "#6366F1",        // Electric Indigo - main brand color
+          "primary-focus": "#4F46E5",  // Darker Indigo for focus states
           "primary-content": "#ffffff", // White text on primary
           "secondary": "#F9B095",      // Keep same No Way Rosé - softer accent
           "secondary-focus": "#f7a285", // Darker shade for focus

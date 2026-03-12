@@ -63,7 +63,7 @@ const config = {
   },
   colors: {
     theme: "reachly",
-    main: "#F87941",
+    main: "#6366F1",
   },
   auth: {
     loginUrl: "/api/auth/signin",

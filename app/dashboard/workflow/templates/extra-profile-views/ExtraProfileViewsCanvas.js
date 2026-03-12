@@ -25,7 +25,7 @@ function DelayEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, tar
               <div style={{ marginBottom: 6, color: captionColor, fontSize: 9, textAlign: 'center', whiteSpace: 'nowrap' }}>{caption}</div>
             )}
             {pill && (
-              <div style={{ background: '#F87941', color: '#fff', borderRadius: 9999, fontSize: 9, padding: '6px 13px', lineHeight: 1, boxShadow: '0 0 0 2px rgba(15,23,42,0.15)', whiteSpace: 'nowrap' }}>{pill}</div>
+              <div style={{ background: '#6366F1', color: '#fff', borderRadius: 9999, fontSize: 9, padding: '6px 13px', lineHeight: 1, boxShadow: '0 0 0 2px rgba(15,23,42,0.15)', whiteSpace: 'nowrap' }}>{pill}</div>
             )}
             {!captionOnTop && caption && (
               <div style={{ marginTop: 6, color: captionColor, fontSize: 9, textAlign: 'center', whiteSpace: 'nowrap' }}>{caption}</div>
