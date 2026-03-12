@@ -357,9 +357,9 @@ export const salesOperatorPipeline = {
           waitMinutes: ctx.config?.waitMinutes,
         });
         const { accountId } = ctx.config;
-        // For local testing, use seconds granularity (default 25s).
-        // `waitMinutes` is intentionally ignored here to avoid long waits during iteration.
-        const waitSeconds = Math.max(1, Number(ctx.config?.waitSeconds ?? 25));
+        // Use seconds granularity; default to 180s (3 minutes) before checking.
+        // `waitMinutes` is intentionally ignored to keep config simple.
+        const waitSeconds = Math.max(1, Number(ctx.config?.waitSeconds ?? 180));
         const waitMs = waitSeconds * 1000;
 
         console.log(`⏳ Waiting ${waitSeconds} seconds before checking connection acceptance...`);
