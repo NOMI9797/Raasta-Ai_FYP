@@ -228,6 +228,9 @@ export async function findConnectButton(page) {
 
   // Page-wide search (no scoping), with strict sidebar/browsemap exclusion
   const connectSelectors = [
+    // Matches the actual LinkedIn Connect button when aria-label is missing
+    'button:has(span:text-is("Connect"))',
+    'button span:text-is("Connect")',
     'button[aria-label*="Invite" i]',
     'button[aria-label*="connect" i]',
     'button:has(span.artdeco-button__text:text-is("Connect"))',
