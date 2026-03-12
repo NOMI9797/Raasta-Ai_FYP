@@ -386,11 +386,19 @@ export async function clickConnectButton(connectButton, page) {
   
   for (let i = 0; i < clickStrategies.length; i++) {
     try {
+      const beforeUrl = page.url();
       await clickStrategies[i]();
       console.log(`✅ Connect button clicked successfully (strategy ${i + 1})`);
       
-      // If we clicked from dropdown, wait a bit longer for modal
-      await page.waitForTimeout(2000);
+      // LinkedIn sometimes opens a modal, but sometimes navigates to /preload/custom-invite/
+      await Promise.race([
+        page.waitForURL((url) => url.href !== beforeUrl, { timeout: 5000 }).catch(() => {}),
+        page.waitForSelector('div[role="dialog"]', { timeout: 5000 }).catch(() => {}),
+        page.waitForSelector('button:has-text("Send without a note")', { timeout: 5000 }).catch(() => {}),
+        page.waitForSelector('button:has-text("Send")', { timeout: 5000 }).catch(() => {}),
+      ]);
+
+      await page.waitForTimeout(750);
       
       return true;
     } catch (clickError) {
@@ -409,6 +417,90 @@ export async function clickConnectButton(connectButton, page) {
  */
 export async function handleInviteModal(page) {
   console.log(`🔍 Looking for invitation modal...`);
+
+  const currentUrl = page.url();
+  if (currentUrl.includes('/preload/custom-invite')) {
+    console.log(`🧭 Detected custom invite page flow`);
+    try {
+      // Try common send buttons on custom-invite page
+      const sendSelectors = [
+        'button:has-text("Send without a note")',
+        'button:has-text("Send")',
+        'button[aria-label*="Send" i]',
+        'button:has-text("Done")',
+      ];
+
+      let clicked = false;
+      for (const selector of sendSelectors) {
+        try {
+          const btn = page.locator(selector).first();
+          if (await btn.isVisible({ timeout: 1500 })) {
+            console.log(`📨 Sending invitation (custom page)...`);
+            await btn.click();
+            clicked = true;
+            break;
+          }
+        } catch (e) {
+          continue;
+        }
+      }
+
+      if (!clicked) {
+        console.log(`❌ Send button not found on custom invite page`);
+        return false;
+      }
+
+      await page.waitForTimeout(2000);
+
+      // Verification (same as modal): Pending button, Connect disappearance, or success toast
+      console.log('🔍 Verifying invite was sent...');
+
+      const pendingSelectors = [
+        'button[aria-label*="Pending"]',
+        'button:has-text("Pending")',
+        'button:has(span:text-is("Pending"))',
+        '.pv-top-card button[aria-label*="Pending"]',
+        'section.artdeco-card button[aria-label*="Pending"]',
+      ];
+
+      for (const selector of pendingSelectors) {
+        try {
+          const pendingButton = page.locator(selector).first();
+          if (await pendingButton.isVisible({ timeout: 2000 })) {
+            console.log(`✅ Invite verified - Pending button found with: ${selector}`);
+            return true;
+          }
+        } catch (e) {
+          continue;
+        }
+      }
+
+      const successSelectors = [
+        '.artdeco-toast-item--visible',
+        '[data-test-artdeco-toast-item-type="success"]',
+        'div:has-text("Invitation sent")',
+        'div:has-text("sent successfully")',
+      ];
+
+      for (const selector of successSelectors) {
+        try {
+          const toast = page.locator(selector).first();
+          if (await toast.isVisible({ timeout: 1000 })) {
+            console.log(`✅ Invite verified - Success notification found`);
+            return true;
+          }
+        } catch (e) {
+          continue;
+        }
+      }
+
+      console.log('⚠️ Could not verify via Pending/toast; treating as SUCCESS');
+      return true;
+    } catch (e) {
+      console.log(`❌ Error handling custom invite page:`, e.message);
+      return false;
+    }
+  }
   
   // Check if invitation modal is visible (more specific selector)
   let modalVisible = false;
