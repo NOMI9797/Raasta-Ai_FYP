@@ -48,6 +48,10 @@ async function getProfileHeaderContainer(page) {
   
   // Multiple possible selectors for the profile header/actions area
   const headerSelectors = [
+    // Modern LinkedIn layout: top card/actions inside main column, often without pv-top-card
+    'main:has(a[aria-label*="Invite" i])',
+    'main:has(a[href*="/preload/custom-invite"])',
+    'main:has(a[href*="/messaging/compose"])',
     '.pv-top-card', // Most common - profile top card
     '.scaffold-layout__main .pv-top-card',
     'section.artdeco-card.pv-top-card',
@@ -392,6 +396,7 @@ export async function clickConnectButton(connectButton, page) {
   for (let i = 0; i < clickStrategies.length; i++) {
     try {
       const beforeUrl = page.url();
+      const href = await connectButton.getAttribute('href').catch(() => null);
       await clickStrategies[i]();
       console.log(`✅ Connect button clicked successfully (strategy ${i + 1})`);
       
@@ -404,6 +409,16 @@ export async function clickConnectButton(connectButton, page) {
       ]);
 
       await page.waitForTimeout(750);
+
+      // If click was intercepted (e.g., Premium upsell overlay) and we didn't navigate,
+      // but the element is a custom-invite link, navigate directly as a reliable fallback.
+      const afterUrl = page.url();
+      if (href && href.includes('/preload/custom-invite') && afterUrl === beforeUrl) {
+        console.log(`🧭 Click did not navigate; opening invite link directly...`);
+        const absolute = new URL(href, beforeUrl).toString();
+        await page.goto(absolute, { waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => {});
+        await page.waitForTimeout(750);
+      }
       
       return true;
     } catch (clickError) {
