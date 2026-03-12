@@ -137,6 +137,11 @@ export default function AgentRunCard({ run: initialRun, onRefresh }) {
     run.status === "paused_at_checkpoint" &&
     run.currentStep === "approve_post";
 
+  const isSalesOpApproveMessagesCheckpoint =
+    run.pipelineType === "sales_operator" &&
+    run.status === "paused_at_checkpoint" &&
+    run.currentStep === "approve_messages";
+
   const generatedPost =
     run.results?.generate_post?.linkedinPost ||
     run.results?.load_job?.existingPost ||
@@ -259,6 +264,32 @@ export default function AgentRunCard({ run: initialRun, onRefresh }) {
                   </div>
                   <div className="textarea textarea-bordered w-full min-h-[160px] whitespace-pre-wrap text-sm bg-base-100">
                     {generatedPost}
+                  </div>
+                </div>
+              )}
+
+              {isSalesOpApproveMessagesCheckpoint && run.results?.generate_messages && (
+                <div className="mt-4 p-4 rounded-xl bg-base-200 border border-base-300 space-y-2">
+                  <p className="text-sm font-semibold text-base-content">
+                    Generated personalized messages
+                  </p>
+                  <p className="text-xs text-base-content/70">
+                    Messages have been generated for campaign leads. Review or regenerate per-lead
+                    in the campaign&apos;s AI Message panel before approving.
+                  </p>
+                  <div className="text-xs text-base-content/80 space-y-1">
+                    <p>
+                      Total leads in campaign:{" "}
+                      <span className="font-semibold">
+                        {run.results.generate_messages.totalLeads ?? "-"}
+                      </span>
+                    </p>
+                    <p>
+                      Leads with generated messages:{" "}
+                      <span className="font-semibold">
+                        {run.results.generate_messages.generated ?? "-"}
+                      </span>
+                    </p>
                   </div>
                 </div>
               )}
