@@ -6,18 +6,51 @@
  */
 
 import { NextResponse } from "next/server";
-import { withAuth } from "@/libs/auth-middleware";
+import { authenticateUser } from "@/libs/auth-middleware";
 import LinkedInSessionManager from "@/libs/linkedin-session";
 import { checkDailyConnectionCheckLimit, incrementConnectionCheckCounter } from "@/libs/rate-limit-manager";
 import { checkConnectionAcceptances } from "@/libs/linkedin-connection-checker";
 import { db } from "@/libs/db";
-import { linkedinAccounts } from "@/libs/schema";
+import { linkedinAccounts, users } from "@/libs/schema";
 import { eq } from "drizzle-orm";
 
 const sessionManager = new LinkedInSessionManager();
 
-export const POST = withAuth(async (request, { user }) => {
+async function resolveUserForRequest(request) {
+  const internalToken = request.headers.get("x-internal-agent-token");
+  const expected = process.env.INTERNAL_AGENT_TOKEN;
+
+  if (internalToken && expected && internalToken === expected) {
+    const body = await request.json().catch(() => ({}));
+    if (!body?.userId) {
+      return { ok: false, status: 400, error: "userId is required for internal agent calls" };
+    }
+    const [dbUser] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, body.userId))
+      .limit(1);
+    if (!dbUser) {
+      return { ok: false, status: 404, error: "User not found" };
+    }
+    return { ok: true, user: dbUser, body };
+  }
+
+  const { user, isAuthenticated, error } = await authenticateUser(request);
+  if (!isAuthenticated) {
+    return { ok: false, status: 401, error: error || "Not authenticated" };
+  }
+  return { ok: true, user, body: null };
+}
+
+export async function POST(request) {
   try {
+    const resolved = await resolveUserForRequest(request);
+    if (!resolved.ok) {
+      return NextResponse.json({ success: false, error: resolved.error }, { status: resolved.status });
+    }
+    const user = resolved.user;
+
     console.log(`\n${'='.repeat(60)}`);
     console.log(`🔍 CONNECTION CHECK REQUEST (Manual)`);
     console.log(`${'='.repeat(60)}`);
@@ -114,5 +147,5 @@ export const POST = withAuth(async (request, { user }) => {
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     }, { status: 500 });
   }
-});
+}
 

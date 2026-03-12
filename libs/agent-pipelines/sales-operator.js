@@ -363,16 +363,34 @@ export const salesOperatorPipeline = {
         console.log(`⏳ Waiting ${waitSeconds} seconds before checking connection acceptance...`);
         await new Promise((resolve) => setTimeout(resolve, waitMs));
 
-        // Fetch the account again for fresh data
-        const [account] = await ctx.db
-          .select()
-          .from(linkedinAccounts)
-          .where(eq(linkedinAccounts.id, accountId))
-          .limit(1);
+        // Use the exact same endpoint as the manual "Check Connections" button
+        const baseUrl = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL;
+        if (!baseUrl) {
+          throw new Error("Base URL not configured (NEXTAUTH_URL or NEXT_PUBLIC_APP_URL)");
+        }
+        const endpoint = new URL("/api/linkedin/connections/check-acceptance", baseUrl).toString();
+        const token = process.env.INTERNAL_AGENT_TOKEN;
+        if (!token) {
+          throw new Error("INTERNAL_AGENT_TOKEN not configured for agent internal calls");
+        }
 
-        if (!account) throw new Error("LinkedIn account not found");
+        console.log("🤖 [sales_operator] Calling internal /api/linkedin/connections/check-acceptance", {
+          endpoint,
+        });
 
-        const result = await checkConnectionAcceptances(account, ctx.userId);
+        const resp = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-internal-agent-token": token,
+          },
+          body: JSON.stringify({ userId: ctx.userId }),
+        });
+
+        const result = await resp.json();
+        if (!resp.ok || !result.success) {
+          throw new Error(result.error || "Connection acceptance check failed");
+        }
 
         const summary = {
           matched: result.matched || 0,
