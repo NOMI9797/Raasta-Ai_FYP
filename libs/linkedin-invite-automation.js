@@ -226,167 +226,57 @@ export async function findConnectButton(page) {
   // Wait for page to stabilize first
   await waitForPageStabilization(page);
 
-  // Get profile header container to limit search scope
-  const profileHeader = await getProfileHeaderContainer(page);
-
-  if (DEBUG_MODE) {
-    await inspectPageButtons(page, profileHeader);
-  }
-
-  // Prefer the main content area over the entire page to avoid sidebar suggestions
-  let searchContext = profileHeader;
-  if (!searchContext) {
-    try {
-      const main = page.locator('main.scaffold-layout__main').first();
-      if (await main.isVisible({ timeout: 3000 })) {
-        console.log('✅ Using main.scaffold-layout__main as search context for Connect button');
-        searchContext = main;
-      }
-    } catch (e) {
-      // ignore and fallback below
-    }
-  }
-
-  if (!searchContext) {
-    console.log('⚠️ Falling back to full page search context for Connect button');
-    searchContext = page;
-  }
-
-  // STRATEGY 1: Robust selectors (prefer aria-label / data-control-name)
-  const robustConnectSelectors = [
-    'button[aria-label*="connect" i]:visible',
-    'button[data-control-name*="connect"]:visible',
-    '[data-control-name="topcard_connect_secondary"]:visible',
-    '.pvs-profile-actions button[aria-label*="Invite"]:visible',
-    'div[role="button"]:has(span:visible:text("Connect")):visible',
-  ];
-
-  for (const selector of robustConnectSelectors) {
-    try {
-      const locator = searchContext.locator(selector);
-      const count = await locator.count().catch(() => 0);
-      if (DEBUG_MODE) {
-        const texts = await locator.allTextContents().catch(() => []);
-        console.log(`🔎 [robust selector] ${selector} -> count=${count}`, texts.slice(0, 10));
-      }
-      if (count === 0) continue;
-
-      const button = locator.first();
-      if (!(await button.isVisible().catch(() => false))) continue;
-
-      const buttonHandle = await button.elementHandle();
-      if (!buttonHandle) continue;
-
-      // Double-check: button must NOT be in sidebar or people-you-may-know
-      const isSafe = await buttonHandle.evaluate(el => {
-        const bad = [
-          'aside',
-          '.scaffold-layout__aside',
-          '.pv-browsemap-section',
-          '.scaffold-layout__aside-sticky-container',
-          '[data-view-name="profile-card"]',
-          '.pv-side-panel',
-        ];
-        return !bad.some(sel => !!el.closest(sel));
-      });
-
-      if (!isSafe) {
-        console.log('↪️ Skipping sidebar Connect button');
-        continue;
-      }
-
-      console.log(`✅ Found Connect button via robust selector: ${selector}`);
-      return button;
-    } catch (e) {
-      continue;
-    }
-  }
-
-  // STRATEGY 2: Text-based direct Connect button selectors (fallback)
-  const directConnectSelectors = [
+  // Page-wide search (no scoping), with strict sidebar/browsemap exclusion
+  const connectSelectors = [
+    'button[aria-label*="Invite" i]',
+    'button[aria-label*="connect" i]',
     'button:has(span.artdeco-button__text:text-is("Connect"))',
-    'button[aria-label*="Invite"][aria-label*="connect"]',
-    'button.artdeco-button:has-text("Connect")',
-    'button:text-is("Connect")',
-    'button:has(span:text("Connect"))',
-    // Additional selectors for edge cases
-    'button[data-control-name="connect"]',
-    'button[aria-label*="Connect"]',
-    'div[role="button"]:has-text("Connect")'
+    'button:has-text("Connect")',
   ];
 
-  // Try direct connect button first
-  for (let i = 0; i < directConnectSelectors.length; i++) {
-    const selector = directConnectSelectors[i];
-    
+  for (const selector of connectSelectors) {
     try {
-      const buttons = await searchContext.locator(selector).all();
-      
-      if (buttons.length > 0) {
-        // Verify each button
-        for (const button of buttons) {
-          try {
-            // Check if button is visible
-            const isVisible = await button.isVisible();
-            if (!isVisible) continue;
-            
-            // Get button text
-            const buttonHandle = await button.elementHandle();
-            const buttonText = await buttonHandle.evaluate(el => {
-              const span = el.querySelector('span.artdeco-button__text');
-              if (span) return span.textContent?.trim();
-              return el.textContent?.trim();
-            });
-            
-            // Check if this is Connect button
-            if (buttonText && buttonText.toLowerCase().includes('connect')) {
-              // Skip Connect buttons that live in the right-hand suggestions/aside / browsemap
-              const isInAside = await buttonHandle.evaluate(el => {
-                return (
-                  !!el.closest('aside') ||
-                  !!el.closest('.scaffold-layout__aside') ||
-                  !!el.closest('.pv-browsemap-section') ||
-                  !!el.closest('.scaffold-layout__aside-sticky-container') ||
-                  !!el.closest('[data-view-name="profile-card"]')
-                );
-              });
-              if (isInAside) {
-                console.log('↪️ Skipping Connect button in sidebar/suggestions');
-                continue;
-              }
+      const buttons = await page.locator(selector).all();
 
-              // Exclude unwanted buttons
-              if (buttonText.toLowerCase().includes('message') || 
-                  buttonText.toLowerCase().includes('pending') ||
-                  buttonText.toLowerCase().includes('follow') ||
-                  buttonText.toLowerCase() === 'connected') {
-                continue;
-              }
+      for (const button of buttons) {
+        try {
+          if (!(await button.isVisible())) continue;
 
-              // Double-check: button must NOT be in sidebar or people-you-may-know
-              const isSafe = await buttonHandle.evaluate(el => {
-                const bad = [
-                  'aside',
-                  '.scaffold-layout__aside',
-                  '.pv-browsemap-section',
-                  '.scaffold-layout__aside-sticky-container',
-                  '[data-view-name="profile-card"]',
-                  '.pv-side-panel',
-                ];
-                return !bad.some(sel => !!el.closest(sel));
-              });
+          const handle = await button.elementHandle();
+          if (!handle) continue;
 
-              if (!isSafe) {
-                console.log('↪️ Skipping sidebar Connect button');
-                continue;
-              }
+          const info = await handle.evaluate((el) => {
+            const text = el.textContent?.trim() || '';
+            const ariaLabel = el.getAttribute('aria-label') || '';
+            const inSidebar =
+              !!el.closest('aside') ||
+              !!el.closest('.scaffold-layout__aside') ||
+              !!el.closest('.pv-browsemap-section') ||
+              !!el.closest('.scaffold-layout__aside-sticky-container') ||
+              !!el.closest('[data-view-name="profile-card"]') ||
+              !!el.closest('.pv-side-panel');
+            return { text, ariaLabel, inSidebar };
+          });
 
-              console.log(`✅ Found direct Connect button`);
-              return button;
-            }
-          } catch (evalError) {
+          if (DEBUG_MODE) {
+            console.log(
+              `🔎 Button found: text="${info.text}" aria="${info.ariaLabel}" sidebar=${info.inSidebar}`
+            );
+          }
+
+          if (info.inSidebar) {
+            if (DEBUG_MODE) console.log('↪️ Skipping sidebar button');
             continue;
           }
+
+          const text = info.text.toLowerCase();
+          const aria = info.ariaLabel.toLowerCase();
+          if (text.includes('connect') || aria.includes('invite') || aria.includes('connect')) {
+            console.log(`✅ Found Connect button`);
+            return button;
+          }
+        } catch (e) {
+          continue;
         }
       }
     } catch (e) {
@@ -396,33 +286,12 @@ export async function findConnectButton(page) {
   
   // STRATEGY 2: Look for Connect button in "More" dropdown
   console.log(`🔍 Checking "More" dropdown...`);
-  
-  const connectInDropdown = await findConnectButtonInDropdown(page, profileHeader);
-  
+  const connectInDropdown = await findConnectButtonInDropdown(page, null);
   if (connectInDropdown) {
     console.log(`✅ Found Connect button in dropdown`);
     return connectInDropdown;
   }
-  
-  // Log what buttons we actually found for debugging
-  try {
-    const allButtons = await searchContext.locator('button').all();
-    const buttonTexts = [];
-    for (const button of allButtons.slice(0, 10)) { // Limit to first 10 buttons
-      try {
-        const text = await button.textContent();
-        if (text && text.trim()) {
-          buttonTexts.push(text.trim());
-        }
-      } catch (e) {
-        continue;
-      }
-    }
-    console.log(`🔍 Available buttons on page: ${buttonTexts.join(', ')}`);
-  } catch (e) {
-    console.log(`⚠️ Could not get button texts: ${e.message}`);
-  }
-  
+
   console.log(`❌ Connect button not found`);
   return null;
 }
