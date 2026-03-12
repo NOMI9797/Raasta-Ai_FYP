@@ -6,14 +6,11 @@ import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
   Target,
-  Users,
-  MessageSquare,
   BarChart3,
   ChevronLeft,
   ChevronRight,
   Plus,
   UserCheck,
-  Workflow,
   TrendingUp,
   Briefcase,
   Shield,
@@ -23,7 +20,6 @@ import {
 const allMenuItems = [
   { icon: Shield, label: "Admin", href: "/dashboard/admin", key: "admin", roles: ["admin"] },
   { icon: Target, label: "Campaigns", href: "/dashboard/campaigns", key: "campaigns", roles: ["admin", "sales_operator"] },
-  { icon: Workflow, label: "Workflows", href: "/dashboard/workflow", key: "workflow", roles: ["admin", "sales_operator"] },
   { icon: UserCheck, label: "Accounts", href: "/dashboard/accounts", key: "accounts", roles: ["admin"] },
   { icon: BarChart3, label: "Dashboard", href: "/dashboard/recruiter", key: "recruiter", roles: ["recruiter"] },
   { icon: Briefcase, label: "Hiring", href: "/dashboard/hiring", key: "hiring", roles: ["admin", "recruiter"] },
