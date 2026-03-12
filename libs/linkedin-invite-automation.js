@@ -229,6 +229,10 @@ export async function findConnectButton(page) {
   // Get profile header container to limit search scope
   const profileHeader = await getProfileHeaderContainer(page);
 
+  if (DEBUG_MODE) {
+    await inspectPageButtons(page, profileHeader);
+  }
+
   // Prefer the main content area over the entire page to avoid sidebar suggestions
   let searchContext = profileHeader;
   if (!searchContext) {
@@ -248,7 +252,57 @@ export async function findConnectButton(page) {
     searchContext = page;
   }
 
-  // STRATEGY 1: Look for direct Connect button first
+  // STRATEGY 1: Robust selectors (prefer aria-label / data-control-name)
+  const robustConnectSelectors = [
+    'button[aria-label*="connect" i]:visible',
+    'button[data-control-name*="connect"]:visible',
+    '[data-control-name="topcard_connect_secondary"]:visible',
+    '.pvs-profile-actions button[aria-label*="Invite"]:visible',
+    'div[role="button"]:has(span:visible:text("Connect")):visible',
+  ];
+
+  for (const selector of robustConnectSelectors) {
+    try {
+      const locator = searchContext.locator(selector);
+      const count = await locator.count().catch(() => 0);
+      if (DEBUG_MODE) {
+        const texts = await locator.allTextContents().catch(() => []);
+        console.log(`🔎 [robust selector] ${selector} -> count=${count}`, texts.slice(0, 10));
+      }
+      if (count === 0) continue;
+
+      const button = locator.first();
+      if (!(await button.isVisible().catch(() => false))) continue;
+
+      const buttonHandle = await button.elementHandle();
+      if (!buttonHandle) continue;
+
+      // Double-check: button must NOT be in sidebar or people-you-may-know
+      const isSafe = await buttonHandle.evaluate(el => {
+        const bad = [
+          'aside',
+          '.scaffold-layout__aside',
+          '.pv-browsemap-section',
+          '.scaffold-layout__aside-sticky-container',
+          '[data-view-name="profile-card"]',
+          '.pv-side-panel',
+        ];
+        return !bad.some(sel => !!el.closest(sel));
+      });
+
+      if (!isSafe) {
+        console.log('↪️ Skipping sidebar Connect button');
+        continue;
+      }
+
+      console.log(`✅ Found Connect button via robust selector: ${selector}`);
+      return button;
+    } catch (e) {
+      continue;
+    }
+  }
+
+  // STRATEGY 2: Text-based direct Connect button selectors (fallback)
   const directConnectSelectors = [
     'button:has(span.artdeco-button__text:text-is("Connect"))',
     'button[aria-label*="Invite"][aria-label*="connect"]',
@@ -636,29 +690,38 @@ export async function handleInviteModal(page) {
  * Debug helper: Inspect all buttons on page
  * @param {Page} page - Playwright page object
  */
-async function inspectPageButtons(page) {
-  console.log(`🔍 DEBUG: Inspecting all buttons on page...`);
+async function inspectPageButtons(page, scopeLocator = null) {
+  console.log(`🔍 DEBUG: Inspecting buttons (scoped)...`);
   
   try {
-    const buttonInfo = await page.evaluate(() => {
-      const buttons = Array.from(document.querySelectorAll('button'));
-      return buttons.slice(0, 20).map(btn => ({
+    const html = await (scopeLocator ? scopeLocator : page.locator('main')).first().evaluate((root) => {
+      const buttons = Array.from(root.querySelectorAll('button'))
+        .filter((b) => b.offsetParent !== null);
+      return buttons.map((btn) => ({
         text: btn.textContent?.trim().substring(0, 50),
         ariaLabel: btn.getAttribute('aria-label'),
         className: btn.className.substring(0, 100),
         dataControl: btn.getAttribute('data-control-name'),
         id: btn.id,
-        visible: btn.offsetParent !== null
+        visible: btn.offsetParent !== null,
       }));
-    });
-    
-    console.log(`📋 Found ${buttonInfo.length} buttons on page:`);
+    }).catch(() => null);
+
+    const buttonInfo = html || [];
+    console.log(`📋 Visible buttons in scope: ${buttonInfo.length}`);
     buttonInfo.forEach((btn, idx) => {
-      if (btn.text?.toLowerCase().includes('connect') || 
-          btn.text?.toLowerCase().includes('more') ||
-          btn.ariaLabel?.toLowerCase().includes('connect') ||
-          btn.ariaLabel?.toLowerCase().includes('more')) {
-        console.log(`  🎯 POTENTIAL: Button ${idx + 1}:`, JSON.stringify(btn));
+      const text = (btn.text || '').toLowerCase();
+      const aria = (btn.ariaLabel || '').toLowerCase();
+      const data = (btn.dataControl || '').toLowerCase();
+      if (
+        text.includes('connect') ||
+        aria.includes('connect') ||
+        aria.includes('invite') ||
+        data.includes('connect') ||
+        text.includes('more') ||
+        aria.includes('more')
+      ) {
+        console.log(`  🎯 Button ${idx + 1}:`, JSON.stringify(btn));
       }
     });
   } catch (evalError) {
