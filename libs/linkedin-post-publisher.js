@@ -5,10 +5,34 @@
  * from testLinkedInSession(account, true).
  */
 
+// Debug mode: Enable screenshots and verbose logging
+const DEBUG_MODE =
+  process.env.ENABLE_DEBUG === "true" ||
+  process.env.NODE_ENV === "development";
+
 function randomDelay(min = 1000, max = 3000) {
   return new Promise((resolve) =>
     setTimeout(resolve, Math.floor(Math.random() * (max - min + 1)) + min)
   );
+}
+
+async function captureStepScreenshot(page, step) {
+  if (!DEBUG_MODE) return;
+  try {
+    const fs = await import("fs");
+    const dir = "./debug-recruiter-posts";
+    await fs.promises.mkdir(dir, { recursive: true });
+    const filePath = `${dir}/post-${step}-${Date.now()}.png`;
+    await page.screenshot({ path: filePath, fullPage: false });
+    console.log(
+      `📸 [recruiter] Screenshot for step "${step}" saved to ${filePath}`
+    );
+  } catch (e) {
+    console.log(
+      `⚠️ [recruiter] Failed to capture screenshot for step "${step}":`,
+      e.message
+    );
+  }
 }
 
 /**
@@ -24,6 +48,7 @@ export async function publishLinkedInPost(page, postText) {
       timeout: 30000,
     });
     await randomDelay(2000, 4000);
+    await captureStepScreenshot(page, "after_navigate_feed");
 
     // Click the "Start a post" button
     const startPostBtn = page.locator(
@@ -33,6 +58,7 @@ export async function publishLinkedInPost(page, postText) {
     await startPostBtn.click();
     console.log("✅ Post composer opened");
     await randomDelay(1500, 3000);
+    await captureStepScreenshot(page, "after_open_composer");
 
     // Type into the rich-text editor
     const editor = page.locator(
@@ -51,6 +77,7 @@ export async function publishLinkedInPost(page, postText) {
 
     console.log("✅ Post text entered");
     await randomDelay(1000, 2000);
+    await captureStepScreenshot(page, "after_enter_text");
 
     // Click the Post button
     const postBtn = page.locator(
@@ -60,6 +87,7 @@ export async function publishLinkedInPost(page, postText) {
     await postBtn.click();
     console.log("✅ Post button clicked — publishing...");
     await randomDelay(3000, 6000);
+    await captureStepScreenshot(page, "after_click_post");
 
     // Try to grab the URL of the new post from the feed
     let postUrl = null;
@@ -77,6 +105,7 @@ export async function publishLinkedInPost(page, postText) {
     return { success: true, postUrl };
   } catch (err) {
     console.error("❌ Failed to publish LinkedIn post:", err.message);
+    await captureStepScreenshot(page, "error_state");
     return { success: false, error: err.message };
   }
 }
