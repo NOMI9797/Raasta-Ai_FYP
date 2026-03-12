@@ -254,25 +254,40 @@ export async function findConnectButton(page) {
               !!el.closest('.pv-browsemap-section') ||
               !!el.closest('.scaffold-layout__aside-sticky-container') ||
               !!el.closest('[data-view-name="profile-card"]') ||
+              !!el.closest('.discovery-templates-vertical-list') ||
+              !!el.closest('.pv-browsemap') ||
+              !!el.closest('[data-view-name="pymk-card"]') ||
               !!el.closest('.pv-side-panel');
-            return { text, ariaLabel, inSidebar };
+
+            const rect = el.getBoundingClientRect();
+            const screenWidth = window.innerWidth || 0;
+            const inRightHalf = screenWidth ? rect.left > screenWidth * 0.6 : false;
+
+            return {
+              text,
+              ariaLabel,
+              inSidebar,
+              inRightHalf,
+              x: rect.left,
+              screenWidth,
+            };
           });
 
           if (DEBUG_MODE) {
             console.log(
-              `🔎 Button found: text="${info.text}" aria="${info.ariaLabel}" sidebar=${info.inSidebar}`
+              `🔎 Button found: text="${info.text}" aria="${info.ariaLabel}" sidebar=${info.inSidebar} rightHalf=${info.inRightHalf} x=${Math.round(info.x)}/${info.screenWidth}`
             );
           }
 
-          if (info.inSidebar) {
-            if (DEBUG_MODE) console.log('↪️ Skipping sidebar button');
+          if (info.inSidebar || info.inRightHalf) {
+            if (DEBUG_MODE) console.log('↪️ Skipping sidebar/right-panel button');
             continue;
           }
 
           const text = info.text.toLowerCase();
           const aria = info.ariaLabel.toLowerCase();
           if (text.includes('connect') || aria.includes('invite') || aria.includes('connect')) {
-            console.log(`✅ Found Connect button`);
+            console.log(`✅ Found profile Connect button`);
             return button;
           }
         } catch (e) {
