@@ -10,6 +10,9 @@ import { withAuth } from "@/libs/auth-middleware";
 import LinkedInSessionManager from "@/libs/linkedin-session";
 import { checkDailyConnectionCheckLimit, incrementConnectionCheckCounter } from "@/libs/rate-limit-manager";
 import { checkConnectionAcceptances } from "@/libs/linkedin-connection-checker";
+import { db } from "@/libs/db";
+import { linkedinAccounts } from "@/libs/schema";
+import { eq } from "drizzle-orm";
 
 const sessionManager = new LinkedInSessionManager();
 
@@ -23,17 +26,38 @@ export const POST = withAuth(async (request, { user }) => {
     // STEP 1: Get active LinkedIn account
     console.log('🔐 STEP 1: Finding active LinkedIn account...');
     const allAccounts = await sessionManager.getAllSessions(user.id);
-    const activeAccount = allAccounts.find(acc => acc.isActive);
+    let activeAccount =
+      allAccounts.find((acc) => acc.isActive === true) ||
+      allAccounts[0] ||
+      null;
+
+    // If Sales Operator / Recruiter doesn't have their own active account,
+    // allow using the globally-active (admin-connected) account.
+    if (!activeAccount && (user.role === "sales_operator" || user.role === "recruiter")) {
+      console.log(`🔁 No user-scoped account found; trying shared active account...`);
+      const [sharedActive] = await db
+        .select()
+        .from(linkedinAccounts)
+        .where(eq(linkedinAccounts.isActive, true))
+        .limit(1);
+      activeAccount = sharedActive || null;
+    }
     
     if (!activeAccount) {
       console.error('❌ No active LinkedIn account found');
       return NextResponse.json({
         success: false,
-        error: 'No active LinkedIn account found. Please connect a LinkedIn account first.'
+        error: 'No LinkedIn account found. Please connect a LinkedIn account first.'
       }, { status: 400 });
     }
     
-    console.log(`✅ Active account: ${activeAccount.email}\n`);
+    if (activeAccount.userId === user.id && !activeAccount.isActive) {
+      console.log(`⚠️ No active account set. Falling back to most recent account: ${activeAccount.email}`);
+      // Best-effort: mark it active so future calls are consistent
+      await sessionManager.updateSessionStatus(activeAccount.sessionId, { isActive: true }).catch(() => {});
+    }
+
+    console.log(`✅ Using account: ${activeAccount.email}\n`);
     
     // STEP 2: Check daily limit (max 3 checks per day)
     console.log('📊 STEP 2: Checking daily limit...');
