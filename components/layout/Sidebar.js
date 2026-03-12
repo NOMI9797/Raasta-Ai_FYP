@@ -21,7 +21,7 @@ const allMenuItems = [
   { icon: Shield, label: "Admin", href: "/dashboard/admin", key: "admin", roles: ["admin"] },
   { icon: Target, label: "Campaigns", href: "/dashboard/campaigns", key: "campaigns", roles: ["admin", "sales_operator"] },
   { icon: UserCheck, label: "Accounts", href: "/dashboard/accounts", key: "accounts", roles: ["admin"] },
-  { icon: BarChart3, label: "Dashboard", href: "/dashboard/recruiter", key: "recruiter", roles: ["recruiter"] },
+  { icon: BarChart3, label: "Dashboard", href: "/dashboard/recruiter", key: "recruiter", roles: ["admin", "recruiter"] },
   { icon: Briefcase, label: "Hiring", href: "/dashboard/hiring", key: "hiring", roles: ["admin", "recruiter"] },
   { icon: Bot, label: "Agents", href: "/dashboard/agents", key: "agents", roles: ["admin", "sales_operator", "recruiter"] },
   { icon: TrendingUp, label: "Statistics", href: "/dashboard/statistics", key: "statistics", roles: ["admin", "sales_operator"] },
