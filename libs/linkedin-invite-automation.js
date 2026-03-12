@@ -208,6 +208,11 @@ export async function findConnectButton(page) {
 
   // STRATEGY 1: Look for direct Connect button first
   const directConnectSelectors = [
+    // New LinkedIn UI sometimes renders Connect as an <a> link to /preload/custom-invite/
+    'a[aria-label*="Invite" i][href*="/preload/custom-invite"]',
+    'a[aria-label*="Invite" i]',
+    'a:has-text("Connect")',
+    'a:has(span:text("Connect"))',
     'button:has(span.artdeco-button__text:text-is("Connect"))',
     'button[aria-label*="Invite"][aria-label*="connect"]',
     'button.artdeco-button:has-text("Connect")',
