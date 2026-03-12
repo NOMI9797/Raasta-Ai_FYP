@@ -353,12 +353,14 @@ export const salesOperatorPipeline = {
       async execute(ctx) {
         console.log("🤖 [sales_operator] Step wait_and_check: started", {
           accountId: ctx.config?.accountId,
+          waitSeconds: ctx.config?.waitSeconds,
           waitMinutes: ctx.config?.waitMinutes,
         });
-        const { accountId, waitMinutes } = ctx.config;
-        // For local testing, keep this short so the pipeline can be validated quickly.
-        const waitMs = (waitMinutes ?? 0.25) * 60 * 1000; // default 15 seconds
-        const waitSeconds = Math.max(1, Math.round(waitMs / 1000));
+        const { accountId } = ctx.config;
+        // For local testing, use seconds granularity (default 25s).
+        // `waitMinutes` is intentionally ignored here to avoid long waits during iteration.
+        const waitSeconds = Math.max(1, Number(ctx.config?.waitSeconds ?? 25));
+        const waitMs = waitSeconds * 1000;
 
         console.log(`⏳ Waiting ${waitSeconds} seconds before checking connection acceptance...`);
         await new Promise((resolve) => setTimeout(resolve, waitMs));
