@@ -10,20 +10,6 @@ import { updateLeadStatus } from './lead-status-manager';
 // Debug mode: Enable screenshots and verbose logging
 const DEBUG_MODE = process.env.ENABLE_DEBUG === 'true' || process.env.NODE_ENV === 'development';
 
-async function captureStepScreenshot(page, leadId, step) {
-  if (!DEBUG_MODE) return;
-  try {
-    const fs = await import('fs');
-    const dir = './debug-invites';
-    await fs.promises.mkdir(dir, { recursive: true });
-    const filePath = `${dir}/invite-${leadId}-${step}-${Date.now()}.png`;
-    await page.screenshot({ path: filePath, fullPage: false });
-    console.log(`📸 [${leadId}] Screenshot for step "${step}" saved to ${filePath}`);
-  } catch (e) {
-    console.log(`⚠️ Failed to capture screenshot for step "${step}":`, e.message);
-  }
-}
-
 /**
  * Wait for LinkedIn profile page to stabilize
  * @param {Page} page - Playwright page object
@@ -283,6 +269,7 @@ export async function findConnectButton(page) {
   console.log(`🔍 Checking "More" dropdown...`);
   
   const connectInDropdown = await findConnectButtonInDropdown(page, profileHeader);
+  
   if (connectInDropdown) {
     console.log(`✅ Found Connect button in dropdown`);
     return connectInDropdown;
@@ -306,7 +293,7 @@ export async function findConnectButton(page) {
   } catch (e) {
     console.log(`⚠️ Could not get button texts: ${e.message}`);
   }
-
+  
   console.log(`❌ Connect button not found`);
   return null;
 }
@@ -574,38 +561,29 @@ export async function handleInviteModal(page) {
  * Debug helper: Inspect all buttons on page
  * @param {Page} page - Playwright page object
  */
-async function inspectPageButtons(page, scopeLocator = null) {
-  console.log(`🔍 DEBUG: Inspecting buttons (scoped)...`);
+async function inspectPageButtons(page) {
+  console.log(`🔍 DEBUG: Inspecting all buttons on page...`);
   
   try {
-    const html = await (scopeLocator ? scopeLocator : page.locator('main')).first().evaluate((root) => {
-      const buttons = Array.from(root.querySelectorAll('button'))
-        .filter((b) => b.offsetParent !== null);
-      return buttons.map((btn) => ({
+    const buttonInfo = await page.evaluate(() => {
+      const buttons = Array.from(document.querySelectorAll('button'));
+      return buttons.slice(0, 20).map(btn => ({
         text: btn.textContent?.trim().substring(0, 50),
         ariaLabel: btn.getAttribute('aria-label'),
         className: btn.className.substring(0, 100),
         dataControl: btn.getAttribute('data-control-name'),
         id: btn.id,
-        visible: btn.offsetParent !== null,
+        visible: btn.offsetParent !== null
       }));
-    }).catch(() => null);
-
-    const buttonInfo = html || [];
-    console.log(`📋 Visible buttons in scope: ${buttonInfo.length}`);
+    });
+    
+    console.log(`📋 Found ${buttonInfo.length} buttons on page:`);
     buttonInfo.forEach((btn, idx) => {
-      const text = (btn.text || '').toLowerCase();
-      const aria = (btn.ariaLabel || '').toLowerCase();
-      const data = (btn.dataControl || '').toLowerCase();
-      if (
-        text.includes('connect') ||
-        aria.includes('connect') ||
-        aria.includes('invite') ||
-        data.includes('connect') ||
-        text.includes('more') ||
-        aria.includes('more')
-      ) {
-        console.log(`  🎯 Button ${idx + 1}:`, JSON.stringify(btn));
+      if (btn.text?.toLowerCase().includes('connect') || 
+          btn.text?.toLowerCase().includes('more') ||
+          btn.ariaLabel?.toLowerCase().includes('connect') ||
+          btn.ariaLabel?.toLowerCase().includes('more')) {
+        console.log(`  🎯 POTENTIAL: Button ${idx + 1}:`, JSON.stringify(btn));
       }
     });
   } catch (evalError) {
@@ -645,37 +623,12 @@ export async function processInvitesDirectly(context, page, leads, customMessage
   for (let i = 0; i < leads.length; i++) {
     const lead = leads[i];
     
-    // Helper function to send intermediate progress updates
-    const sendProgress = async (stage, progressFraction = 0, statusOverride = 'processing') => {
-      if (progressCallback && typeof progressCallback === 'function') {
-        try {
-          await progressCallback({
-            type: 'progress',
-            current: i + progressFraction,
-            total: leads.length,
-            leadName: lead.name,
-            leadId: lead.id,
-            stage: stage, // e.g., 'navigating', 'checking', 'clicking', 'sending'
-            status: statusOverride
-          });
-        } catch (cbError) {
-          // Ignore callback errors to not break the flow
-        }
-      }
-    };
-    
     try {
       console.log(`📤 INVITE ${i + 1}/${leads.length}: ${lead.name || 'Lead'}`);
       console.log(`🔗 ${lead.url}`);
       
-      // Stage 1: Starting to process lead (0% of this lead)
-      await sendProgress('starting', 0.0);
-      
       // Navigate with better error handling
       try {
-        // Stage 2: Navigating to profile (20% of this lead)
-        await sendProgress('navigating', 0.2);
-        
         await page.goto(lead.url, { 
           waitUntil: 'domcontentloaded', 
           timeout: 45000
@@ -688,38 +641,24 @@ export async function processInvitesDirectly(context, page, leads, customMessage
           name: lead.name, 
           error: `Navigation failed: ${navError.message}` 
         });
-        // Still send final progress for this lead
-        await sendProgress('failed', 1.0, 'failed');
         continue;
       }
       
       // OPTIMIZATION: Reduced page load waits
       await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
-      
-      // Wait for profile action buttons to render (LinkedIn is a React SPA)
-      await Promise.race([
-        page.waitForSelector('button[aria-label*="Invite" i]', { timeout: 8000 }),
-        page.waitForSelector('button[aria-label*="Message"]', { timeout: 8000 }),
-        page.waitForSelector('.pvs-profile-actions', { timeout: 8000 }),
-      ]).catch(() => console.log('⚠️ Profile buttons timeout, continuing...'));
+      await page.waitForTimeout(1000);  // Reduced from 3s → 1s
 
-      await page.waitForTimeout(1500);
-      await captureStepScreenshot(page, lead.id, 'after_navigate');
-      
-      // Stage 3: Checking connection status (40% of this lead)
-      await sendProgress('checking', 0.4);
-      await captureStepScreenshot(page, lead.id, 'before_check_status');
+      // OPTIMIZATION: Take screenshot only in debug mode
+      if (DEBUG_MODE) {
+        const screenshotPath = `./debug-profile-${lead.id}-${Date.now()}.png`;
+        await page.screenshot({ path: screenshotPath, fullPage: false });
+      }
 
       // Check if already connected or pending
       const isAlreadyProcessed = await checkConnectionStatus(page, campaignId, lead, results);
       if (isAlreadyProcessed) {
-        // Lead already processed, mark as complete
-        await sendProgress('already_processed', 1.0, 'already_processed');
         continue;
       }
-      
-      // Stage 4: Finding Connect button (50% of this lead)
-      await sendProgress('finding_button', 0.5);
       
       // Find Connect button (tries direct button first, then dropdown)
       const connectButton = await findConnectButton(page);
@@ -752,7 +691,6 @@ export async function processInvitesDirectly(context, page, leads, customMessage
         }
         
         if (isPending) {
-        await sendProgress('already_pending', 1.0, 'already_pending');
           continue; // Move to next lead
         }
         
@@ -761,13 +699,14 @@ export async function processInvitesDirectly(context, page, leads, customMessage
         console.log(`📝 Marking as ACCEPTED`);
         results.alreadyConnected++;
         await updateLeadStatus(campaignId, lead.id, 'accepted', true);
-        await sendProgress('already_connected', 1.0, 'already_connected');
         continue;
       }
 
-      // Stage 5: Clicking Connect button (60% of this lead)
-      await sendProgress('clicking', 0.6);
-      await captureStepScreenshot(page, lead.id, 'before_click_connect');
+      // OPTIMIZATION: Take screenshot only in debug mode
+      if (DEBUG_MODE) {
+        const beforeClickPath = `./debug-before-click-${lead.id}-${Date.now()}.png`;
+        await page.screenshot({ path: beforeClickPath, fullPage: false });
+      }
 
       // Click Connect button
       const clickSuccess = await clickConnectButton(connectButton, page);
@@ -779,21 +718,17 @@ export async function processInvitesDirectly(context, page, leads, customMessage
           name: lead.name, 
           error: 'Failed to click Connect button' 
         });
-        await sendProgress('failed', 1.0, 'failed');
         continue;
       }
-      
-      // Stage 6: Waiting for modal (70% of this lead)
-      await sendProgress('waiting_modal', 0.7);
-      await captureStepScreenshot(page, lead.id, 'after_click_connect');
       
       // OPTIMIZATION: Reduced modal wait from 3s → 1.5s
       await page.waitForTimeout(1500);
       
-      await captureStepScreenshot(page, lead.id, 'before_handle_modal');
-      
-      // Stage 7: Sending invite (80% of this lead)
-      await sendProgress('sending', 0.8);
+      // OPTIMIZATION: Take screenshot only in debug mode
+      if (DEBUG_MODE) {
+        const modalScreenshotPath = `./debug-modal-${lead.id}-${Date.now()}.png`;
+        await page.screenshot({ path: modalScreenshotPath, fullPage: true });
+      }
       
       // Handle invitation modal
       const inviteSent = await handleInviteModal(page);
@@ -803,13 +738,10 @@ export async function processInvitesDirectly(context, page, leads, customMessage
         // Update this lead in this campaign
         await updateLeadStatus(campaignId, lead.id, 'sent', true);
         console.log(`✅ INVITE SENT: ${lead.name || 'Lead'}`);
-        // Stage 8: Invite sent successfully (100% of this lead)
-        await sendProgress('completed', 1.0, 'sent');
       } else {
         results.failed++;
         results.errors.push({ leadId: lead.id, name: lead.name, error: 'Failed to send invite via modal' });
         await updateLeadStatus(campaignId, lead.id, 'failed', false);
-        await sendProgress('failed', 1.0, 'failed');
       }
 
       // Rate limiting: 10-30 seconds randomized (human-like behavior to avoid detection)
@@ -825,17 +757,35 @@ export async function processInvitesDirectly(context, page, leads, customMessage
       results.failed++;
       results.errors.push({ leadId: lead.id, name: lead.name, error: error.message });
       await updateLeadStatus(campaignId, lead.id, 'failed', false);
-      await sendProgress('failed', 1.0, 'failed');
     }
     
-    // ✅ Progress is now sent at each stage via sendProgress() helper
-    // Track lead status for daily counter (handled in worker's progressCallback)
+    // ✅ Emit progress after each lead (success or failure)
+    // Track current lead status for accurate daily counter updates
+    let leadStatus = 'failed'; // Default to failed
     if (results.sent > initialSentCount) {
+      leadStatus = 'sent'; // This lead was just sent successfully
       initialSentCount = results.sent; // Update for next iteration
     } else if (results.alreadyConnected > initialAlreadyConnected) {
+      leadStatus = 'already_connected';
       initialAlreadyConnected = results.alreadyConnected;
     } else if (results.alreadyPending > initialAlreadyPending) {
+      leadStatus = 'already_pending';
       initialAlreadyPending = results.alreadyPending;
+    }
+    
+    if (progressCallback && typeof progressCallback === 'function') {
+      try {
+        await progressCallback({
+          type: 'progress',
+          current: i + 1,
+          total: leads.length,
+          leadName: lead.name,
+          leadId: lead.id,
+          status: leadStatus // ✅ Include status for daily counter tracking
+        });
+      } catch (cbError) {
+        console.error(`⚠️ Progress callback error:`, cbError.message);
+      }
     }
   }
 
