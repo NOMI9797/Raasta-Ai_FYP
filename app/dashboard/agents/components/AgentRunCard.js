@@ -11,6 +11,7 @@ import {
   ChevronUp,
   RotateCcw,
   StopCircle,
+  RefreshCw,
 } from "lucide-react";
 import StepTimeline from "./StepTimeline";
 import toast from "react-hot-toast";
@@ -47,6 +48,7 @@ export default function AgentRunCard({ run: initialRun, onRefresh }) {
   const [steps, setSteps] = useState([]);
   const [expanded, setExpanded] = useState(false);
   const [loadingSteps, setLoadingSteps] = useState(false);
+  const [regeneratingPost, setRegeneratingPost] = useState(false);
   const streamRef = useRef(null);
 
   const isActive = ["queued", "running", "paused_at_checkpoint"].includes(run.status);
@@ -130,6 +132,57 @@ export default function AgentRunCard({ run: initialRun, onRefresh }) {
   const pipelineLabel = run.pipelineType === "recruiter" ? "Recruiter" : "Sales Operator";
   const modeLabel = run.mode === "full_auto" ? "Full-Auto" : "Semi-Auto";
 
+  const isRecruiterApprovePostCheckpoint =
+    run.pipelineType === "recruiter" &&
+    run.status === "paused_at_checkpoint" &&
+    run.currentStep === "approve_post";
+
+  const generatedPost =
+    run.results?.generate_post?.linkedinPost ||
+    run.results?.load_job?.existingPost ||
+    "";
+
+  const generatedJobId =
+    run.results?.generate_post?.jobId || run.results?.load_job?.jobId;
+
+  const handleRegeneratePost = async () => {
+    if (!generatedJobId) return;
+    try {
+      setRegeneratingPost(true);
+      const origin =
+        typeof window !== "undefined" ? window.location.origin : "";
+      const applyUrl = origin ? `${origin}/apply/${generatedJobId}` : "";
+      const res = await fetch(`/api/hiring/jobs/${generatedJobId}/generate-post`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tone: "professional", applyUrl }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.linkedinPost) {
+        throw new Error(data.error || "Failed to regenerate post");
+      }
+
+      toast.success("LinkedIn post regenerated");
+      setRun((prev) => ({
+        ...prev,
+        results: {
+          ...(prev.results || {}),
+          generate_post: {
+            ...(prev.results?.generate_post || {}),
+            jobId: generatedJobId,
+            linkedinPost: data.linkedinPost,
+            applyUrl,
+          },
+        },
+      }));
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message || "Failed to regenerate post");
+    } finally {
+      setRegeneratingPost(false);
+    }
+  };
+
   return (
     <div className="bg-base-100 border border-base-300 rounded-xl overflow-hidden">
       <div
@@ -179,6 +232,36 @@ export default function AgentRunCard({ run: initialRun, onRefresh }) {
           ) : (
             <>
               <StepTimeline steps={steps} pipelineStepLabels={STEP_LABELS} />
+
+              {isRecruiterApprovePostCheckpoint && generatedPost && (
+                <div className="mt-4 p-4 rounded-xl bg-base-200 border border-base-300 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-base-content">
+                        Generated LinkedIn Post
+                      </p>
+                      <p className="text-xs text-base-content/60">
+                        Review and optionally regenerate before approving.
+                      </p>
+                    </div>
+                    <button
+                      className="btn btn-ghost btn-xs gap-1"
+                      onClick={handleRegeneratePost}
+                      disabled={regeneratingPost}
+                    >
+                      {regeneratingPost ? (
+                        <Loader2 size={12} className="animate-spin" />
+                      ) : (
+                        <RefreshCw size={12} />
+                      )}
+                      Regenerate
+                    </button>
+                  </div>
+                  <div className="textarea textarea-bordered w-full min-h-[160px] whitespace-pre-wrap text-sm bg-base-100">
+                    {generatedPost}
+                  </div>
+                </div>
+              )}
 
               {run.errorMessage && (
                 <div className="mt-3 p-3 rounded-lg bg-error/10 text-error text-sm">

@@ -135,7 +135,7 @@ ${salaryPart}
       label: "Post to LinkedIn",
       isCheckpoint: false,
       async execute(ctx) {
-        const { jobId, linkedinPost } = ctx.stepOutputs.generate_post;
+        const { jobId } = ctx.stepOutputs.load_job || ctx.stepOutputs.generate_post;
         const accountId = ctx.config.accountId;
 
         if (!accountId) {
@@ -166,6 +166,17 @@ ${salaryPart}
 
         if (!account) throw new Error("LinkedIn account not found");
 
+        // Always read latest post content from jobs table so any regenerations
+        // (from Hiring page or agent UI) are respected.
+        const [job] = await ctx.db
+          .select()
+          .from(jobs)
+          .where(eq(jobs.id, jobId))
+          .limit(1);
+        if (!job || !job.linkedinPost) {
+          throw new Error("No LinkedIn post content found for this job");
+        }
+
         // Validate session and get browser
         const sessionCheck = await testLinkedInSession(account, true);
         if (!sessionCheck.isValid) {
@@ -174,7 +185,7 @@ ${salaryPart}
 
         let result;
         try {
-          result = await publishLinkedInPost(sessionCheck.page, linkedinPost);
+          result = await publishLinkedInPost(sessionCheck.page, job.linkedinPost);
         } finally {
           await cleanupBrowserSession(sessionCheck.context);
         }

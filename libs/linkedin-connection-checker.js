@@ -236,6 +236,12 @@ export async function checkConnectionAcceptances(accountData, userId) {
     }
     
     console.log(`✅ Found ${sentLeads.length} leads to check\n`);
+
+    // Fast-path: leads already marked accepted but missing message
+    // These should get messaged even if connections-page matching returns 0.
+    const acceptedNoMessageLeads = sentLeads.filter(
+      (l) => l.inviteStatus === 'accepted' && !l.messageSent
+    );
     
     // STEP 3: Scrape connections page
     console.log('🌐 STEP 3: Scraping LinkedIn connections page...');
@@ -314,8 +320,19 @@ export async function checkConnectionAcceptances(accountData, userId) {
     
     // STEP 7: Send messages to accepted connections (if they have generated messages)
     let messagesSent = 0;
-    
-    if (matchedLeads.length > 0) {
+
+    // Eligible for messaging:
+    // - newly matched/updated as accepted (matchedLeads)
+    // - already accepted but missing message (acceptedNoMessageLeads)
+    const eligibleForMessaging = [
+      ...acceptedNoMessageLeads,
+      ...matchedLeads,
+    ];
+    const eligibleById = new Map();
+    for (const lead of eligibleForMessaging) eligibleById.set(lead.id, lead);
+    const uniqueEligibleLeads = Array.from(eligibleById.values()).filter((l) => !l.messageSent);
+
+    if (uniqueEligibleLeads.length > 0) {
       console.log('📨 STEP 7: Sending messages to accepted connections...');
       
       // Check daily message limit
@@ -326,19 +343,19 @@ export async function checkConnectionAcceptances(accountData, userId) {
       if (!messageLimitCheck.canSend) {
         console.log('⚠️ Daily message limit reached. Skipping message sending.\n');
       } else {
-        // Get messages for matched leads
-        const matchedLeadIds = matchedLeads.map(l => l.id);
+        // Get messages for eligible leads
+        const matchedLeadIds = uniqueEligibleLeads.map(l => l.id);
         const leadMessages = await db
           .select()
           .from(messages)
           .where(inArray(messages.leadId, matchedLeadIds));
         
-        console.log(`📝 Found ${leadMessages.length} generated messages for matched leads\n`);
+        console.log(`📝 Found ${leadMessages.length} generated messages for accepted leads\n`);
         
         // Filter leads that: have message + message not sent yet
         const leadsToMessage = [];
         
-        for (const lead of matchedLeads) {
+        for (const lead of uniqueEligibleLeads) {
           const leadMessage = leadMessages.find(m => m.leadId === lead.id);
           
           if (leadMessage && !lead.messageSent) {
