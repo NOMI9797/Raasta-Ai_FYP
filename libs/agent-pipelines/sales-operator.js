@@ -356,9 +356,11 @@ export const salesOperatorPipeline = {
           waitMinutes: ctx.config?.waitMinutes,
         });
         const { accountId, waitMinutes } = ctx.config;
-        const waitMs = (waitMinutes || 30) * 60 * 1000;
+        // For local testing, keep this short so the pipeline can be validated quickly.
+        const waitMs = (waitMinutes ?? 0.25) * 60 * 1000; // default 15 seconds
+        const waitSeconds = Math.max(1, Math.round(waitMs / 1000));
 
-        console.log(`⏳ Waiting ${waitMinutes || 30} minutes before checking connection acceptance...`);
+        console.log(`⏳ Waiting ${waitSeconds} seconds before checking connection acceptance...`);
         await new Promise((resolve) => setTimeout(resolve, waitMs));
 
         // Fetch the account again for fresh data
