@@ -142,6 +142,11 @@ export default function AgentRunCard({ run: initialRun, onRefresh }) {
     run.status === "paused_at_checkpoint" &&
     run.currentStep === "approve_messages";
 
+  // Prefer aggregated results from run, but fall back to step output if needed
+  const salesOpGenerateMessagesOutput =
+    run.results?.generate_messages ||
+    steps.find((s) => s.stepKey === "generate_messages")?.output;
+
   const generatedPost =
     run.results?.generate_post?.linkedinPost ||
     run.results?.load_job?.existingPost ||
@@ -268,7 +273,7 @@ export default function AgentRunCard({ run: initialRun, onRefresh }) {
                 </div>
               )}
 
-              {isSalesOpApproveMessagesCheckpoint && run.results?.generate_messages && (
+              {isSalesOpApproveMessagesCheckpoint && salesOpGenerateMessagesOutput && (
                 <div className="mt-4 p-4 rounded-xl bg-base-200 border border-base-300 space-y-2">
                   <p className="text-sm font-semibold text-base-content">
                     Generated personalized messages
@@ -281,13 +286,13 @@ export default function AgentRunCard({ run: initialRun, onRefresh }) {
                     <p>
                       Total leads in campaign:{" "}
                       <span className="font-semibold">
-                        {run.results.generate_messages.totalLeads ?? "-"}
+                        {salesOpGenerateMessagesOutput.totalLeads ?? "-"}
                       </span>
                     </p>
                     <p>
                       Leads with generated messages:{" "}
                       <span className="font-semibold">
-                        {run.results.generate_messages.generated ?? "-"}
+                        {salesOpGenerateMessagesOutput.generated ?? "-"}
                       </span>
                     </p>
                   </div>
