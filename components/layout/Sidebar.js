@@ -9,7 +9,6 @@ import {
   Users,
   MessageSquare,
   BarChart3,
-  Settings,
   ChevronLeft,
   ChevronRight,
   Plus,
@@ -30,7 +29,6 @@ const allMenuItems = [
   { icon: Briefcase, label: "Hiring", href: "/dashboard/hiring", key: "hiring", roles: ["admin", "recruiter"] },
   { icon: Bot, label: "Agents", href: "/dashboard/agents", key: "agents", roles: ["admin", "sales_operator", "recruiter"] },
   { icon: TrendingUp, label: "Statistics", href: "/dashboard/statistics", key: "statistics", roles: ["admin", "sales_operator", "recruiter"] },
-  { icon: Settings, label: "Settings", href: "/dashboard/settings", key: "settings", roles: ["admin", "sales_operator", "recruiter"] },
 ];
 
 export default function Sidebar({ collapsed, onToggle, activeSection = "campaigns" }) {
