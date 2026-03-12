@@ -32,24 +32,22 @@ async function waitForPageStabilization(page) {
   console.log(`⏳ Waiting for profile page to stabilize...`);
   
   try {
-    // Initial DOM ready
-    await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
-
-    // Wait for actual action buttons to render — key for React SPA
+    // Wait for main container (fast check)
     await Promise.race([
-      page.waitForSelector('.pvs-profile-actions', { timeout: 8000 }),
-      page.waitForSelector('.pv-top-card-v2-ctas', { timeout: 8000 }),
-      page.waitForSelector('button[aria-label*="connect" i]', { timeout: 8000 }),
-      page.waitForSelector('button[aria-label*="Message"]', { timeout: 8000 }),
-    ]).catch(() => {
-      console.log('⚠️ Action buttons selector timed out, continuing anyway...');
-    });
-
-    // Small buffer after buttons appear to let layout settle
-    await page.waitForTimeout(1000);
+      page.waitForSelector('.scaffold-layout__main', { timeout: 5000 }),
+      page.waitForSelector('.ph5', { timeout: 5000 }),
+      page.waitForSelector('main.scaffold-layout__main', { timeout: 5000 })
+    ]).catch(() => {});
+    
+    // OPTIMIZATION: Removed networkidle wait (LinkedIn has constant network activity)
+    // Use domcontentloaded instead - much faster
+    await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
+    
+    // OPTIMIZATION: Reduced React render wait from 2s → 500ms
+    await page.waitForTimeout(500);
     
   } catch (e) {
-    console.log(`⚠️ Stabilization error, continuing: ${e.message}`);
+    // Silently continue - page might still be usable
   }
 }
 
@@ -62,19 +60,20 @@ async function waitForPageStabilization(page) {
 async function getProfileHeaderContainer(page) {
   console.log(`🔍 Finding profile header container...`);
   
+  // Multiple possible selectors for the profile header/actions area
   const headerSelectors = [
-    '.pvs-profile-actions',                          // action buttons bar (most specific)
-    '.pv-top-card-v2-ctas',                          // CTA container
-    '.pv-top-card--actions',                         // older variant
-    'section.pv-top-card',                           // top card section
-    'div.ph5.pb5',                                   // profile top area
-    'main section:first-of-type .ph5',               // first section in main
+    '.pv-top-card', // Most common - profile top card
+    '.scaffold-layout__main .pv-top-card',
+    'section.artdeco-card.pv-top-card',
+    '.profile-background-image ~ div', // Container after background image
+    'main .ph5', // Main content area
+    '.scaffold-layout__main section:first-of-type' // First section in main layout
   ];
   
   for (const selector of headerSelectors) {
     try {
       const container = page.locator(selector).first();
-      if (await container.isVisible({ timeout: 2000 })) {
+      if (await container.isVisible({ timeout: 3000 })) {
         console.log(`✅ Found profile header with: ${selector}`);
         return container;
       }
@@ -83,16 +82,7 @@ async function getProfileHeaderContainer(page) {
     }
   }
   
-  // LAST RESORT: scope to first section inside main only
-  try {
-    const firstSection = page.locator('main > div > div > div section').first();
-    if (await firstSection.isVisible({ timeout: 2000 })) {
-      console.log(`✅ Using first main section as profile header`);
-      return firstSection;
-    }
-  } catch (e) {}
-  
-  console.log(`⚠️ Profile header not found`);
+  console.log(`⚠️ Profile header not found, will search entire page (less accurate)`);
   return null;
 }
 
@@ -226,75 +216,62 @@ export async function findConnectButton(page) {
   // Wait for page to stabilize first
   await waitForPageStabilization(page);
 
-  // Page-wide search (no scoping), with strict sidebar/browsemap exclusion
-  const connectSelectors = [
-    // Matches the actual LinkedIn Connect button when aria-label is missing
-    'button:has(span:text-is("Connect"))',
-    'button span:text-is("Connect")',
-    'button[aria-label*="Invite" i]',
-    'button[aria-label*="connect" i]',
+  // Get profile header container to limit search scope
+  const profileHeader = await getProfileHeaderContainer(page);
+  const searchContext = profileHeader || page;
+
+  // STRATEGY 1: Look for direct Connect button first
+  const directConnectSelectors = [
     'button:has(span.artdeco-button__text:text-is("Connect"))',
-    'button:has-text("Connect")',
+    'button[aria-label*="Invite"][aria-label*="connect"]',
+    'button.artdeco-button:has-text("Connect")',
+    'button:text-is("Connect")',
+    'button:has(span:text("Connect"))',
+    // Additional selectors for edge cases
+    'button[data-control-name="connect"]',
+    'button[aria-label*="Connect"]',
+    'div[role="button"]:has-text("Connect")'
   ];
 
-  for (const selector of connectSelectors) {
+  // Try direct connect button first
+  for (let i = 0; i < directConnectSelectors.length; i++) {
+    const selector = directConnectSelectors[i];
+    
     try {
-      const buttons = await page.locator(selector).all();
-
-      for (const button of buttons) {
-        try {
-          if (!(await button.isVisible())) continue;
-
-          const handle = await button.elementHandle();
-          if (!handle) continue;
-
-          const info = await handle.evaluate((el) => {
-            const text = el.textContent?.trim() || '';
-            const ariaLabel = el.getAttribute('aria-label') || '';
-            const inSidebar =
-              !!el.closest('aside') ||
-              !!el.closest('.scaffold-layout__aside') ||
-              !!el.closest('.pv-browsemap-section') ||
-              !!el.closest('.scaffold-layout__aside-sticky-container') ||
-              !!el.closest('[data-view-name="profile-card"]') ||
-              !!el.closest('.discovery-templates-vertical-list') ||
-              !!el.closest('.pv-browsemap') ||
-              !!el.closest('[data-view-name="pymk-card"]') ||
-              !!el.closest('.pv-side-panel');
-
-            const rect = el.getBoundingClientRect();
-            const screenWidth = window.innerWidth || 0;
-            const inRightHalf = screenWidth ? rect.left > screenWidth * 0.65 : false;
-
-            return {
-              text,
-              ariaLabel,
-              inSidebar,
-              inRightHalf,
-              x: rect.left,
-              screenWidth,
-            };
-          });
-
-          if (DEBUG_MODE) {
-            console.log(
-              `🔎 Button found: text="${info.text}" aria="${info.ariaLabel}" sidebar=${info.inSidebar} rightHalf=${info.inRightHalf} x=${Math.round(info.x)}/${info.screenWidth}`
-            );
-          }
-
-          if (info.inSidebar || info.inRightHalf) {
-            if (DEBUG_MODE) console.log('↪️ Skipping sidebar/right-panel button');
+      const buttons = await searchContext.locator(selector).all();
+      
+      if (buttons.length > 0) {
+        // Verify each button
+        for (const button of buttons) {
+          try {
+            // Check if button is visible
+            const isVisible = await button.isVisible();
+            if (!isVisible) continue;
+            
+            // Get button text
+            const buttonHandle = await button.elementHandle();
+            const buttonText = await buttonHandle.evaluate(el => {
+              const span = el.querySelector('span.artdeco-button__text');
+              if (span) return span.textContent?.trim();
+              return el.textContent?.trim();
+            });
+            
+            // Check if this is Connect button
+            if (buttonText && buttonText.toLowerCase().includes('connect')) {
+              // Exclude unwanted buttons
+              if (buttonText.toLowerCase().includes('message') || 
+                  buttonText.toLowerCase().includes('pending') ||
+                  buttonText.toLowerCase().includes('follow') ||
+                  buttonText.toLowerCase() === 'connected') {
+                continue;
+              }
+              
+              console.log(`✅ Found direct Connect button`);
+              return button;
+            }
+          } catch (evalError) {
             continue;
           }
-
-          const text = info.text.toLowerCase();
-          const aria = info.ariaLabel.toLowerCase();
-          if (text.includes('connect') || aria.includes('invite') || aria.includes('connect')) {
-            console.log(`✅ Found profile Connect button`);
-            return button;
-          }
-        } catch (e) {
-          continue;
         }
       }
     } catch (e) {
@@ -304,10 +281,30 @@ export async function findConnectButton(page) {
   
   // STRATEGY 2: Look for Connect button in "More" dropdown
   console.log(`🔍 Checking "More" dropdown...`);
-  const connectInDropdown = await findConnectButtonInDropdown(page, null);
+  
+  const connectInDropdown = await findConnectButtonInDropdown(page, profileHeader);
   if (connectInDropdown) {
     console.log(`✅ Found Connect button in dropdown`);
     return connectInDropdown;
+  }
+  
+  // Log what buttons we actually found for debugging
+  try {
+    const allButtons = await searchContext.locator('button').all();
+    const buttonTexts = [];
+    for (const button of allButtons.slice(0, 10)) { // Limit to first 10 buttons
+      try {
+        const text = await button.textContent();
+        if (text && text.trim()) {
+          buttonTexts.push(text.trim());
+        }
+      } catch (e) {
+        continue;
+      }
+    }
+    console.log(`🔍 Available buttons on page: ${buttonTexts.join(', ')}`);
+  } catch (e) {
+    console.log(`⚠️ Could not get button texts: ${e.message}`);
   }
 
   console.log(`❌ Connect button not found`);
