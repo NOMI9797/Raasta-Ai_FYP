@@ -12,6 +12,7 @@ const faqList = [
           secure browser automation session to log in on your behalf, capture
           your session cookies, and store them encrypted in the database. Your
           credentials are never stored in plain text.
+        </p>
         <p>
           We recommend using a LinkedIn account that does <strong>not</strong>{" "}
           have Two-Factor Authentication (2FA) enabled, as automated sessions
@@ -29,6 +30,7 @@ const faqList = [
         patterns to stay within LinkedIn&apos;s acceptable use boundaries. No
         tool can guarantee zero risk, but we mirror natural usage behaviour as
         closely as possible.
+      </p>
     ),
   },
   {
