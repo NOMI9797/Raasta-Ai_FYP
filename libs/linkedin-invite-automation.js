@@ -261,7 +261,7 @@ export async function findConnectButton(page) {
 
             const rect = el.getBoundingClientRect();
             const screenWidth = window.innerWidth || 0;
-            const inRightHalf = screenWidth ? rect.left > screenWidth * 0.6 : false;
+            const inRightHalf = screenWidth ? rect.left > screenWidth * 0.65 : false;
 
             return {
               text,
@@ -695,7 +695,15 @@ export async function processInvitesDirectly(context, page, leads, customMessage
       
       // OPTIMIZATION: Reduced page load waits
       await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
-      await page.waitForTimeout(1000);  // Reduced from 3s → 1s
+      
+      // Wait for profile action buttons to render (LinkedIn is a React SPA)
+      await Promise.race([
+        page.waitForSelector('button[aria-label*="Invite" i]', { timeout: 8000 }),
+        page.waitForSelector('button[aria-label*="Message"]', { timeout: 8000 }),
+        page.waitForSelector('.pvs-profile-actions', { timeout: 8000 }),
+      ]).catch(() => console.log('⚠️ Profile buttons timeout, continuing...'));
+
+      await page.waitForTimeout(1500);
       await captureStepScreenshot(page, lead.id, 'after_navigate');
       
       // Stage 3: Checking connection status (40% of this lead)
