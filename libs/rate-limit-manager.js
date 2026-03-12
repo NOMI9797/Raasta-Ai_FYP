@@ -126,7 +126,7 @@ export async function checkDailyConnectionCheckLimit(accountId) {
     throw new Error(`Account ${accountId} not found`);
   }
 
-  const connectionCheckLimit = 3; // Max 3 connection checks per day
+  const connectionCheckLimit = 10; // Max 10 connection checks per day (increased for testing and agent flows)
 
   // Check if we need to reset (new day)
   const now = new Date();
