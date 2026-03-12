@@ -20,13 +20,13 @@ import { eq } from 'drizzle-orm';
  * @param {boolean} inviteSent - Whether invite was sent
  */
 export async function updateLeadStatus(campaignId, leadId, inviteStatus, inviteSent) {
+  // STEP 1: Best-effort Redis cache update (non-fatal on failure)
   try {
     const redis = getRedisClient();
     const leadKey = `campaign:${campaignId}:leads`;
-    
-    // STEP 1: Update Redis cache FIRST (source of truth for real-time checks)
+
     const leadData = await redis.hget(leadKey, leadId);
-    
+
     if (leadData) {
       const lead = JSON.parse(leadData);
       lead.inviteSent = inviteSent;
@@ -36,20 +36,18 @@ export async function updateLeadStatus(campaignId, leadId, inviteStatus, inviteS
     } else {
       console.log(`⚠️ Lead ${leadId} not found in Redis cache, skipping cache update`);
     }
-    
-    // STEP 2: Update PostgreSQL (persistent storage)
-    await db.update(leads)
-      .set({
-        inviteSent: inviteSent,
-        inviteStatus: inviteStatus,
-        inviteSentAt: new Date()
-      })
-      .where(eq(leads.id, leadId));
-    
   } catch (error) {
-    console.error(`❌ Failed to update lead ${leadId}:`, error.message);
-    throw error; // Re-throw to allow caller to handle
+    console.warn(`⚠️ Redis update failed for lead ${leadId}, continuing with Postgres only:`, error.message);
   }
+
+  // STEP 2: Update PostgreSQL (persistent storage - must not be skipped)
+  await db.update(leads)
+    .set({
+      inviteSent: inviteSent,
+      inviteStatus: inviteStatus,
+      inviteSentAt: new Date()
+    })
+    .where(eq(leads.id, leadId));
 }
 
 
@@ -61,8 +59,17 @@ export async function updateLeadStatus(campaignId, leadId, inviteStatus, inviteS
  * @returns {Promise<Object>} - Object containing allLeads and eligibleLeads arrays
  */
 export async function fetchEligibleLeads(campaignId) {
-  const redis = getRedisClient();
-  let leadsData = await redis.hgetall(`campaign:${campaignId}:leads`);
+  let leadsData = null;
+  let redis = null;
+
+  // Try Redis first, but fall back cleanly on any connection error
+  try {
+    redis = getRedisClient();
+    leadsData = await redis.hgetall(`campaign:${campaignId}:leads`);
+  } catch (error) {
+    console.warn(`⚠️ Redis hgetall failed for campaign ${campaignId}, falling back to PostgreSQL:`, error.message);
+    leadsData = null;
+  }
   let allLeads = [];
   
   if (!leadsData || Object.keys(leadsData).length === 0) {
