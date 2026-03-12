@@ -21,7 +21,7 @@ const redisConfig = {
   port: process.env.REDIS_PORT,
   password: process.env.REDIS_PASSWORD,
   retryDelayOnFailover: 100,
-  maxRetriesPerRequest: 3,
+  maxRetriesPerRequest: 5,
   lazyConnect: true,
   keepAlive: 30000,
   // No TLS here – use redis:// vs rediss:// in URL instead
@@ -36,7 +36,7 @@ export function getRedisClient() {
     if (process.env.REDIS_URL) {
       redis = new Redis(process.env.REDIS_URL, {
         retryDelayOnFailover: 100,
-        maxRetriesPerRequest: 3,
+        maxRetriesPerRequest: 5,
         lazyConnect: true,
         keepAlive: 30000,
         // IMPORTANT: no tls override here – protocol (redis/rediss) controls SSL
