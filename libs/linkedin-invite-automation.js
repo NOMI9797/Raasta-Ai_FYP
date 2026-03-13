@@ -771,6 +771,18 @@ export async function processInvitesDirectly(context, page, leads, customMessage
       if (isAlreadyProcessed) {
         continue;
       }
+
+      // OPTIONAL: Demonstration-only manual scraper integration (not used in production).
+      // When ENABLE_MANUAL_SCRAPER is true, we scrape posts but ignore the result,
+      // to show how a Playwright-based scraper would plug into the invite flow.
+      try {
+        if (process.env.ENABLE_MANUAL_SCRAPER === 'true') {
+          const { scrapeCurrentProfilePage } = await import('./linkedin-post-scraper');
+          await scrapeCurrentProfilePage(page, lead.url);
+        }
+      } catch (scrapeError) {
+        console.log('⚠️ Manual scraper error (ignored):', scrapeError.message);
+      }
       
       // Find Connect button (tries direct button first, then dropdown)
       const connectButton = await findConnectButton(page);
