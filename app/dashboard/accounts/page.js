@@ -589,19 +589,6 @@ export default function AccountsPage() {
 
             {/* Modal Body */}
             <div className="p-6">
-              {/* 2FA Warning */}
-              <div className="bg-warning/10 border border-warning/20 rounded-lg p-4 mb-6">
-                <div className="flex items-start gap-3">
-                  <Shield className="h-5 w-5 text-warning flex-shrink-0 mt-0.5" />
-                  <div>
-                    <h4 className="text-sm font-medium text-warning mb-1">2FA Not Supported</h4>
-                    <p className="text-xs text-warning/80">
-                      Accounts with Two-Factor Authentication (2FA) are not supported. Please disable 2FA on your LinkedIn account before connecting.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
               {/* Credential Form */}
               <div className="space-y-4 mb-6">
                 <div>
