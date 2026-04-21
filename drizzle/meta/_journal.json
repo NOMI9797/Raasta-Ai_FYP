@@ -50,6 +50,13 @@
       "when": 1760866720000,
       "tag": "0006_iteration1_roles_and_hiring",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1760866730000,
+      "tag": "0007_rozee_integration",
+      "breakpoints": true
     }
   ]
 }

@@ -12,6 +12,8 @@ import {
   Check,
   Users,
   Link2,
+  Send,
+  ExternalLink,
 } from "lucide-react";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -22,7 +24,14 @@ const STATUS_BADGES = {
   closed: "badge-error",
 };
 
-export default function JobCard({ job, onDelete, onGeneratePost, isGenerating }) {
+export default function JobCard({
+  job,
+  onDelete,
+  onGeneratePost,
+  isGenerating,
+  onPublishToRozee,
+  isPublishingRozee,
+}) {
   const [copied, setCopied] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const router = useRouter();
@@ -118,7 +127,7 @@ export default function JobCard({ job, onDelete, onGeneratePost, isGenerating })
         </button>
         <button
           className="btn btn-ghost btn-xs gap-1"
-          onClick={() => router.push(`/dashboard/hiring/${job.id}/candidates`)}
+          onClick={() => router.push(`/dashboard/recruiter/jobs/${job.id}/candidates`)}
         >
           <Users className="h-3.5 w-3.5" /> View candidates
         </button>
@@ -162,6 +171,53 @@ export default function JobCard({ job, onDelete, onGeneratePost, isGenerating })
             {job.linkedinPost}
           </div>
         )}
+      </div>
+
+      {/* Rozee.pk publish section */}
+      <div className="border-t border-base-300 pt-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium text-base-content/70 flex items-center gap-2">
+            <span className="w-4 h-4 bg-emerald-600 rounded flex items-center justify-center">
+              <span className="text-white text-[8px] font-bold">RZ</span>
+            </span>
+            Rozee.pk
+            {job.rozeePublishedAt && (
+              <span className="badge badge-xs badge-success">Published</span>
+            )}
+          </span>
+          <div className="flex items-center gap-1">
+            {job.rozeePostUrl && (
+              <a
+                href={job.rozeePostUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn btn-ghost btn-xs gap-1"
+                title="Open Rozee posting"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            )}
+            {onPublishToRozee && (
+              <button
+                className="btn btn-success btn-xs gap-1"
+                onClick={() => onPublishToRozee(job.id)}
+                disabled={isPublishingRozee}
+                title={job.rozeePublishedAt ? "Re-publish to Rozee" : "Publish to Rozee"}
+              >
+                {isPublishingRozee ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Publishing…
+                  </>
+                ) : (
+                  <>
+                    <Send className="h-3.5 w-3.5" />
+                    {job.rozeePublishedAt ? "Re-publish" : "Publish to Rozee"}
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

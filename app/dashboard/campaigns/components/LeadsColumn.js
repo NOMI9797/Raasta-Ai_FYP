@@ -21,6 +21,8 @@ import {
   MessageSquare,
   UserCheck,
 } from "lucide-react";
+import { getPlatformMeta, AVAILABLE_PLATFORMS } from "@/libs/platforms/meta";
+import { detectPlatformFromUrl, isSupportedLeadUrl } from "@/libs/platform-urls";
 import {
   DndContext,
   closestCenter,
@@ -149,6 +151,12 @@ function SortableLeadItem({ lead, isSelected, onSelect, getDisplayName, getStatu
               <div className={`badge badge-sm ${getStatusColor(lead.status)}`}>
                 {lead.status}
               </div>
+
+              {lead.source && lead.source !== 'linkedin' && (
+                <div className="badge badge-sm badge-outline">
+                  {getPlatformMeta(lead.source)?.shortLabel || lead.source}
+                </div>
+              )}
             </div>
 
             {lead.title && (
@@ -217,6 +225,7 @@ const LeadsColumn = memo(function LeadsColumn({
   const [showAddForm, setShowAddForm] = useState(false);
   const [newUrls, setNewUrls] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("all");
   const [showClearErrorDialog, setShowClearErrorDialog] = useState(false);
   const [isClearingErrors, setIsClearingErrors] = useState(false);
 
@@ -249,17 +258,32 @@ const LeadsColumn = memo(function LeadsColumn({
     if (lead.name) return lead.name;
     if (lead.status === "processing") return "Processing...";
 
-    // Extract name from LinkedIn URL
-    const urlMatch = new RegExp("linkedin\\.com/in/([^/]+)").exec(lead.url);
-    if (urlMatch) {
-      const username = urlMatch[1];
-      return username
-        .split("-")
-        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-        .join(" ");
+    const source = lead.source || detectPlatformFromUrl(lead.url) || "linkedin";
+
+    if (source === "linkedin") {
+      const urlMatch = new RegExp("linkedin\\.com/in/([^/?#]+)").exec(lead.url);
+      if (urlMatch) {
+        return urlMatch[1]
+          .split("-")
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(" ");
+      }
+      return "LinkedIn Profile";
     }
 
-    return "LinkedIn Profile";
+    if (source === "rozee") {
+      const urlMatch = new RegExp("rozee\\.pk/[^/]+/([^/?#]+)").exec(lead.url);
+      if (urlMatch) {
+        return urlMatch[1]
+          .replace(/[-_]+/g, " ")
+          .split(" ")
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(" ");
+      }
+      return "Rozee Candidate";
+    }
+
+    return "Profile";
   };
 
   const handleImportCSV = () => {
@@ -285,19 +309,19 @@ const LeadsColumn = memo(function LeadsColumn({
               const trimmedLine = line.trim();
               if (!trimmedLine) return;
 
-              if (trimmedLine.includes("linkedin.com") && !trimmedLine.includes(",")) {
+              if (isSupportedLeadUrl(trimmedLine) && !trimmedLine.includes(",")) {
                 urls.push(trimmedLine);
               } else {
                 const columns = trimmedLine.split(",").map((col) => col.trim().replace(/"/g, ""));
                 const url = columns[0];
-                if (url && url.includes("linkedin.com")) {
+                if (url && isSupportedLeadUrl(url)) {
                   urls.push(url);
                 }
               }
             });
 
             if (urls.length === 0) {
-              toast.error("No valid LinkedIn URLs found in CSV");
+              toast.error("No valid LinkedIn or Rozee.pk URLs found in CSV");
               return;
             }
 
@@ -314,10 +338,15 @@ const LeadsColumn = memo(function LeadsColumn({
   };
 
   const handleAddUrls = async (urls = null) => {
-    const urlsToAdd = urls || newUrls.split("\n").filter((url) => url.trim() && url.includes("linkedin.com"));
+    const urlsToAdd =
+      urls ||
+      newUrls
+        .split("\n")
+        .map((u) => u.trim())
+        .filter((u) => u && isSupportedLeadUrl(u));
 
     if (urlsToAdd.length === 0) {
-      toast.error("Please enter valid LinkedIn profile URLs");
+      toast.error("Please enter valid LinkedIn or Rozee.pk profile URLs");
       return;
     }
 
@@ -331,15 +360,47 @@ const LeadsColumn = memo(function LeadsColumn({
     }
   };
 
+  const scrapeRozeeLeads = async (rozeeLeadList) => {
+    if (!rozeeLeadList.length) return;
+    try {
+      const res = await fetch("/api/rozee/leads/scrape", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadIds: rozeeLeadList.map((l) => l._id || l.id) }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Failed to scrape Rozee leads");
+        return;
+      }
+      toast.success(`Rozee: scraped ${data.scraped} / ${rozeeLeadList.length}${data.failed ? `, ${data.failed} failed` : ""}`);
+      onRefreshLeads();
+    } catch (error) {
+      console.error("Rozee scrape error:", error);
+      toast.error(error.message || "Failed to scrape Rozee leads");
+    }
+  };
 
   const handleRunSelected = async () => {
     if (!selectedLead) return;
+    if ((selectedLead.source || "linkedin") === "rozee") {
+      await scrapeRozeeLeads([selectedLead]);
+      return;
+    }
     await scrapeLead(selectedLead, scrapingSettings, leads, setLeads, campaignId);
   };
 
   const handleRunAll = async () => {
-    const pendingLeads = leads.filter(lead => lead.status === "pending" || lead.status === "error");
-    await scrapeMultipleLeads(pendingLeads, scrapingSettings, leads, setLeads, campaignId);
+    const pendingLeads = leads.filter(
+      (lead) => lead.status === "pending" || lead.status === "error"
+    );
+    const rozeePending = pendingLeads.filter((l) => (l.source || "linkedin") === "rozee");
+    const linkedinPending = pendingLeads.filter((l) => (l.source || "linkedin") === "linkedin");
+
+    if (rozeePending.length) await scrapeRozeeLeads(rozeePending);
+    if (linkedinPending.length) {
+      await scrapeMultipleLeads(linkedinPending, scrapingSettings, leads, setLeads, campaignId);
+    }
   };
 
   const handleClearErrorLeads = async () => {
@@ -403,13 +464,16 @@ const LeadsColumn = memo(function LeadsColumn({
     }
   };
 
-  const filteredLeads = leads.filter(
-    (lead) =>
+  const filteredLeads = leads.filter((lead) => {
+    const matchesSearch =
       !searchQuery ||
       lead.url.toLowerCase().includes(searchQuery.toLowerCase()) ||
       lead.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      lead.company?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+      lead.company?.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSource =
+      sourceFilter === 'all' || (lead.source || 'linkedin') === sourceFilter;
+    return matchesSearch && matchesSource;
+  });
 
   const errorLeadsCount = leads.filter(lead => lead.status === 'error').length;
 
@@ -495,6 +559,22 @@ const LeadsColumn = memo(function LeadsColumn({
           />
         </div>
 
+        {/* Source Filter */}
+        <div className="mb-2">
+          <select
+            className="select select-bordered select-sm w-full"
+            value={sourceFilter}
+            onChange={(e) => setSourceFilter(e.target.value)}
+          >
+            <option value="all">All sources</option>
+            {AVAILABLE_PLATFORMS.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label} only
+              </option>
+            ))}
+          </select>
+        </div>
+
         {/* Action Buttons */}
         <div className="grid grid-cols-2 gap-2 mb-2">
           <button
@@ -515,22 +595,24 @@ const LeadsColumn = memo(function LeadsColumn({
           </button>
         </div>
 
-        {/* Connection Check Button */}
-        <div className="mb-2">
-          <button
-            onClick={() => checkConnections()}
-            disabled={isChecking || isProcessing}
-            className="btn btn-accent btn-sm gap-1 w-full"
-            title="Check for accepted connection requests"
-          >
-            {isChecking ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <UserCheck className="h-3 w-3" />
-            )}
-            {isChecking ? "Checking..." : "Check Connections"}
-          </button>
-        </div>
+        {/* Connection Check Button — LinkedIn-only feature */}
+        {leads.some((l) => (l.source || "linkedin") === "linkedin") && (
+          <div className="mb-2">
+            <button
+              onClick={() => checkConnections()}
+              disabled={isChecking || isProcessing}
+              className="btn btn-accent btn-sm gap-1 w-full"
+              title="Check for accepted LinkedIn connection requests"
+            >
+              {isChecking ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <UserCheck className="h-3 w-3" />
+              )}
+              {isChecking ? "Checking..." : "Check Connections"}
+            </button>
+          </div>
+        )}
 
         {/* Add/Import Buttons */}
         <div className="grid grid-cols-2 gap-2 mb-2">
@@ -571,7 +653,7 @@ const LeadsColumn = memo(function LeadsColumn({
       {showAddForm && (
         <div className="p-4 border-b border-base-300 bg-base-200">
           <textarea
-            placeholder="Paste LinkedIn URLs (one per line)..."
+            placeholder="Paste LinkedIn or Rozee.pk URLs (one per line)..."
             className="textarea textarea-bordered w-full mb-3 textarea-sm"
             rows={4}
             value={newUrls}
@@ -601,7 +683,7 @@ const LeadsColumn = memo(function LeadsColumn({
           <div className="p-4 text-center text-base-content/60">
             <Link className="h-8 w-8 mx-auto mb-2 opacity-50" />
             <p className="text-sm">No leads yet</p>
-            <p className="text-xs">Add LinkedIn URLs to get started</p>
+            <p className="text-xs">Add LinkedIn or Rozee.pk URLs to get started</p>
           </div>
         ) : (
           <DndContext

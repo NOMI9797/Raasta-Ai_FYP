@@ -1,8 +1,7 @@
-import { jobs, candidates, linkedinAccounts } from "@/libs/schema";
+import { jobs, candidates } from "@/libs/schema";
 import { eq, and, desc } from "drizzle-orm";
 import OpenAI from "openai";
-import { testLinkedInSession, cleanupBrowserSession } from "@/libs/linkedin-session-validator";
-import { publishLinkedInPost } from "@/libs/linkedin-post-publisher";
+import { getAdapter } from "@/libs/platforms";
 
 const groq = new OpenAI({
   apiKey: process.env.GROQ_API_KEY || "",
@@ -66,7 +65,6 @@ export const recruiterPipeline = {
             ? `Salary range: ${job.salaryCurrency || "USD"} ${job.salaryMin || "?"} – ${job.salaryMax || "?"}`
             : "";
 
-        // Build the public apply form URL
         const baseUrl =
           ctx.config.appBaseUrl ||
           process.env.NEXTAUTH_URL ||
@@ -129,7 +127,7 @@ ${salaryPart}
       async execute() {},
     },
 
-    // ─── Step 4: Post to LinkedIn via Playwright and mark job published ───
+    // ─── Step 4: Publish job to LinkedIn (via platform adapter) ───
     {
       key: "post_to_linkedin",
       label: "Post to LinkedIn",
@@ -139,14 +137,9 @@ ${salaryPart}
         const accountId = ctx.config.accountId;
 
         if (!accountId) {
-          // No LinkedIn account linked — just mark job as published locally
           await ctx.db
             .update(jobs)
-            .set({
-              status: "published",
-              publishedAt: new Date(),
-              updatedAt: new Date(),
-            })
+            .set({ status: "published", publishedAt: new Date(), updatedAt: new Date() })
             .where(eq(jobs.id, jobId));
 
           return {
@@ -157,44 +150,20 @@ ${salaryPart}
           };
         }
 
-        // Load account
-        const [account] = await ctx.db
-          .select()
-          .from(linkedinAccounts)
-          .where(eq(linkedinAccounts.id, accountId))
-          .limit(1);
-
+        const adapter = getAdapter("linkedin");
+        const account = await adapter.getAccount(accountId);
         if (!account) throw new Error("LinkedIn account not found");
 
-        // Always read latest post content from jobs table so any regenerations
-        // (from Hiring page or agent UI) are respected.
-        const [job] = await ctx.db
-          .select()
-          .from(jobs)
-          .where(eq(jobs.id, jobId))
-          .limit(1);
+        const [job] = await ctx.db.select().from(jobs).where(eq(jobs.id, jobId)).limit(1);
         if (!job || !job.linkedinPost) {
           throw new Error("No LinkedIn post content found for this job");
         }
 
-        // Validate session and get browser
-        const sessionCheck = await testLinkedInSession(account, true);
-        if (!sessionCheck.isValid) {
-          throw new Error(`LinkedIn session invalid: ${sessionCheck.reason}`);
-        }
-
-        let result;
-        try {
-          result = await publishLinkedInPost(sessionCheck.page, job.linkedinPost);
-        } finally {
-          await cleanupBrowserSession(sessionCheck.context);
-        }
-
+        const result = await adapter.publishJob(account, job);
         if (!result.success) {
           throw new Error(`LinkedIn posting failed: ${result.error}`);
         }
 
-        // Update job in DB
         await ctx.db
           .update(jobs)
           .set({
@@ -211,6 +180,103 @@ ${salaryPart}
           linkedinPosted: true,
           postUrl: result.postUrl || null,
         };
+      },
+    },
+
+    // ─── Step 4b: Publish job to Rozee.pk (optional, via platform adapter) ───
+    {
+      key: "publish_to_rozee",
+      label: "Publish to Rozee.pk",
+      isCheckpoint: false,
+      async execute(ctx) {
+        const { jobId } = ctx.stepOutputs.load_job || ctx.stepOutputs.generate_post;
+        const rozeeAccountId = ctx.config.rozeeAccountId;
+
+        if (!rozeeAccountId) {
+          return { jobId, rozeePublished: false, skipped: true, note: "No Rozee account configured" };
+        }
+
+        const adapter = getAdapter("rozee");
+        const account = await adapter.getAccount(rozeeAccountId);
+        if (!account) throw new Error("Rozee account not found");
+
+        const [job] = await ctx.db.select().from(jobs).where(eq(jobs.id, jobId)).limit(1);
+        if (!job) throw new Error("Job not found");
+
+        const result = await adapter.publishJob(account, job);
+        if (!result?.success) {
+          throw new Error(`Rozee publish failed: ${result?.error || "unknown"}`);
+        }
+
+        await ctx.db
+          .update(jobs)
+          .set({
+            rozeeAccountId,
+            rozeePost: result.postContent || job.linkedinPost || null,
+            rozeePostUrl: result.postUrl || null,
+            rozeePublishedAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(jobs.id, jobId));
+
+        return { jobId, rozeePublished: true, rozeePostUrl: result.postUrl || null };
+      },
+    },
+
+    // ─── Step 4c: Scrape Rozee.pk applicants into candidates table (optional) ───
+    {
+      key: "scrape_rozee_applicants",
+      label: "Scrape Rozee Applicants",
+      isCheckpoint: false,
+      async execute(ctx) {
+        const { jobId } = ctx.stepOutputs.load_job;
+        const rozeeAccountId = ctx.config.rozeeAccountId;
+        if (!rozeeAccountId) {
+          return { jobId, scraped: 0, skipped: true, note: "No Rozee account configured" };
+        }
+
+        const adapter = getAdapter("rozee");
+        const account = await adapter.getAccount(rozeeAccountId);
+        if (!account) throw new Error("Rozee account not found");
+
+        const [job] = await ctx.db.select().from(jobs).where(eq(jobs.id, jobId)).limit(1);
+        if (!job) throw new Error("Job not found");
+
+        const scrapeResult = await adapter.scrapeApplicants(account, job, {
+          limit: ctx.config.rozeeApplicantLimit || 25,
+        });
+
+        if (!scrapeResult.success) {
+          throw new Error(`Rozee scrape failed: ${scrapeResult.error || "unknown"}`);
+        }
+
+        let inserted = 0;
+        for (const candidate of scrapeResult.candidates || []) {
+          if (!candidate?.profileUrl) continue;
+          try {
+            await ctx.db.insert(candidates).values({
+              userId: ctx.userId,
+              jobId,
+              name: candidate.name || "Rozee Candidate",
+              email: candidate.email || `rozee_${Date.now()}_${inserted}@unknown.local`,
+              linkedinUrl: candidate.profileUrl,
+              status: "new",
+              source: "rozee",
+              sourceData: candidate,
+              parsedData: {
+                skills: candidate.skills || [],
+                summary: candidate.summary || candidate.headline || null,
+                location: candidate.location || null,
+                experience: candidate.experience || [],
+              },
+            });
+            inserted += 1;
+          } catch {
+            // Likely a duplicate or constraint error — skip silently
+          }
+        }
+
+        return { jobId, scraped: (scrapeResult.candidates || []).length, inserted };
       },
     },
 
@@ -258,32 +324,23 @@ ${salaryPart}
           .from(jobs)
           .where(eq(jobs.id, jobId))
           .limit(1);
-        const requiredSkills = (job?.requiredSkills || []).map((s) =>
-          s.toLowerCase()
-        );
+        const requiredSkills = (job?.requiredSkills || []).map((s) => s.toLowerCase());
 
         const allCandidates = await ctx.db
           .select()
           .from(candidates)
-          .where(
-            and(eq(candidates.jobId, jobId), eq(candidates.status, "new"))
-          );
+          .where(and(eq(candidates.jobId, jobId), eq(candidates.status, "new")));
 
         const ranked = [];
 
         for (const c of allCandidates) {
           const parsed = c.parsedData || {};
-          const candidateSkills = (parsed.skills || []).map((s) =>
-            s.toLowerCase()
-          );
+          const candidateSkills = (parsed.skills || []).map((s) => s.toLowerCase());
           const matchCount = requiredSkills.filter((rs) =>
-            candidateSkills.some(
-              (cs) => cs.includes(rs) || rs.includes(cs)
-            )
+            candidateSkills.some((cs) => cs.includes(rs) || rs.includes(cs))
           ).length;
 
-          const recommended =
-            matchCount >= minSkillMatch ? "shortlisted" : "reviewed";
+          const recommended = matchCount >= minSkillMatch ? "shortlisted" : "reviewed";
 
           await ctx.db
             .update(candidates)
@@ -302,8 +359,7 @@ ${salaryPart}
 
         return {
           screened: ranked.length,
-          shortlisted: ranked.filter((r) => r.recommendation === "shortlisted")
-            .length,
+          shortlisted: ranked.filter((r) => r.recommendation === "shortlisted").length,
           reviewed: ranked.filter((r) => r.recommendation === "reviewed").length,
           rankings: ranked,
         };

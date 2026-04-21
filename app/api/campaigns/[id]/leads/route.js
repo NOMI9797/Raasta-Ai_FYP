@@ -3,6 +3,7 @@ import { db } from "@/libs/db";
 import { campaigns, leads, messages } from "@/libs/schema";
 import { eq, and } from "drizzle-orm";
 import { withAuth } from "@/libs/auth-middleware";
+import { detectPlatformFromUrl } from "@/libs/platform-urls";
 
 // GET /api/campaigns/[id]/leads - Get leads for a campaign (authenticated user)
 export const GET = withAuth(async (request, { params, user }) => {
@@ -32,9 +33,15 @@ export const GET = withAuth(async (request, { params, user }) => {
         title: leads.title,
         company: leads.company,
         campaignId: leads.campaignId,
+        source: leads.source,
+        sourceData: leads.sourceData,
+        status: leads.status,
+        profilePicture: leads.profilePicture,
         inviteSent: leads.inviteSent,
         inviteStatus: leads.inviteStatus,
         inviteSentAt: leads.inviteSentAt,
+        messageSent: leads.messageSent,
+        messageSentAt: leads.messageSentAt,
         createdAt: leads.createdAt
       })
       .from(leads)
@@ -76,43 +83,53 @@ export const POST = withAuth(async (request, { params, user }) => {
     const body = await request.json();
     const { urls, csvData } = body;
 
+    // Campaigns store an explicit list of allowed sources. Fall back to
+    // ["linkedin"] for legacy campaigns to preserve old behaviour.
+    const allowedSources = Array.isArray(campaign.sources) && campaign.sources.length
+      ? campaign.sources
+      : ["linkedin"];
+
+    const buildLeadFromUrl = (rawUrl, extras = {}) => {
+      if (!rawUrl || typeof rawUrl !== "string") return null;
+      const url = rawUrl.trim();
+      const source = detectPlatformFromUrl(url);
+      if (!source || !allowedSources.includes(source)) return null;
+      return {
+        userId: user.id,
+        campaignId,
+        url,
+        source,
+        status: "pending",
+        ...extras,
+      };
+    };
+
     let leadsToInsert = [];
 
     // Handle URL input
     if (urls && Array.isArray(urls)) {
-      const validUrls = urls.filter((url) => 
-        url && typeof url === 'string' && url.includes('linkedin.com')
-      );
-
-      leadsToInsert = validUrls.map((url) => ({
-        userId: user.id,
-        campaignId: campaignId,
-        url: url.trim(),
-        status: 'pending'
-      }));
+      leadsToInsert = urls.map((u) => buildLeadFromUrl(u)).filter(Boolean);
     }
 
     // Handle CSV data
     if (csvData && Array.isArray(csvData)) {
-      const csvLeads = csvData.map((row) => ({
-        userId: user.id,
-        campaignId: campaignId,
-        url: row.url || row.linkedinUrl || row.profile_url,
-        name: row.name || row.fullName || row.full_name,
-        title: row.title || row.jobTitle || row.job_title,
-        company: row.company || row.companyName || row.company_name,
-        status: 'pending'
-      })).filter((lead) => 
-        lead.url && lead.url.includes('linkedin.com')
-      );
+      const csvLeads = csvData
+        .map((row) =>
+          buildLeadFromUrl(row.url || row.linkedinUrl || row.rozeeUrl || row.profile_url, {
+            name: row.name || row.fullName || row.full_name,
+            title: row.title || row.jobTitle || row.job_title,
+            company: row.company || row.companyName || row.company_name,
+          })
+        )
+        .filter(Boolean);
 
       leadsToInsert = [...leadsToInsert, ...csvLeads];
     }
 
     if (leadsToInsert.length === 0) {
-      return NextResponse.json({ 
-        success: false, 
-        message: 'No valid LinkedIn URLs found' 
+      return NextResponse.json({
+        success: false,
+        message: `No valid URLs found. This campaign accepts: ${allowedSources.join(", ")}.`,
       }, { status: 400 });
     }
 
@@ -226,6 +243,7 @@ export const POST = withAuth(async (request, { params, user }) => {
               title: lead.title,
               company: lead.company,
               url: lead.url,
+              source: lead.source || 'linkedin',
               status: lead.status,
               hasMessage: hasMessage,
               inviteSent: lead.inviteSent || false,

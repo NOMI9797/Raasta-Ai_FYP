@@ -54,11 +54,16 @@ export async function updateLeadStatus(campaignId, leadId, inviteStatus, inviteS
 /**
  * Fetch eligible leads for invite sending
  * First tries Redis cache, falls back to PostgreSQL
- * 
+ *
  * @param {string} campaignId - Campaign ID
+ * @param {Object} [options]
+ * @param {string} [options.sourceFilter='linkedin'] - Restrict to a single source
+ *        ('linkedin' | 'rozee' | null for all). Defaults to 'linkedin' so the
+ *        existing LinkedIn invite flow keeps its previous behaviour.
  * @returns {Promise<Object>} - Object containing allLeads and eligibleLeads arrays
  */
-export async function fetchEligibleLeads(campaignId) {
+export async function fetchEligibleLeads(campaignId, options = {}) {
+  const { sourceFilter = 'linkedin' } = options;
   let leadsData = null;
   let redis = null;
 
@@ -118,7 +123,13 @@ export async function fetchEligibleLeads(campaignId) {
     allLeads = Object.values(leadsData).map((s) => JSON.parse(s));
     console.log(`✅ Fetched ${allLeads.length} leads from Redis cache`);
   }
-  
+
+  // Apply source filter so platform-specific flows (LinkedIn invites,
+  // Rozee messages) only see leads they can act on.
+  if (sourceFilter) {
+    allLeads = allLeads.filter((l) => (l.source || 'linkedin') === sourceFilter);
+  }
+
   // Filter leads that need invites (independent of post scraping)
   // Only check: has URL, invite not sent, status is eligible
   // Note: Name is optional - we only need the LinkedIn URL to send invites

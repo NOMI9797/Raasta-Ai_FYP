@@ -69,8 +69,12 @@ export const authOptions = {
   callbacks: {
     jwt: async ({ token }) => {
       if (token.sub) {
-        const result = await db.select({ role: users.role }).from(users).where(eq(users.id, token.sub));
+        const result = await db
+          .select({ role: users.role, modes: users.modes })
+          .from(users)
+          .where(eq(users.id, token.sub));
         token.role = result[0]?.role ?? "sales_operator";
+        token.modes = Array.isArray(result[0]?.modes) ? result[0].modes : [];
       }
       return token;
     },
@@ -78,6 +82,7 @@ export const authOptions = {
       if (session?.user) {
         session.user.id = token.sub;
         session.user.role = token.role ?? "sales_operator";
+        session.user.modes = Array.isArray(token.modes) ? token.modes : [];
       }
       return session;
     },

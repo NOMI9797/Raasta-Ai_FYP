@@ -7,9 +7,8 @@ import { nanoid } from "nanoid";
 
 export async function POST(request) {
   try {
-    const { firstName, lastName, email, password, role } = await request.json();
+    const { firstName, lastName, email, password } = await request.json();
 
-    // Validate input
     if (!firstName || !lastName || !email || !password) {
       return NextResponse.json(
         { error: "All fields are required" },
@@ -17,9 +16,8 @@ export async function POST(request) {
       );
     }
 
-    // Check if user already exists
     const existingUser = await db.select().from(users).where(eq(users.email, email));
-    
+
     if (existingUser.length > 0) {
       return NextResponse.json(
         { error: "User already exists with this email" },
@@ -27,41 +25,20 @@ export async function POST(request) {
       );
     }
 
-    // Hash password
     const hashedPassword = await hash(password, 12);
-    
-    console.log("Attempting to create user with:", {
-      id: nanoid(),
-      email,
-      name: `${firstName} ${lastName}`,
-      passwordLength: hashedPassword.length,
-      hashedPassword: hashedPassword.substring(0, 20) + "...", // Log partial hash for debugging
-    });
 
-    // Normalize and validate role from UI (only allow non-admin roles)
-    const requestedRole =
-      typeof role === "string" ? role.trim().toLowerCase() : "sales_operator";
-    const allowedRoles = ["sales_operator", "recruiter"];
-    const finalRole = allowedRoles.includes(requestedRole)
-      ? requestedRole
-      : "sales_operator";
-
-    // Create user (role from UI, default sales_operator)
+    // Mode(s) are selected in the /onboarding wizard, not at signup.
+    // role stays as sales_operator for backward-compat with role-gated middleware; admin is assigned manually.
     const userId = nanoid();
     const newUser = await db.insert(users).values({
       id: userId,
       email,
       name: `${firstName} ${lastName}`,
       password: hashedPassword,
-      role: finalRole,
+      role: "sales_operator",
+      modes: [],
     }).returning();
     
-    console.log("User created:", newUser);
-    
-    // Let's also verify the password was actually stored by querying back
-    const verifyUser = await db.select().from(users).where(eq(users.id, userId));
-    console.log("User verification (should show password):", verifyUser);
-
     return NextResponse.json(
       { 
         message: "User created successfully",

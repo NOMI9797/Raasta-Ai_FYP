@@ -10,6 +10,7 @@ export const users = pgTable('users', {
   password: text('password'), // For email/password authentication
   googleId: text('google_id').unique(),
   role: varchar('role', { length: 20 }).notNull().default('sales_operator'),
+  modes: json('modes').default([]),
   stripeCustomerId: text('stripe_customer_id'),
   subscriptionStatus: varchar('subscription_status', { length: 20 }).default('free'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -23,6 +24,7 @@ export const campaigns = pgTable('campaigns', {
   name: text('name').notNull(),
   description: text('description'),
   icpConfig: json('icp_config'),
+  sources: json('sources').default(['linkedin']),
   status: varchar('status', { length: 20 }).notNull().default('draft'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -38,6 +40,8 @@ export const leads = pgTable('leads', {
   title: text('title'),
   company: text('company'),
   status: varchar('status', { length: 20 }).notNull().default('pending'),
+  source: varchar('source', { length: 20 }).notNull().default('linkedin'), // linkedin | rozee | indeed
+  sourceData: json('source_data'), // Source-specific fields (e.g. Rozee skills, salary expectations)
   profilePicture: text('profile_picture'),
   posts: json('posts'), // Store scraped posts as JSON array
   inviteSent: boolean('invite_sent').default(false).notNull(),
@@ -80,6 +84,7 @@ export const messages = pgTable('messages', {
   model: varchar('model', { length: 50 }).notNull().default('llama-3.1-8b-instant'),
   customPrompt: text('custom_prompt'),
   postsAnalyzed: integer('posts_analyzed').default(3),
+  source: varchar('source', { length: 20 }).notNull().default('linkedin'), // platform the message was sent through
   status: varchar('status', { length: 20 }).notNull().default('draft'), // draft, sent, scheduled
   sentAt: timestamp('sent_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -157,6 +162,11 @@ export const jobs = pgTable('jobs', {
   linkedinPost: text('linkedin_post'),
   formalDescription: text('formal_description'),
   linkedinPostUrl: text('linkedin_post_url'),
+  // Rozee.pk publishing
+  rozeeAccountId: uuid('rozee_account_id'),
+  rozeePost: text('rozee_post'),
+  rozeePostUrl: text('rozee_post_url'),
+  rozeePublishedAt: timestamp('rozee_published_at'),
   status: varchar('status', { length: 20 }).notNull().default('draft'),
   publishedAt: timestamp('published_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -174,8 +184,36 @@ export const candidates = pgTable('candidates', {
   coverNote: text('cover_note'),
   resumeUrl: text('resume_url'),
   parsedData: json('parsed_data'),
+  source: varchar('source', { length: 20 }).notNull().default('linkedin'), // linkedin | rozee | indeed | direct
+  sourceData: json('source_data'), // Source-specific fields (Rozee profile URL, scraped extras)
   status: varchar('status', { length: 20 }).notNull().default('new'),
   appliedAt: timestamp('applied_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// Rozee.pk Accounts table — mirror of linkedinAccounts for Rozee.pk session storage
+export const rozeeAccounts = pgTable('rozee_accounts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  sessionId: text('session_id').notNull().unique(),
+  email: text('email').notNull(),
+  userName: text('user_name'),
+  profileImageUrl: text('profile_image_url'),
+  cookies: json('cookies').notNull(),
+  localStorage: json('local_storage'),
+  sessionStorage: json('session_storage'),
+  isActive: boolean('is_active').default(false).notNull(),
+  tags: json('tags').default([]),
+  // Daily rate limiting (apply attempts on Rozee)
+  dailyInvitesSent: integer('daily_invites_sent').default(0).notNull(),
+  dailyLimit: integer('daily_limit').default(20).notNull(),
+  lastDailyReset: timestamp('last_daily_reset').defaultNow().notNull(),
+  // Message sending rate limiting
+  dailyMessagesSent: integer('daily_messages_sent').default(0).notNull(),
+  dailyMessageLimit: integer('daily_message_limit').default(15).notNull(),
+  lastMessageReset: timestamp('last_message_reset').defaultNow().notNull(),
+  lastUsed: timestamp('last_used').defaultNow().notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 

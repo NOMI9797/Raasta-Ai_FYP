@@ -69,11 +69,16 @@ export const PUT = withAuth(async (request, { params, user }) => {
     }
 
     // Only allow updating name, description, icpConfig
-    const { name, description, icpConfig } = updateData;
+    const { name, description, icpConfig, sources } = updateData;
     const setData = { updatedAt: new Date() };
     if (name !== undefined) setData.name = name.trim();
     if (description !== undefined) setData.description = description?.trim() || null;
     if (icpConfig !== undefined) setData.icpConfig = icpConfig && (icpConfig.targetRole || icpConfig.industry || icpConfig.serviceType) ? icpConfig : null;
+    if (sources !== undefined) {
+      setData.sources = Array.isArray(sources) && sources.length > 0
+        ? sources.filter((s) => ['linkedin', 'rozee'].includes(s))
+        : ['linkedin'];
+    }
 
     const [updatedCampaign] = await db
       .update(campaigns)

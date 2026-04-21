@@ -5,13 +5,13 @@ import config from "@/config";
 
 export const dynamic = "force-dynamic";
 
-// Role-based default landing: admin → admin, recruiter → hiring, sales_operator → campaigns
 export default async function Dashboard() {
   const session = await getServerSession(authOptions);
   if (!session) redirect(config.auth.loginUrl);
 
-  const role = session.user?.role ?? "sales_operator";
-  if (role === "admin") redirect("/dashboard/admin");
-  if (role === "recruiter") redirect("/dashboard/recruiter");
-  redirect("/dashboard/campaigns");
+  const modes = Array.isArray(session.user?.modes) ? session.user.modes : [];
+  const isAdmin = session.user?.role === "admin";
+
+  if (!isAdmin && modes.length === 0) redirect("/onboarding");
+  redirect("/dashboard/home");
 }

@@ -53,6 +53,7 @@ export const GET = withAuth(async (request, { user }) => {
         name: campaigns.name,
         description: campaigns.description,
         icpConfig: campaigns.icpConfig,
+        sources: campaigns.sources,
         status: campaigns.status,
         createdAt: campaigns.createdAt,
         updatedAt: campaigns.updatedAt,
@@ -123,6 +124,7 @@ export const GET = withAuth(async (request, { user }) => {
         name: campaign.name,
         description: campaign.description,
         icpConfig: campaign.icpConfig,
+        sources: campaign.sources || ['linkedin'],
         status: newStatus,
         createdAt: campaign.createdAt,
         updatedAt: campaign.updatedAt,
@@ -179,7 +181,7 @@ export const GET = withAuth(async (request, { user }) => {
 // POST /api/campaigns - Create a new campaign for authenticated user (Redis-first)
 export const POST = withAuth(async (request, { user }) => {
   try {
-    const { name, description, icpConfig } = await request.json();
+    const { name, description, icpConfig, sources } = await request.json();
 
     if (!name || name.trim().length === 0) {
       return NextResponse.json(
@@ -207,6 +209,9 @@ export const POST = withAuth(async (request, { user }) => {
         name: name.trim(),
         description: description?.trim() || null,
         icpConfig: icpConfig && (icpConfig.targetRole || icpConfig.industry || icpConfig.serviceType) ? icpConfig : null,
+        sources: Array.isArray(sources) && sources.length > 0
+          ? sources.filter((s) => ['linkedin', 'rozee'].includes(s))
+          : ['linkedin'],
         status: "draft",
       })
       .returning();

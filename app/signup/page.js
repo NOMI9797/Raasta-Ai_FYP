@@ -15,7 +15,6 @@ export default function SignUp() {
     confirmPassword: "",
     agreeToTerms: false,
     receiveUpdates: false,
-    role: "sales_operator",
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -65,7 +64,6 @@ export default function SignUp() {
           lastName: formData.lastName,
           email: formData.email,
           password: formData.password,
-          role: formData.role,
         }),
       });
 
@@ -87,7 +85,7 @@ export default function SignUp() {
         setSuccess(true);
         setTimeout(() => router.push("/signin"), 2000);
       } else {
-        router.push(config.auth.callbackUrl);
+        router.push("/onboarding");
       }
     } catch (error) {
       setError("Something went wrong. Please try again.");
@@ -157,42 +155,6 @@ export default function SignUp() {
                     required
                   />
                 </div>
-              </div>
-
-              {/* Role selection */}
-              <div className="form-control">
-                <label className="label">
-                  <span className="label-text font-medium text-neutral">
-                    How will you use Raasta-AI?
-                  </span>
-                </label>
-                <div className="join join-vertical sm:join-horizontal w-full">
-                  <button
-                    type="button"
-                    className={`btn btn-sm join-item flex-1 ${
-                      formData.role === "sales_operator"
-                        ? "btn-primary text-primary-content"
-                        : "btn-ghost border border-base-300"
-                    }`}
-                    onClick={() => handleChange("role", "sales_operator")}
-                  >
-                    Sales operator
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn btn-sm join-item flex-1 ${
-                      formData.role === "recruiter"
-                        ? "btn-primary text-primary-content"
-                        : "btn-ghost border border-base-300"
-                    }`}
-                    onClick={() => handleChange("role", "recruiter")}
-                  >
-                    Recruiter
-                  </button>
-                </div>
-                <p className="mt-1 text-xs text-neutral/60">
-                  You can always change this later from the admin panel.
-                </p>
               </div>
 
               {/* Email Field */}

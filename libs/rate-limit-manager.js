@@ -6,9 +6,27 @@
  */
 
 import { db } from './db';
-import { linkedinAccounts } from './schema';
+import { linkedinAccounts, rozeeAccounts } from './schema';
 import { eq } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Platform routing — picks the correct accounts table for a given source.
+// Existing LinkedIn-only helpers below are preserved for back-compat; new
+// callers (including Rozee.pk flows) should use the *Platform variants.
+// ─────────────────────────────────────────────────────────────────────────────
+const PLATFORM_TABLES = {
+  linkedin: linkedinAccounts,
+  rozee: rozeeAccounts,
+};
+
+function getAccountsTable(platform = 'linkedin') {
+  const table = PLATFORM_TABLES[platform];
+  if (!table) {
+    throw new Error(`Unknown platform "${platform}" — expected one of: ${Object.keys(PLATFORM_TABLES).join(', ')}`);
+  }
+  return table;
+}
 
 /**
  * Check if account can send more invites today
@@ -284,5 +302,86 @@ export async function resetMessageCounter(accountId) {
     .where(eq(linkedinAccounts.id, accountId));
 
   console.log(`🔄 Message counter manually reset for account ${accountId}`);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Platform-aware helpers (work for both linkedin_accounts and rozee_accounts)
+// Use these from new flows. They mirror the LinkedIn-only versions above but
+// take a `platform` argument to select the right table.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function checkDailyLimitForPlatform(accountId, platform = 'linkedin') {
+  const table = getAccountsTable(platform);
+  const [account] = await db.select().from(table).where(eq(table.id, accountId)).limit(1);
+  if (!account) throw new Error(`${platform} account ${accountId} not found`);
+
+  const now = new Date();
+  const lastReset = new Date(account.lastDailyReset);
+  const hoursSinceReset = (now - lastReset) / (1000 * 60 * 60);
+
+  if (hoursSinceReset >= 24) {
+    await db.update(table).set({ dailyInvitesSent: 0, lastDailyReset: now }).where(eq(table.id, accountId));
+    return {
+      canSend: true,
+      remaining: account.dailyLimit,
+      limit: account.dailyLimit,
+      resetsAt: new Date(now.getTime() + 24 * 60 * 60 * 1000),
+      sent: 0,
+    };
+  }
+
+  const remaining = account.dailyLimit - account.dailyInvitesSent;
+  return {
+    canSend: remaining > 0,
+    remaining: Math.max(0, remaining),
+    limit: account.dailyLimit,
+    resetsAt: new Date(lastReset.getTime() + 24 * 60 * 60 * 1000),
+    sent: account.dailyInvitesSent,
+  };
+}
+
+export async function incrementDailyCounterForPlatform(accountId, platform = 'linkedin', count = 1) {
+  const table = getAccountsTable(platform);
+  await db.update(table)
+    .set({ dailyInvitesSent: sql`${table.dailyInvitesSent} + ${count}`, lastUsed: new Date() })
+    .where(eq(table.id, accountId));
+}
+
+export async function checkDailyMessageLimitForPlatform(accountId, platform = 'linkedin') {
+  const table = getAccountsTable(platform);
+  const [account] = await db.select().from(table).where(eq(table.id, accountId)).limit(1);
+  if (!account) throw new Error(`${platform} account ${accountId} not found`);
+
+  const messageLimit = account.dailyMessageLimit || 10;
+  const now = new Date();
+  const lastReset = new Date(account.lastMessageReset);
+  const hoursSinceReset = (now - lastReset) / (1000 * 60 * 60);
+
+  if (hoursSinceReset >= 24) {
+    await db.update(table).set({ dailyMessagesSent: 0, lastMessageReset: now }).where(eq(table.id, accountId));
+    return {
+      canSend: true,
+      remaining: messageLimit,
+      limit: messageLimit,
+      resetsAt: new Date(now.getTime() + 24 * 60 * 60 * 1000),
+      sent: 0,
+    };
+  }
+
+  const remaining = messageLimit - (account.dailyMessagesSent || 0);
+  return {
+    canSend: remaining > 0,
+    remaining: Math.max(0, remaining),
+    limit: messageLimit,
+    resetsAt: new Date(lastReset.getTime() + 24 * 60 * 60 * 1000),
+    sent: account.dailyMessagesSent || 0,
+  };
+}
+
+export async function incrementMessageCounterForPlatform(accountId, platform = 'linkedin') {
+  const table = getAccountsTable(platform);
+  await db.update(table)
+    .set({ dailyMessagesSent: sql`${table.dailyMessagesSent} + 1`, lastUsed: new Date() })
+    .where(eq(table.id, accountId));
 }
 
