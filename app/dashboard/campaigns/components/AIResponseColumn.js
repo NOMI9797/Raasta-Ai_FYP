@@ -111,7 +111,7 @@ const AIResponseColumn = memo(function AIResponseColumn({
             <button
               onClick={() => {
                 const leadId = selectedLead._id || selectedLead.id;
-                generateMessage(leadId, aiSettings);
+                generateMessage(leadId, aiSettings, selectedLead);
               }}
               disabled={isGenerating}
               className="btn btn-primary w-full gap-2"

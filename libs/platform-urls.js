@@ -44,3 +44,13 @@ export function filterUrlsByPlatform(urls, platforms) {
     .map((url) => ({ url, platform: detectPlatformFromUrl(url) }))
     .filter(({ platform }) => platform && (allowed.size === 0 || allowed.has(platform)));
 }
+
+/** Rozee public job posting URLs (slug …-jobs-{id}) vs seeker profile URLs. */
+export function isRozeeJobPostingUrl(url) {
+  if (!url || typeof url !== "string") return false;
+  const lower = url.toLowerCase();
+  if (!lower.includes("rozee.pk")) return false;
+  if (/-jobs-\d+/.test(lower)) return true;
+  if (/\/job\/[^/]+/.test(lower) && !lower.includes("/job/jsearch")) return true;
+  return false;
+}

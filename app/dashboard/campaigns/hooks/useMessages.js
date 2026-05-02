@@ -5,6 +5,7 @@ import { useState, useCallback } from "react";
 import toast from "react-hot-toast";
 import { messageKeys } from "./queryKeys";
 import { messageApi } from "./api";
+import { isRozeeJobPostingUrl } from "@/libs/platform-urls";
 
 /**
  * Custom hook for managing AI message generation and history using React Query
@@ -128,7 +129,7 @@ export function useMessages() {
   };
 
   // Generate a new message with streaming
-  const generateMessage = async (leadId, aiSettings = {}) => {
+  const generateMessage = async (leadId, aiSettings = {}, leadMeta = null) => {
     if (!leadId) {
       toast.error("No lead selected");
       return false;
@@ -136,12 +137,36 @@ export function useMessages() {
 
     try {
       setIsStreaming(true);
-      // Force clear the message and ensure it's empty
       setGeneratedMessage("");
-      
-      // Small delay to ensure state is updated
-      await new Promise(resolve => setTimeout(resolve, 50));
-      
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      if (
+        leadMeta?.source === "rozee" &&
+        leadMeta?.url &&
+        isRozeeJobPostingUrl(leadMeta.url)
+      ) {
+        const response = await fetch("/api/messages/generate-rozee", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            leadId,
+            model: aiSettings?.model || "llama-3.1-8b-instant",
+            customPrompt: aiSettings?.customPrompt || "",
+            autoEnrich: true,
+          }),
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.error || "Failed to generate message");
+        }
+        const text = result.messageContent || result.message?.content || "";
+        setGeneratedMessage(text);
+        queryClient.invalidateQueries({ queryKey: messageKeys.forLead(leadId) });
+        toast.success("Message generated successfully!");
+        setIsStreaming(false);
+        return true;
+      }
+
       const response = await fetch('/api/messages/generate-stream', {
         method: 'POST',
         headers: {

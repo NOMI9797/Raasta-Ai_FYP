@@ -186,6 +186,80 @@ Write the message directly without any prefixes, introductions, or explanations.
   }
 }
 
+/**
+ * Outreach for Rozee job-listing leads (B2B: pitch to hiring company).
+ * Uses only facts from the provided context — no invented company research.
+ */
+export async function generateRozeeJobLeadOutreach({
+  tier,
+  personalizationMode,
+  companyName,
+  jobTitle,
+  location,
+  jobDescriptionExcerpt,
+  skills,
+  suggestedChannel,
+  companyResearchSummary,
+  icpSummary,
+  customPrompt,
+  model = 'llama-3.1-8b-instant',
+}) {
+  const facts = [
+    companyName && `Company name (from posting): ${companyName}`,
+    jobTitle && `Open role: ${jobTitle}`,
+    location && `Location: ${location}`,
+    Array.isArray(skills) && skills.length && `Tech / skills mentioned: ${skills.slice(0, 12).join(', ')}`,
+    jobDescriptionExcerpt && `Job description excerpt:\n${jobDescriptionExcerpt.slice(0, 2500)}`,
+    companyResearchSummary && `Company website research:\n${companyResearchSummary.slice(0, 2200)}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const tierNote =
+    personalizationMode === 'company_focused' || tier === 'A'
+      ? 'Lead tier A: emphasize how your offer fits the company’s likely needs and this hire; still only use facts above.'
+      : 'Lead tier B/C: keep it shorter; anchor on the role and stack from the posting.';
+
+  const channelNote =
+    suggestedChannel === 'email'
+      ? 'Write as a professional email (subject line optional on second line after blank line if useful).'
+      : 'Write as a short LinkedIn-style DM (no subject).';
+
+  const systemPrompt = `You write B2B outreach to hiring companies found via job boards.
+Rules:
+- Use ONLY information from the FACTS block. Do not invent revenue, team size, awards, or services the company offers.
+- Be concise (under 180 words unless the user asks otherwise).
+- One clear, soft call-to-action (e.g. short call or reply).
+- Professional, human tone — not salesy spam.
+- Output ONLY the message body ready to send (no "Here is a message" preamble).
+${tierNote}
+${channelNote}
+${icpSummary ? `\nSender / offer context (use lightly, do not contradict FACTS):\n${icpSummary}` : ''}
+${customPrompt ? `\nExtra instructions: ${customPrompt}` : ''}`;
+
+  const userPrompt = `FACTS:\n${facts || '(no facts — ask for more context in one sentence)'}\n\nWrite the outreach message.`;
+
+  try {
+    const completion = await groq.chat.completions.create({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      model,
+      temperature: 0.65,
+      max_tokens: 600,
+    });
+    const message = completion.choices[0]?.message?.content;
+    if (!message) throw new Error('No message generated');
+    return message.trim();
+  } catch (error) {
+    console.error('Error generating Rozee outreach with Groq:', error);
+    throw new Error(
+      `Failed to generate outreach: ${error instanceof Error ? error.message : 'Unknown error'}`
+    );
+  }
+}
+
 // Function to validate Groq API key
 export async function validateGroqApiKey() {
   try {

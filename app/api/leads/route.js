@@ -15,6 +15,7 @@ export const GET = withAuth(async (request, { user }) => {
         title: leads.title,
         company: leads.company,
         source: leads.source,
+        sourceData: leads.sourceData,
         campaignId: leads.campaignId,
         campaignName: campaigns.name,
         inviteSent: leads.inviteSent,
@@ -27,7 +28,23 @@ export const GET = withAuth(async (request, { user }) => {
       .where(eq(leads.userId, user.id))
       .orderBy(desc(leads.createdAt));
 
-    return NextResponse.json({ success: true, leads: rows });
+    const leadsOut = rows.map(({ sourceData, ...r }) => {
+      const conv = sourceData?.conversion;
+      return {
+        ...r,
+        conversion: conv
+          ? {
+              tier: conv.tier,
+              score: conv.score,
+              primaryChannel: conv.outreach?.primaryChannel,
+              enrichedAt: conv.enrichment?.enrichedAt,
+              personalizationMode: conv.personalizationMode,
+            }
+          : null,
+      };
+    });
+
+    return NextResponse.json({ success: true, leads: leadsOut });
   } catch (error) {
     console.error("List leads error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

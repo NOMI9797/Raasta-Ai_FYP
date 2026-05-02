@@ -4,15 +4,16 @@ import { db } from "@/libs/db";
 import { leads, rozeeAccounts } from "@/libs/schema";
 import { and, eq, inArray } from "drizzle-orm";
 import { getAdapter } from "@/libs/platforms";
+import { isRozeeJobPostingUrl } from "@/libs/platform-urls";
+import { enrichRozeeLeadInDb } from "@/libs/lead-rozee-enrichment";
 
 /**
  * POST /api/rozee/leads/scrape
  * Body: { leadId?: string, leadIds?: string[] }
  *
- * Synchronously scrapes Rozee candidate profiles for the given lead(s) using
- * the active Rozee account's session and writes name / title / sourceData /
- * profilePicture back on the lead row. Used by the campaign workspace to
- * "enrich" Rozee-sourced leads before AI message generation.
+ * Campaign workspace "Run" action:
+ * - Job posting URLs → scrape job detail, tier/score, store under source_data.conversion
+ * - Seeker profile URLs → scrape candidate profile (name, skills, etc.)
  */
 export const POST = withAuth(async (request, { user }) => {
   try {
@@ -26,6 +27,7 @@ export const POST = withAuth(async (request, { user }) => {
     if (ids.length === 0) {
       return NextResponse.json({ error: "leadId or leadIds is required" }, { status: 400 });
     }
+    console.log(`[ROZEE_ENRICH] user=${user.id} requested ids=${ids.length}`);
 
     const rows = await db
       .select()
@@ -39,6 +41,7 @@ export const POST = withAuth(async (request, { user }) => {
         { status: 400 }
       );
     }
+    console.log(`[ROZEE_ENRICH] found rozee leads=${rozeeLeads.length}`);
 
     const [account] = await db
       .select()
@@ -52,12 +55,23 @@ export const POST = withAuth(async (request, { user }) => {
         { status: 400 }
       );
     }
+    console.log(`[ROZEE_ENRICH] using active account id=${account.id}`);
 
     const adapter = getAdapter("rozee");
     const results = [];
 
     for (const lead of rozeeLeads) {
       try {
+        console.log(`[ROZEE_ENRICH] lead=${lead.id} url=${lead.url}`);
+        if (isRozeeJobPostingUrl(lead.url)) {
+          console.log(`[ROZEE_ENRICH] lead=${lead.id} mode=job_enrichment start`);
+          await enrichRozeeLeadInDb(lead, account);
+          console.log(`[ROZEE_ENRICH] lead=${lead.id} mode=job_enrichment done`);
+          results.push({ leadId: lead.id, success: true, kind: "job_enrichment" });
+          continue;
+        }
+
+        console.log(`[ROZEE_ENRICH] lead=${lead.id} mode=candidate_profile start`);
         const { success, candidate, error } = await adapter.scrapeCandidate(account, lead.url);
         if (!success || !candidate) {
           await db
@@ -85,7 +99,10 @@ export const POST = withAuth(async (request, { user }) => {
           })
           .where(eq(leads.id, lead.id));
 
-        results.push({ leadId: lead.id, success: true });
+        results.push({ leadId: lead.id, success: true, kind: "profile" });
+        console.log(
+          `[ROZEE_ENRICH] lead=${lead.id} mode=candidate_profile done skills=${(candidate.skills || []).length} email=${candidate.email ? "yes" : "no"}`
+        );
       } catch (error) {
         console.error(`Rozee scrape failed for lead ${lead.id}:`, error);
         await db
@@ -97,6 +114,9 @@ export const POST = withAuth(async (request, { user }) => {
     }
 
     const ok = results.filter((r) => r.success).length;
+    console.log(
+      `[ROZEE_ENRICH] completed user=${user.id} ok=${ok} failed=${results.length - ok}`
+    );
     return NextResponse.json({
       success: ok > 0,
       scraped: ok,

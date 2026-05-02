@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { withAuth } from "@/libs/auth-middleware";
 import { db } from "@/libs/db";
-import { campaigns, leads } from "@/libs/schema";
+import { campaigns, leads, rozeeAccounts } from "@/libs/schema";
 import { detectPlatformFromUrl } from "@/libs/platform-urls";
 import { PLATFORM_IDS } from "@/libs/platforms";
+import { enrichRozeeLeadInDb } from "@/libs/lead-rozee-enrichment";
 
 /**
  * Import pre-scraped profiles from the Lead Scraper module into a campaign.
@@ -24,6 +25,7 @@ import { PLATFORM_IDS } from "@/libs/platforms";
  *       source?: "linkedin" | "rozee" | "indeed",
  *       sourceData?: object
  *     }>
+ *     enrichInserted?: boolean  — if true, scrape Rozee job pages for imported rows (slower)
  *   }
  */
 export const POST = withAuth(async (request, { user }) => {
@@ -31,6 +33,7 @@ export const POST = withAuth(async (request, { user }) => {
     const body = await request.json();
     const campaignId = body?.campaignId;
     const profiles = Array.isArray(body?.profiles) ? body.profiles : [];
+    const enrichInserted = Boolean(body?.enrichInserted);
 
     if (!campaignId) {
       return NextResponse.json({ error: "campaignId is required" }, { status: 400 });
@@ -123,20 +126,47 @@ export const POST = withAuth(async (request, { user }) => {
         .where(and(eq(campaigns.id, campaignId), eq(campaigns.userId, user.id)));
     }
 
+    const enrichmentErrors = [];
+    if (enrichInserted && inserted.length) {
+      const [rozeeAcc] = await db
+        .select()
+        .from(rozeeAccounts)
+        .where(and(eq(rozeeAccounts.userId, user.id), eq(rozeeAccounts.isActive, true)))
+        .limit(1);
+      const sessionData = rozeeAcc || {};
+      for (const row of inserted) {
+        if (row.source !== "rozee") continue;
+        try {
+          await enrichRozeeLeadInDb(row, sessionData);
+        } catch (err) {
+          enrichmentErrors.push({
+            leadId: row.id,
+            error: err instanceof Error ? err.message : "Enrichment failed",
+          });
+        }
+      }
+    }
+
     return NextResponse.json({
       success: true,
       message: `Imported ${inserted.length} lead${inserted.length === 1 ? "" : "s"}${
         skipped.length ? `, skipped ${skipped.length} duplicate${skipped.length === 1 ? "" : "s"}` : ""
-      }${rejected.length ? `, rejected ${rejected.length}` : ""}.`,
+      }${rejected.length ? `, rejected ${rejected.length}` : ""}${
+        enrichmentErrors.length
+          ? `, ${enrichmentErrors.length} enrichment error${enrichmentErrors.length === 1 ? "" : "s"}`
+          : ""
+      }.`,
       stats: {
         imported: inserted.length,
         skipped: skipped.length,
         rejected: rejected.length,
         total: profiles.length,
+        enrichmentErrors: enrichmentErrors.length,
       },
       leads: inserted,
       skipped,
       rejected,
+      enrichmentErrors,
     });
   } catch (error) {
     console.error("Lead scraper import error:", error);

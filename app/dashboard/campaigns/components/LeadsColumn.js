@@ -22,7 +22,7 @@ import {
   UserCheck,
 } from "lucide-react";
 import { getPlatformMeta, AVAILABLE_PLATFORMS } from "@/libs/platforms/meta";
-import { detectPlatformFromUrl, isSupportedLeadUrl } from "@/libs/platform-urls";
+import { detectPlatformFromUrl, isSupportedLeadUrl, isRozeeJobPostingUrl } from "@/libs/platform-urls";
 import {
   DndContext,
   closestCenter,
@@ -370,16 +370,29 @@ const LeadsColumn = memo(function LeadsColumn({
       });
       const data = await res.json();
       if (!res.ok) {
-        toast.error(data.error || "Failed to scrape Rozee leads");
+        toast.error(data.error || "Failed to process Rozee leads");
         return;
       }
-      toast.success(`Rozee: scraped ${data.scraped} / ${rozeeLeadList.length}${data.failed ? `, ${data.failed} failed` : ""}`);
+      toast.success(`Rozee: processed ${data.scraped} / ${rozeeLeadList.length}${data.failed ? `, ${data.failed} failed` : ""}`);
       onRefreshLeads();
     } catch (error) {
       console.error("Rozee scrape error:", error);
-      toast.error(error.message || "Failed to scrape Rozee leads");
+      toast.error(error.message || "Failed to process Rozee leads");
     }
   };
+
+  const rozeeJobsNeedingEnrichment = leads.filter((l) => {
+    if ((l.source || "linkedin") !== "rozee") return false;
+    if (!isRozeeJobPostingUrl(l.url)) return false;
+    if (l.status === "pending" || l.status === "error") return false;
+    return !l.sourceData?.conversion?.enrichment?.enrichedAt;
+  });
+
+  const pendingLeadsCount = leads.filter(
+    (lead) => lead.status === "pending" || lead.status === "error"
+  ).length;
+
+  const canRunAll = pendingLeadsCount > 0 || rozeeJobsNeedingEnrichment.length > 0;
 
   const handleRunSelected = async () => {
     if (!selectedLead) return;
@@ -397,6 +410,7 @@ const LeadsColumn = memo(function LeadsColumn({
     const rozeePending = pendingLeads.filter((l) => (l.source || "linkedin") === "rozee");
     const linkedinPending = pendingLeads.filter((l) => (l.source || "linkedin") === "linkedin");
 
+    if (rozeeJobsNeedingEnrichment.length) await scrapeRozeeLeads(rozeeJobsNeedingEnrichment);
     if (rozeePending.length) await scrapeRozeeLeads(rozeePending);
     if (linkedinPending.length) {
       await scrapeMultipleLeads(linkedinPending, scrapingSettings, leads, setLeads, campaignId);
@@ -587,7 +601,7 @@ const LeadsColumn = memo(function LeadsColumn({
           </button>
           <button
             onClick={handleRunAll}
-            disabled={isProcessing || leads.filter(lead => lead.status === "pending" || lead.status === "error").length === 0}
+            disabled={isProcessing || !canRunAll}
             className="btn btn-secondary btn-sm gap-1"
           >
             <Play className="h-3 w-3" />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
@@ -13,6 +13,8 @@ import {
   CheckCircle2,
   Clock,
   XCircle,
+  Sparkles,
+  MessageSquare,
 } from "lucide-react";
 import Sidebar from "@/components/layout/Sidebar";
 import TopBar from "@/components/layout/TopBar";
@@ -27,6 +29,14 @@ export default function LeadsPage() {
   const [sourceFilter, setSourceFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [campaignFilter, setCampaignFilter] = useState("all");
+  const [busyId, setBusyId] = useState(null);
+
+  const reloadLeads = useCallback(async () => {
+    const res = await fetch("/api/leads");
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to load leads");
+    setRows(data.leads || []);
+  }, []);
 
   useEffect(() => {
     if (status === "loading") return;
@@ -46,17 +56,14 @@ export default function LeadsPage() {
     (async () => {
       try {
         setLoading(true);
-        const res = await fetch("/api/leads");
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Failed to load leads");
-        setRows(data.leads || []);
+        await reloadLeads();
       } catch (err) {
         toast.error(err.message);
       } finally {
         setLoading(false);
       }
     })();
-  }, [session]);
+  }, [session, reloadLeads]);
 
   const campaigns = useMemo(() => {
     const map = new Map();
@@ -106,6 +113,43 @@ export default function LeadsPage() {
     );
   }
   if (!session) return null;
+
+  const handleEnrich = async (leadId) => {
+    try {
+      setBusyId(leadId);
+      const res = await fetch(`/api/leads/${leadId}/enrich`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Enrich failed");
+      toast.success("Job details saved — tier updated");
+      await reloadLeads();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleDraftRozee = async (leadId) => {
+    try {
+      setBusyId(leadId);
+      const res = await fetch("/api/messages/generate-rozee", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadId, autoEnrich: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Draft failed");
+      toast.success(
+        data.suggestedChannel === "email"
+          ? "Draft email saved — check Outreach"
+          : "Draft message saved — check Outreach"
+      );
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-base-100 flex">
@@ -182,6 +226,8 @@ export default function LeadsPage() {
                       <th>Company</th>
                       <th>Campaign</th>
                       <th>Source</th>
+                      <th>Tier</th>
+                      <th>Outreach</th>
                       <th>Status</th>
                       <th>Added</th>
                       <th></th>
@@ -202,22 +248,74 @@ export default function LeadsPage() {
                           </span>
                         </td>
                         <td>
+                          {r.conversion?.tier ? (
+                            <span
+                              className={`badge badge-sm ${
+                                r.conversion.tier === "A"
+                                  ? "badge-primary"
+                                  : r.conversion.tier === "B"
+                                    ? "badge-warning"
+                                    : "badge-ghost"
+                              }`}
+                            >
+                              {r.conversion.tier}
+                              {typeof r.conversion.score === "number"
+                                ? ` · ${r.conversion.score}`
+                                : ""}
+                            </span>
+                          ) : (
+                            <span className="text-base-content/40 text-xs">—</span>
+                          )}
+                        </td>
+                        <td className="text-xs text-base-content/70 capitalize">
+                          {r.conversion?.primaryChannel ?? "—"}
+                        </td>
+                        <td>
                           <StatusBadge lead={r} />
                         </td>
                         <td className="text-xs text-base-content/60">
                           {r.createdAt ? new Date(r.createdAt).toLocaleDateString() : "—"}
                         </td>
                         <td>
-                          {r.url && (
-                            <a
-                              href={r.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="btn btn-ghost btn-xs gap-1"
-                            >
-                              <ExternalLink className="h-3 w-3" /> Profile
-                            </a>
-                          )}
+                          <div className="flex flex-col gap-1 items-end">
+                            {r.url && (
+                              <a
+                                href={r.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="btn btn-ghost btn-xs gap-1"
+                              >
+                                <ExternalLink className="h-3 w-3" />{" "}
+                                {r.source === "rozee" ? "Job" : "Profile"}
+                              </a>
+                            )}
+                            {r.source === "rozee" && (
+                              <>
+                                <button
+                                  type="button"
+                                  className="btn btn-ghost btn-xs gap-1"
+                                  disabled={busyId === r.id}
+                                  onClick={() => handleEnrich(r.id)}
+                                >
+                                  {busyId === r.id ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Sparkles className="h-3 w-3" />
+                                  )}
+                                  Enrich
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-ghost btn-xs gap-1"
+                                  disabled={busyId === r.id}
+                                  onClick={() => handleDraftRozee(r.id)}
+                                >
+                                  <MessageSquare className="h-3 w-3" />
+                                  Draft
+                                </button>
+                              </>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}

@@ -18,7 +18,7 @@
  * kept as a thin alias of searchRozeeJobs() for backward compatibility.
  */
 
-import { DEFAULT_BROWSER_ARGS, humanLikeDelay } from "./playwright-utils";
+import { humanLikeDelay, launchRozeeChromium } from "./playwright-utils";
 
 // ── Selectors validated against the live site (2026-04) ──────────────────────
 // Real card structure (from live HTML inspection):
@@ -65,58 +65,7 @@ const CONFIG = {
  * a page in an unknown state.
  */
 async function launchWithSession(sessionData) {
-  const { chromium } = await import("playwright");
-
-  const browser = await chromium.launch({
-    headless: true,
-    args: DEFAULT_BROWSER_ARGS,
-  });
-
-  const context = await browser.newContext({
-    viewport: { width: 1280, height: 800 },
-    userAgent:
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  });
-
-  // Restore cookies BEFORE any navigation so the server sees them on the
-  // very first request.
-  if (Array.isArray(sessionData?.cookies) && sessionData.cookies.length) {
-    // Ensure every cookie has required fields
-    const cleanCookies = sessionData.cookies
-      .filter((c) => c?.name && c?.value)
-      .map((c) => ({
-        name: c.name,
-        value: c.value,
-        domain: c.domain || ".rozee.pk",
-        path: c.path || "/",
-        httpOnly: c.httpOnly ?? false,
-        secure: c.secure ?? false,
-        sameSite: c.sameSite || "Lax",
-        ...(c.expires ? { expires: c.expires } : {}),
-      }));
-    if (cleanCookies.length) {
-      await context.addCookies(cleanCookies);
-    }
-  }
-
-  // Inject localStorage / sessionStorage before first navigation
-  if (sessionData?.localStorage && Object.keys(sessionData.localStorage).length) {
-    await context.addInitScript((storage) => {
-      for (const [k, v] of Object.entries(storage)) {
-        try { window.localStorage.setItem(k, v); } catch {}
-      }
-    }, sessionData.localStorage);
-  }
-  if (sessionData?.sessionStorage && Object.keys(sessionData.sessionStorage).length) {
-    await context.addInitScript((storage) => {
-      for (const [k, v] of Object.entries(storage)) {
-        try { window.sessionStorage.setItem(k, v); } catch {}
-      }
-    }, sessionData.sessionStorage);
-  }
-
-  const page = await context.newPage();
-  return { browser, context, page };
+  return launchRozeeChromium(sessionData || {});
 }
 
 // ── A) Job Listings ───────────────────────────────────────────────────────────

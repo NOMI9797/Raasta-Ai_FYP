@@ -56,6 +56,61 @@ export const DEFAULT_BROWSER_ARGS = [
   "--disable-gpu",
 ];
 
+/**
+ * Launch Chromium with Rozee cookies / storage injected before navigation.
+ * Caller must `await browser.close()` when finished.
+ */
+export async function launchRozeeChromium(sessionData = {}) {
+  const { chromium } = await import("playwright");
+  const browser = await chromium.launch({
+    headless: true,
+    args: DEFAULT_BROWSER_ARGS,
+  });
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 800 },
+    userAgent:
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  });
+
+  if (Array.isArray(sessionData?.cookies) && sessionData.cookies.length) {
+    const cleanCookies = sessionData.cookies
+      .filter((c) => c?.name && c?.value)
+      .map((c) => ({
+        name: c.name,
+        value: c.value,
+        domain: c.domain || ".rozee.pk",
+        path: c.path || "/",
+        httpOnly: c.httpOnly ?? false,
+        secure: c.secure ?? false,
+        sameSite: c.sameSite || "Lax",
+        ...(c.expires ? { expires: c.expires } : {}),
+      }));
+    if (cleanCookies.length) await context.addCookies(cleanCookies);
+  }
+
+  if (sessionData?.localStorage && Object.keys(sessionData.localStorage).length) {
+    await context.addInitScript((storage) => {
+      for (const [k, v] of Object.entries(storage)) {
+        try {
+          window.localStorage.setItem(k, v);
+        } catch {}
+      }
+    }, sessionData.localStorage);
+  }
+  if (sessionData?.sessionStorage && Object.keys(sessionData.sessionStorage).length) {
+    await context.addInitScript((storage) => {
+      for (const [k, v] of Object.entries(storage)) {
+        try {
+          window.sessionStorage.setItem(k, v);
+        } catch {}
+      }
+    }, sessionData.sessionStorage);
+  }
+
+  const page = await context.newPage();
+  return { browser, context, page };
+}
+
 export async function restoreSessionToContext(context, page, sessionData) {
   if (sessionData?.cookies?.length) {
     await context.addCookies(sessionData.cookies);

@@ -42,6 +42,7 @@ export default function LeadScraperPage() {
   const [campaigns, setCampaigns] = useState([]);
   const [campaignId, setCampaignId] = useState("");
   const [lastScrape, setLastScrape] = useState(null);
+  const [enrichAfterImport, setEnrichAfterImport] = useState(false);
 
   useEffect(() => {
     if (status === "loading") return;
@@ -158,7 +159,11 @@ export default function LeadScraperPage() {
       const res = await fetch("/api/leads/scrape/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ campaignId, profiles }),
+        body: JSON.stringify({
+          campaignId,
+          profiles,
+          enrichInserted: enrichAfterImport && platform === "rozee",
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Import failed");
@@ -364,6 +369,17 @@ export default function LeadScraperPage() {
                     <span className="font-semibold">{results.length}</span> selected
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
+                    {platform === "rozee" && (
+                      <label className="flex items-center gap-2 cursor-pointer text-xs text-base-content/70 whitespace-nowrap">
+                        <input
+                          type="checkbox"
+                          className="checkbox checkbox-xs"
+                          checked={enrichAfterImport}
+                          onChange={(e) => setEnrichAfterImport(e.target.checked)}
+                        />
+                        Enrich jobs (score + description)
+                      </label>
+                    )}
                     <select
                       className="select select-bordered select-sm"
                       value={campaignId}
