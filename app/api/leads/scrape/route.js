@@ -4,13 +4,16 @@ import { withAuth } from "@/libs/auth-middleware";
 import { db } from "@/libs/db";
 import { getAdapter, PLATFORM_IDS } from "@/libs/platforms";
 
+/** Indeed job search may exceed default serverless timeouts on some hosts. */
+export const maxDuration = 300;
+
 /**
  * Lead Scraper — platform-agnostic search entrypoint.
  *
  * Body:
  *   {
  *     platform: "rozee" | "linkedin" | "indeed",
- *     filters: { query?: string, location?: string, keywords?: string, limit?: number }
+ *     filters: { query?: string, location?: string, keywords?: string, limit?: number, country?: string }
  *   }
  *
  * Returns raw results in memory (no DB writes). The caller reviews the list
@@ -39,9 +42,7 @@ export const POST = withAuth(async (request, { user }) => {
       );
     }
 
-    // Resolve the user's active account for this platform, if the adapter has
-    // an accounts table. Adapters without an accounts table (e.g. Indeed stub)
-    // can't be reached here because they short-circuit above.
+    // Platforms without linked accounts (e.g. Indeed server scrape) skip DB account lookup.
     let account = null;
     if (adapter.accountsTable) {
       const table = adapter.accountsTable;

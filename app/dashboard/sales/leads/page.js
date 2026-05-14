@@ -190,7 +190,6 @@ export default function LeadsPage() {
               {sources.map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
-              <option value="indeed" disabled>Indeed (Coming soon)</option>
             </select>
             <select className="select select-bordered" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
               <option value="all">All statuses</option>

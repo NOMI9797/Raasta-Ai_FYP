@@ -32,8 +32,7 @@ export function detectPlatformFromUrl(url) {
 
 export function isSupportedLeadUrl(url) {
   const platform = detectPlatformFromUrl(url);
-  // indeed is detectable but not yet supported for leads — only LinkedIn and Rozee.
-  return platform === "linkedin" || platform === "rozee";
+  return platform === "linkedin" || platform === "rozee" || platform === "indeed";
 }
 
 export function filterUrlsByPlatform(urls, platforms) {

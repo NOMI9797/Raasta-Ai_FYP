@@ -128,7 +128,6 @@ export default function OutreachPipelinePage() {
                 {sources.map((s) => (
                   <option key={s} value={s}>{s}</option>
                 ))}
-                <option value="indeed" disabled>Indeed (Coming soon)</option>
               </select>
               <select
                 className="select select-bordered select-sm"

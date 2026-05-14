@@ -25,7 +25,7 @@
  *
  * Optional (higher volume):
  *   SERP_API_KEY            — SerpAPI key (5000/mo paid plan)
- *   APIFY_TOKEN             — Apify token for Google Search actor
+ *   SCRAPER_SERVICE_TOKEN   — optional hosted SERP / search runner (legacy keys still supported)
  */
 
 // ─────────────────────────────────────────────

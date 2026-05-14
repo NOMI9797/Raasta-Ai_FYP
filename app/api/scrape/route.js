@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { ApifyClient } from "apify-client";
+import { ApifyClient as JobRunnerClient } from "apify-client";
+import { getScraperServiceTokenFromEnv } from "@/libs/scraper-credentials";
 
 export async function POST(request) {
   try {
@@ -10,12 +11,14 @@ export async function POST(request) {
       return NextResponse.json({ error: 'urls must be a non-empty array' }, { status: 400 });
     }
 
-    const token = process.env.APIFY_API_TOKEN || process.env.apify_api_token || process.env.APIFY_TOKEN;
+    const token = getScraperServiceTokenFromEnv();
     if (!token) {
-      return NextResponse.json({ error: 'APIFY_API_TOKEN is not configured on the server' }, { status: 500 });
+      return NextResponse.json({
+        error: "Profile scraping isn’t configured on this server.",
+      }, { status: 500 });
     }
 
-    const client = new ApifyClient({ token });
+    const client = new JobRunnerClient({ token });
 
     const input = {
       urls,
@@ -24,16 +27,16 @@ export async function POST(request) {
       rawData,
     };
 
-    console.log("Apify input:", input);
+    console.log("Profile scrape input:", input);
     const run = await client.actor('Wpp1BZ6yGWjySadk3').call(input);
     const { items } = await client.dataset(run.defaultDatasetId).listItems();
 
-    console.log("Apify raw items:", items.length);
+    console.log("Profile scrape items:", items.length);
     if (items.length > 0) {
       console.log("Sample item structure:", JSON.stringify(items[0], null, 2));
     }
 
-    // Use inputUrl from Apify response for accurate post-to-lead assignment
+    // Prefer inputUrl from runner response for post-to-lead assignment
     const itemsWithSource = items.map((item) => {
       return {
         ...item,

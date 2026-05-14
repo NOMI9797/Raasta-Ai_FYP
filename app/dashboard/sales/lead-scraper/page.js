@@ -18,14 +18,11 @@ import Sidebar from "@/components/layout/Sidebar";
 import TopBar from "@/components/layout/TopBar";
 import { PLATFORM_LIST } from "@/libs/platforms/meta";
 
-// The Lead Scraper UI is platform-agnostic — it shows every registered
-// platform and disables the ones whose server-side `adapter.search` isn't
-// wired up yet. Today only Rozee.pk is callable; LinkedIn and Indeed render
-// as "Coming soon" tiles.
+// Today Rozee.pk and Indeed are wired to adapter.search; LinkedIn is still pending.
 const SCRAPER_AVAILABILITY = {
   linkedin: false,
   rozee: true,
-  indeed: false,
+  indeed: true,
 };
 
 export default function LeadScraperPage() {
@@ -34,7 +31,12 @@ export default function LeadScraperPage() {
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [platform, setPlatform] = useState("rozee");
-  const [filters, setFilters] = useState({ query: "", location: "", limit: 25 });
+  const [filters, setFilters] = useState({
+    query: "",
+    location: "",
+    limit: 25,
+    indeedCountry: "",
+  });
   const [results, setResults] = useState([]);
   const [selected, setSelected] = useState(new Set());
   const [scraping, setScraping] = useState(false);
@@ -106,12 +108,15 @@ export default function LeadScraperPage() {
       const res = await fetch("/api/leads/scrape", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+          body: JSON.stringify({
           platform,
           filters: {
             query: filters.query.trim(),
             location: filters.location.trim(),
             limit: Number(filters.limit) || 25,
+            ...(platform === "indeed" && filters.indeedCountry.trim()
+              ? { country: filters.indeedCountry.trim() }
+              : {}),
           },
         }),
       });
@@ -291,7 +296,11 @@ export default function LeadScraperPage() {
                   </label>
                   <input
                     className="input input-bordered w-full"
-                    placeholder="e.g. Lahore"
+                    placeholder={
+                      platform === "indeed"
+                        ? "City, country, or remote"
+                        : "e.g. Lahore"
+                    }
                     value={filters.location}
                     onChange={(e) => setFilters({ ...filters, location: e.target.value })}
                   />
@@ -303,13 +312,34 @@ export default function LeadScraperPage() {
                   <input
                     type="number"
                     min={1}
-                    max={50}
+                    max={100}
                     className="input input-bordered w-full"
                     value={filters.limit}
                     onChange={(e) => setFilters({ ...filters, limit: e.target.value })}
                   />
                 </div>
               </div>
+              {platform === "indeed" && (
+                <div className="mt-3 flex flex-wrap items-end gap-3">
+                  <div className="form-control w-full max-w-xs">
+                    <label className="label py-1">
+                      <span className="label-text text-xs">Country</span>
+                    </label>
+                    <select
+                      className="select select-bordered select-sm w-full"
+                      value={filters.indeedCountry}
+                      onChange={(e) =>
+                        setFilters({ ...filters, indeedCountry: e.target.value })
+                      }
+                    >
+                      <option value="">Auto</option>
+                      <option value="pk">pk</option>
+                      <option value="us">us</option>
+                      <option value="uk">uk</option>
+                    </select>
+                  </div>
+                </div>
+              )}
               <div className="mt-4 flex items-center justify-between flex-wrap gap-2">
                 <p className="text-xs text-base-content/60">
                   Searching on{" "}
@@ -352,8 +382,16 @@ export default function LeadScraperPage() {
               <div className="card bg-base-200 border border-base-300 p-10 text-center">
                 <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-2" />
                 <p className="text-sm text-base-content/70">
-                  Running a headless browser against {selectedPlatformMeta?.label}. Scraping job
-                  listings — this can take 30–60 seconds.
+                  {platform === "indeed" ? (
+                    <>
+                      Searching Indeed… This can take a couple of minutes when there are many results.
+                    </>
+                  ) : (
+                    <>
+                      Running a headless browser against {selectedPlatformMeta?.label}. Scraping job listings —
+                      this can take 30–60 seconds.
+                    </>
+                  )}
                 </p>
               </div>
             ) : results.length === 0 ? (

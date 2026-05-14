@@ -7,7 +7,7 @@ import { randomDelay } from "@/libs/linkedin-message-sender";
 
 export const salesOperatorPipeline = {
   steps: [
-    // ─── Step 1: Scrape lead profiles via Apify ───
+    // ─── Step 1: Scrape lead profiles (server runner) ───
     {
       key: "scrape_profiles",
       label: "Scrape Lead Profiles",

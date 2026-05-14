@@ -35,8 +35,8 @@ export const PLATFORM_META = Object.freeze({
     shortLabel: "Indeed",
     accent: "bg-teal-700",
     initials: "Id",
-    description: "Job posts and candidate sourcing on Indeed.",
-    comingSoon: true,
+    description: "Indeed job search — save postings as company leads.",
+    comingSoon: false,
   },
 });
 

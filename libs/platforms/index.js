@@ -54,4 +54,5 @@ export function listAdapterIds() {
 
 export const PLATFORM_IDS = Object.freeze(Object.keys(ADAPTERS));
 
+
 export { PLATFORM_META, PLATFORM_LIST, PLATFORM_ORDER, AVAILABLE_PLATFORMS, getPlatformMeta, isPlatformAvailable } from "./meta";

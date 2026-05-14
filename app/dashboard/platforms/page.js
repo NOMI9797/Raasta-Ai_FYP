@@ -95,10 +95,14 @@ export default function PlatformsPage() {
               {active === "linkedin" && <LinkedInAccountsPanel />}
               {active === "rozee" && <RozeeAccountsPanel />}
               {active === "indeed" && (
-                <div className="text-center py-16 text-base-content/60">
-                  <Plug className="h-12 w-12 mx-auto mb-3 opacity-40" />
-                  <p className="font-medium">Indeed is coming soon.</p>
-                  <p className="text-xs mt-1">We&apos;ll notify you once it&apos;s ready.</p>
+                <div className="space-y-3 text-sm text-base-content/80 py-4">
+                  <p className="font-medium text-base-content">
+                    Indeed runs from your Raasta server — no Indeed login in the app.
+                  </p>
+                  <p>
+                    Your deployment admin enables job search the same way as other scraping features. Use Lead Scraper
+                    to pick keywords, location, and optional country.
+                  </p>
                 </div>
               )}
             </div>

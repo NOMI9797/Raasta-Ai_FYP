@@ -1,32 +1,94 @@
 /**
- * Indeed Platform Adapter (Stub)
- *
- * Indeed integration is not yet implemented. This stub exists so the platform
- * factory can enumerate all three platforms, UI components can render a
- * consistent "Coming soon" state, and future work only needs to fill in the
- * method bodies below.
+ * Indeed — job search via hosted Indeed scraper (Lead Scraper).
  */
+
+import { searchIndeedJobs, isIndeedJobSearchConfigured } from "../indeed-job-search";
 
 const ID = "indeed";
 
 function notSupported() {
   return {
     success: false,
-    error: "Indeed integration is coming soon and not yet available.",
+    error: "This action is not supported for Indeed in this app.",
   };
+}
+
+async function search(_account, filters = {}) {
+  if (!isIndeedJobSearchConfigured()) {
+    return {
+      success: false,
+      error:
+        "Indeed job search isn’t enabled on this server yet. Ask your administrator to configure scraping.",
+      results: [],
+    };
+  }
+
+  const queryParts = [filters.query, filters.keywords]
+    .map((s) => (typeof s === "string" ? s.trim() : ""))
+    .filter(Boolean);
+  const query = queryParts.join(" ").trim();
+  const location = typeof filters.location === "string" ? filters.location.trim() : "";
+
+  if (!query && !location) {
+    return {
+      success: false,
+      error: "At least one of query/keywords/location is required",
+      results: [],
+    };
+  }
+
+  try {
+    const { jobs, countryLabel } = await searchIndeedJobs({
+      query,
+      location,
+      limit: filters.limit ?? 25,
+      country: filters.country,
+    });
+
+    const cc = String(countryLabel || "PK").toLowerCase();
+
+    const results = (jobs || [])
+      .filter((j) => j?.url)
+      .map((j) => ({
+        url: j.url,
+        name: j.company || null,
+        title: j.title || null,
+        location: j.location || null,
+        salary: j.salary || null,
+        source: ID,
+        sourceData: {
+          salary: j.salary || null,
+          location: j.location || null,
+          description: j.snippet || "",
+          indeedCountry: cc,
+          indeedRaw: j.indeedRaw || null,
+        },
+      }));
+
+    return { success: true, results };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : "Indeed search failed";
+    console.error("[Indeed adapter] search failed:", msg);
+    return { success: false, error: msg, results: [] };
+  }
 }
 
 export const indeedAdapter = {
   id: ID,
   label: "Indeed",
-  comingSoon: true,
+  comingSoon: false,
   accountsTable: null,
 
   async getAccount() {
     return null;
   },
   async testSession() {
-    return { isValid: false, reason: "Indeed not yet supported" };
+    return {
+      isValid: isIndeedJobSearchConfigured(),
+      reason: isIndeedJobSearchConfigured()
+        ? "Ready"
+        : "Not configured on this server.",
+    };
   },
   async cleanupSession() {
     /* noop */
@@ -40,9 +102,7 @@ export const indeedAdapter = {
   async scrapeApplicants() {
     return { success: false, error: notSupported().error, candidates: [] };
   },
-  async search() {
-    return { success: false, error: notSupported().error, results: [] };
-  },
+  search,
 
   rateLimit: {
     async checkMessages() {
