@@ -1,10 +1,12 @@
-import { Inter } from "next/font/google";
+import "./globals.css";
+import { Space_Grotesk, Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import { getSEOTags } from "@/libs/seo";
 import ClientLayout from "@/components/LayoutClient";
 import config from "@/config";
-import "./globals.css";
 
-const font = Inter({ subsets: ["latin"] });
+const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], weight: ["400", "600", "700"], variable: "--font-space-grotesk" });
+const plusJakarta = Plus_Jakarta_Sans({ subsets: ["latin"], weight: ["300", "400", "600", "700"], variable: "--font-plus-jakarta" });
+const jetBrains = JetBrains_Mono({ subsets: ["latin"], weight: ["400", "600"], variable: "--font-jetbrains-mono" });
 
 export const viewport = {
 	// Will use the primary color of your theme to show a nice theme color in the URL bar of supported browsers
@@ -22,7 +24,7 @@ export default function RootLayout({ children }) {
 		<html
 			lang="en"
 			data-theme={config.colors.theme}
-			className={font.className}
+			className={`${spaceGrotesk.variable} ${plusJakarta.variable} ${jetBrains.variable}`}
 		>
 			<body>
 				{/* ClientLayout contains all the client wrappers (Crisp chat support, toast messages, tooltips, etc.) */}

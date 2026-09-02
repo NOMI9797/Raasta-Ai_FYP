@@ -26,5 +26,4 @@ export default function InviteStatusAlert({ activationStatus, isProcessing }) {
     </div>
   );
 }
-
-as
+ 

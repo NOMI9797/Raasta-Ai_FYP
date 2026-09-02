@@ -2,9 +2,34 @@
 @tailwind components;
 @tailwind utilities;
 
-html,
-body {
+:root {
+  --color-dark-canvas: #080B13;
+  --color-light-canvas: #F8FAFC;
+  --color-surface-dark: #0F1629;
+  --color-surface-light: #FFFFFF;
+  --brand-primary: #6366F1;
+  --brand-primary-dark: #7C3AED;
+  --accent-success: #22C55E;
+  --accent-cyan: #06B6D4;
+  --border-dark: rgba(255,255,255,0.08);
+  --border-light: #E2E8F0;
+}
+
+html, body {
   scroll-behavior: smooth !important;
+  background: var(--color-dark-canvas);
+  color: #fff;
+  font-family: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+}
+
+/* Headings use Space Grotesk */
+h1, h2, h3, h4, h5, h6 {
+  font-family: "Space Grotesk", "Plus Jakarta Sans", sans-serif;
+}
+
+/* Monospace for keys and tokens */
+.font-mono, code, kbd, pre, .mono {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Courier New", monospace;
 }
 
 /* It makes the HTML progress bar filling smooth when value change. */
@@ -32,4 +57,15 @@ progress::-webkit-progress-value {
   .btn {
     @apply !capitalize;
   }
+  /* DaisyUI containment helpers */
+  .daisyui-root {
+    background: transparent;
+    color: inherit;
+  }
 }
+
+/* utility to use our token borders */
+.border-dark {
+  border-color: var(--border-dark) !important;
+}
+

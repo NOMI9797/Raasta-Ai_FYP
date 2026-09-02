@@ -27,16 +27,6 @@ export default function AdminPage() {
     }
   }, [session, status, router]);
 
-  if (status === "loading") {
-    return (
-      <div className="min-h-screen bg-base-100 flex items-center justify-center">
-        <div className="loading loading-spinner loading-lg text-primary"></div>
-      </div>
-    );
-  }
-
-  if (!session || session.user?.role !== "admin") return null;
-
   useEffect(() => {
     if (!session || session.user?.role !== "admin") return;
 
@@ -69,6 +59,16 @@ export default function AdminPage() {
     }
     return counts;
   }, [users]);
+
+  if (status === "loading") {
+    return (
+      <div className="min-h-screen bg-base-100 flex items-center justify-center">
+        <div className="loading loading-spinner loading-lg text-primary"></div>
+      </div>
+    );
+  }
+
+  if (!session || session.user?.role !== "admin") return null;
 
   const handleRoleChange = async (userId, newRole) => {
     if (!newRole) return;

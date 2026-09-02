@@ -70,7 +70,9 @@ export default function AgentRunCard({ run: initialRun, onRefresh }) {
           setRun((prev) => ({ ...prev, status: data.finalStatus }));
           eventSource.close();
         }
-      } catch {}
+      } catch (err) {
+        console.error('Failed to parse agent run event stream message', err);
+      }
     };
 
     eventSource.onerror = () => {

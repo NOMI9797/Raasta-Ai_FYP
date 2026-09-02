@@ -77,7 +77,7 @@ export default function DetailedBreakdown({ byCampaign, loading }) {
     // Try to extract name from URL (LinkedIn username)
     if (lead.url) {
       try {
-        const match = lead.url.match(/linkedin\.com\/in\/([^\/\?]+)/i);
+        const match = lead.url.match(/linkedin\.com\/in\/([^/?]+)/i);
         if (match && match[1]) {
           // Format username: "john-doe-123" -> "John Doe"
           const username = match[1];

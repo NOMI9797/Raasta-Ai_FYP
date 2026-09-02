@@ -3,11 +3,13 @@ module.exports = {
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/**/*.{js,ts,jsx,tsx,mdx}",
     "./app/globals.css",
   ],
   theme: {
     extend: {
       colors: {
+        // Semantic kebab-case tokens
         'canvas-dark': '#080B13',
         'canvas-light': '#F8FAFC',
         'surface-dark': '#0F1629',
@@ -21,11 +23,23 @@ module.exports = {
         'text-body-dark': '#94A3B8',
         'text-heading-light': '#0F172A',
         'text-body-light': '#64748B',
+
+        // CamelCase aliases to prevent breaking redesign components
+        darkCanvas: '#080B13',
+        lightCanvas: '#F8FAFC',
+        surfaceDark: '#0F1629',
+        surfaceLight: '#FFFFFF',
+        brandPrimary: '#6366F1',
+        brandPrimaryDark: '#7C3AED',
+        accentSuccess: '#22C55E',
+        accentCyan: '#06B6D4',
+        borderDark: 'rgba(255, 255, 255, 0.08)',
+        borderLight: '#E2E8F0',
       },
       fontFamily: {
-        sans: ["var(--font-sans)", 'Plus Jakarta Sans', 'sans-serif'],
-        heading: ["var(--font-heading)", 'Space Grotesk', 'sans-serif'],
-        mono: ["var(--font-mono)", 'JetBrains Mono', 'monospace'],
+        heading: ["var(--font-heading)", '"Space Grotesk"', 'sans-serif'],
+        sans: ["var(--font-sans)", '"Plus Jakarta Sans"', 'sans-serif'],
+        mono: ["var(--font-mono)", '"JetBrains Mono"', 'monospace'],
       },
       backgroundImage: {
         gradient:
@@ -38,7 +52,7 @@ module.exports = {
       },
       boxShadow: {
         'brand-glow': '0 0 40px -10px rgba(99, 102, 241, 0.45)',
-        'card-soft': '0 20px 40px -15px rgba(0, 0, 0, 0.05), 0 1px 2px 0 rgba(0, 0, 0, 0.05)'
+        'card-soft': '0 20px 40px -15px rgba(0, 0, 0, 0.05), 0 1px 2px 0 rgba(0, 0, 0, 0.05)',
       },
       animation: {
         opacity: "opacity 0.25s ease-in-out",
@@ -88,77 +102,7 @@ module.exports = {
   },
   plugins: [require("daisyui")],
   daisyui: {
-    themes: [
-      {
-        reachly: {
-          "primary": "#6366F1",        // Electric Indigo - main brand color
-          "primary-focus": "#4F46E5",  // Darker Indigo for focus states
-          "primary-content": "#ffffff", // White text on primary
-          "secondary": "#F9B095",      // No Way Rosé - softer accent
-          "secondary-focus": "#f7a285", // Darker shade for focus
-          "secondary-content": "#2F3035", // Dark text on secondary
-          "accent": "#E6E4E6",         // Violet Essence - subtle highlight
-          "accent-focus": "#d6d4d6",   // Darker shade for focus
-          "accent-content": "#2F3035", // Dark text on accent
-          "neutral": "#2F3035",        // Night Black - text and borders
-          "neutral-focus": "#252529",  // Darker shade for focus
-          "neutral-content": "#FDFCFC", // Light text on neutral
-          "base-100": "#FDFCFC",       // Brilliance - main background
-          "base-200": "#E6E4E6",       // Violet Essence - secondary background
-          "base-300": "#B1B1B1",       // Palladium - tertiary background
-          "base-content": "#2F3035",   // Dark text on light background
-          "info": "#5073b8",           // Info blue
-          "success": "#07b39b",        // Success green
-          "warning": "#f79533",        // Warning orange
-          "error": "#ef4e7b",          // Error pink
-          
-          // Custom border radius for rounded but not full round
-          "--rounded-box": "0.75rem",
-          "--rounded-btn": "0.5rem", 
-          "--rounded-badge": "0.375rem",
-          "--animation-btn": "0.25s",
-          "--animation-input": "0.2s",
-          "--btn-focus-scale": "0.95",
-          "--border-btn": "1px",
-          "--tab-border": "1px",
-          "--tab-radius": "0.5rem",
-        },
-      },
-      {
-        "reachly-dark": {
-          "primary": "#6366F1",        // Electric Indigo - main brand color
-          "primary-focus": "#4F46E5",  // Darker Indigo for focus states
-          "primary-content": "#ffffff", // White text on primary
-          "secondary": "#F9B095",      // Keep same No Way Rosé - softer accent
-          "secondary-focus": "#f7a285", // Darker shade for focus
-          "secondary-content": "#1a1a1a", // Dark text on secondary
-          "accent": "#E6E4E6",         // Keep same Violet Essence - subtle highlight
-          "accent-focus": "#d6d4d6",   // Darker shade for focus
-          "accent-content": "#1a1a1a", // Dark text on accent
-          "neutral": "#FDFCFC",        // Light text for dark mode
-          "neutral-focus": "#e8e8e8",  // Slightly darker
-          "neutral-content": "#2F3035", // Dark backgrounds
-          "base-100": "#1a1a1a",       // Dark background
-          "base-200": "#2F3035",       // Night Black as secondary background
-          "base-300": "#404040",       // Darker tertiary background
-          "base-content": "#FDFCFC",   // Light text on dark background
-          "info": "#5073b8",           // Keep same info blue
-          "success": "#07b39b",        // Keep same success green
-          "warning": "#f79533",        // Keep same warning orange
-          "error": "#ef4e7b",          // Keep same error pink
-          
-          // Custom border radius for rounded but not full round
-          "--rounded-box": "0.75rem",
-          "--rounded-btn": "0.5rem", 
-          "--rounded-badge": "0.375rem",
-          "--animation-btn": "0.25s",
-          "--animation-input": "0.2s",
-          "--btn-focus-scale": "0.95",
-          "--border-btn": "1px",
-          "--tab-border": "1px",
-          "--tab-radius": "0.5rem",
-        },
-      },
-    ],
+    themes: false,
+    base: false,
   },
 };
