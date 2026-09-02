@@ -13,6 +13,19 @@ progress::-webkit-progress-value {
 }
 
 @layer base {
+  /* Base application tokens and resets */
+  :root {
+    --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+    --font-heading: system-ui;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, 'Roboto Mono', 'Courier New', monospace;
+  }
+
+  html, body {
+    @apply bg-canvas-dark text-text-body-dark;
+    height: 100%;
+  }
+
+  /* Buttons & utilities */
   .btn-gradient {
     @apply !bg-gradient !bg-[length:300%_300%] hover:saturate-[1.2] shadow duration-100 !border-0 !border-transparent !bg-transparent animate-shimmer disabled:!bg-none disabled:!bg-gray-500/30  !text-white;
   }

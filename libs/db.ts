@@ -1,7 +1,11 @@
+import dotenv from 'dotenv';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import * as schema from './schema';
+
+// Load local env (when running node scripts outside Next runtime)
+dotenv.config({ path: '.env.local' });
 
 // Create the connection
 const connectionString = process.env.DATABASE_URL!;

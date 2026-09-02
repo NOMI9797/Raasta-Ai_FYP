@@ -174,19 +174,19 @@ export default function DetailedBreakdown({ byCampaign, loading }) {
                         )}
                       </td>
                       <td className="font-medium">{campaign.campaignName}</td>
-                      <td className="text-center">{campaign.stats.total}</td>
-                      <td className="text-center">{campaign.stats.pending}</td>
-                      <td className="text-center">{campaign.stats.sent}</td>
-                      <td className="text-center font-semibold text-success">{campaign.stats.accepted}</td>
-                      <td className="text-center text-error">{campaign.stats.rejected}</td>
-                      <td className="text-center text-base-content/60">{campaign.stats.failed}</td>
+                      <td className="text-center">{(campaign.stats?.total ?? 0).toLocaleString()}</td>
+                      <td className="text-center">{(campaign.stats?.pending ?? 0).toLocaleString()}</td>
+                      <td className="text-center">{(campaign.stats?.sent ?? 0).toLocaleString()}</td>
+                      <td className="text-center font-semibold text-success">{(campaign.stats?.accepted ?? 0).toLocaleString()}</td>
+                      <td className="text-center text-error">{(campaign.stats?.rejected ?? 0).toLocaleString()}</td>
+                      <td className="text-center text-base-content/60">{(campaign.stats?.failed ?? 0).toLocaleString()}</td>
                       <td className="text-center">
                         <span className={`badge ${
-                          campaign.stats.acceptanceRate >= 30 ? 'badge-success' :
-                          campaign.stats.acceptanceRate >= 15 ? 'badge-warning' :
+                          (campaign.stats?.acceptanceRate ?? 0) >= 30 ? 'badge-success' :
+                          (campaign.stats?.acceptanceRate ?? 0) >= 15 ? 'badge-warning' :
                           'badge-ghost'
                         }`}>
-                          {campaign.stats.acceptanceRate}%
+                          {(campaign.stats?.acceptanceRate ?? 0)}%
                         </span>
                       </td>
                     </tr>

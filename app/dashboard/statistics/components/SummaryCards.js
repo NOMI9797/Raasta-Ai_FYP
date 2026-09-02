@@ -99,7 +99,7 @@ export default function SummaryCards({ stats, loading }) {
                 </h3>
                 <div className="flex items-baseline gap-2">
                   <p className="text-3xl font-bold text-base-content">
-                    {card.value.toLocaleString()}
+                    {(card.value ?? 0).toLocaleString()}
                   </p>
                   {card.percentage !== undefined && (
                     <span className={`badge ${

@@ -3,13 +3,42 @@ module.exports = {
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
-    "./styles/globals.css",
+    "./app/globals.css",
   ],
   theme: {
     extend: {
+      colors: {
+        'canvas-dark': '#080B13',
+        'canvas-light': '#F8FAFC',
+        'surface-dark': '#0F1629',
+        'surface-dark-hover': '#161F38',
+        'surface-light': '#FFFFFF',
+        'brand-primary': '#6366F1',
+        'brand-primary-hover': '#4F46E5',
+        'brand-violet': '#7C3AED',
+        'brand-accent': '#22C55E',
+        'text-heading-dark': '#FFFFFF',
+        'text-body-dark': '#94A3B8',
+        'text-heading-light': '#0F172A',
+        'text-body-light': '#64748B',
+      },
+      fontFamily: {
+        sans: ["var(--font-sans)", 'Plus Jakarta Sans', 'sans-serif'],
+        heading: ["var(--font-heading)", 'Space Grotesk', 'sans-serif'],
+        mono: ["var(--font-mono)", 'JetBrains Mono', 'monospace'],
+      },
       backgroundImage: {
         gradient:
           "linear-gradient(60deg, #6366F1, #4F46E5, #4338CA, #a166ab, #5073b8, #1098ad, #07b39b, #6fba82)",
+      },
+      borderRadius: {
+        '2xl': '16px',
+        '3xl': '24px',
+        '4xl': '32px',
+      },
+      boxShadow: {
+        'brand-glow': '0 0 40px -10px rgba(99, 102, 241, 0.45)',
+        'card-soft': '0 20px 40px -15px rgba(0, 0, 0, 0.05), 0 1px 2px 0 rgba(0, 0, 0, 0.05)'
       },
       animation: {
         opacity: "opacity 0.25s ease-in-out",

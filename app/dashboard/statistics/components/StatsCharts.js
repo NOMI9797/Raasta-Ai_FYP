@@ -29,12 +29,12 @@ export default function StatsCharts({ stats, byCampaign, loading }) {
   }
   
   // Calculate conversion rates for funnel
-  const totalLeads = stats.total || 1;
-  const invitesSent = stats.totalInvitesSent || 0;
-  const accepted = stats.accepted || 0;
-  const rejected = stats.rejected || 0;
-  const failed = stats.failed || 0;
-  const pending = stats.sent || 0;
+  const totalLeads = (stats?.total ?? 1);
+  const invitesSent = (stats?.totalInvitesSent ?? 0);
+  const accepted = (stats?.accepted ?? 0);
+  const rejected = (stats?.rejected ?? 0);
+  const failed = (stats?.failed ?? 0);
+  const pending = (stats?.sent ?? 0);
   
   const funnelSteps = [
     {
@@ -87,33 +87,37 @@ export default function StatsCharts({ stats, byCampaign, loading }) {
   const maxValue = Math.max(...funnelSteps.map(s => s.value), 1);
   
   // Additional metric cards
+  const acceptanceRate = (stats?.acceptanceRate ?? 0);
+  const inviteRatePercent = totalLeads > 0 ? Math.round((invitesSent / totalLeads) * 100) : 0;
+  const successRatePercent = totalLeads > 0 ? Math.round((accepted / totalLeads) * 100) : 0;
+
   const additionalMetrics = [
     {
       title: "Conversion Rate",
-      value: `${stats.acceptanceRate}%`,
+      value: `${acceptanceRate}%`,
       description: "Invites to Accepted",
       icon: Target,
       color: "text-success",
       bgColor: "bg-success/10",
-      trend: stats.acceptanceRate >= 30 ? "up" : stats.acceptanceRate >= 15 ? "stable" : "down"
+      trend: acceptanceRate >= 30 ? "up" : acceptanceRate >= 15 ? "stable" : "down"
     },
     {
       title: "Invite Rate",
-      value: `${totalLeads > 0 ? Math.round((invitesSent / totalLeads) * 100) : 0}%`,
+      value: `${inviteRatePercent}%`,
       description: "Leads to Invites",
       icon: Send,
       color: "text-info",
       bgColor: "bg-info/10",
-      trend: (invitesSent / totalLeads) >= 0.5 ? "up" : "stable"
+      trend: (invitesSent / Math.max(totalLeads,1)) >= 0.5 ? "up" : "stable"
     },
     {
       title: "Success Rate",
-      value: `${totalLeads > 0 ? Math.round((accepted / totalLeads) * 100) : 0}%`,
+      value: `${successRatePercent}%`,
       description: "Leads to Accepted",
       icon: CheckCircle,
       color: "text-primary",
       bgColor: "bg-primary/10",
-      trend: (accepted / totalLeads) >= 0.3 ? "up" : "stable"
+      trend: (accepted / Math.max(totalLeads,1)) >= 0.3 ? "up" : "stable"
     }
   ];
   
@@ -152,10 +156,10 @@ export default function StatsCharts({ stats, byCampaign, loading }) {
                           )}
                         </div>
                       </div>
-                      <div className="text-right">
-                        <p className="text-lg font-bold text-base-content">{step.value.toLocaleString()}</p>
-                        <p className="text-xs text-base-content/60">{step.percentage}%</p>
-                      </div>
+                            <div className="text-right">
+                              <p className="text-lg font-bold text-base-content">{(step.value ?? 0).toLocaleString()}</p>
+                              <p className="text-xs text-base-content/60">{step.percentage}%</p>
+                            </div>
                     </div>
                     
                     {/* Funnel bar */}
@@ -168,7 +172,7 @@ export default function StatsCharts({ stats, byCampaign, loading }) {
                         }}
                       >
                         <span className="text-xs font-semibold text-white">
-                          {step.value.toLocaleString()}
+                          {(step.value ?? 0).toLocaleString()}
                         </span>
                         {!isLast && (
                           <div className="flex items-center gap-1 text-white/80">

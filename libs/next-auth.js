@@ -1,3 +1,6 @@
+import dotenv from 'dotenv';
+// Load local .env for non-Next runtime contexts
+dotenv.config({ path: '.env.local' });
 import GoogleProvider from "next-auth/providers/google";
 import EmailProvider from "next-auth/providers/email";
 import CredentialsProvider from "next-auth/providers/credentials";
