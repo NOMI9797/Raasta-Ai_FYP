@@ -47,6 +47,19 @@ export default function StatsDashboard({ data, loading }) {
       </div>
     );
   }
+
+  const stats = {
+    total: 0,
+    pending: 0,
+    sent: 0,
+    accepted: 0,
+    rejected: 0,
+    failed: 0,
+    acceptanceRate: 0,
+    totalInvitesSent: 0,
+    ...(data.global || {}),
+  };
+  const byCampaign = Array.isArray(data.byCampaign) ? data.byCampaign : [];
   
   return (
     <div className="space-y-6">
@@ -56,7 +69,7 @@ export default function StatsDashboard({ data, loading }) {
           <h2 className="card-title text-xl mb-4">
             Overview Metrics
           </h2>
-          <SummaryCards stats={data.global} loading={false} />
+          <SummaryCards stats={stats} loading={false} />
         </div>
       </div>
       
@@ -67,8 +80,8 @@ export default function StatsDashboard({ data, loading }) {
             Visual Analytics
           </h2>
           <StatsCharts 
-            stats={data.global} 
-            byCampaign={data.byCampaign} 
+            stats={stats}
+            byCampaign={byCampaign}
             loading={false} 
           />
         </div>
@@ -81,7 +94,7 @@ export default function StatsDashboard({ data, loading }) {
             Campaign Details
           </h2>
           <DetailedBreakdown 
-            byCampaign={data.byCampaign} 
+            byCampaign={byCampaign}
             loading={false} 
           />
         </div>

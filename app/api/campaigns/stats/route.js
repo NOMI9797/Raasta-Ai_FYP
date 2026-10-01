@@ -35,6 +35,17 @@ export const GET = withAuth(async (request, { user }) => {
     }
 
     const userCampaigns = await db.query.campaigns.findMany(campaignQueryOptions);
+
+    const selectedCampaign = campaignId
+      ? userCampaigns.find((campaign) => campaign.id === campaignId)
+      : null;
+
+    if (campaignId && !selectedCampaign) {
+      return NextResponse.json(
+        { success: false, error: "Campaign not found" },
+        { status: 404 }
+      );
+    }
     
     if (userCampaigns.length === 0) {
       return NextResponse.json({
@@ -47,10 +58,12 @@ export const GET = withAuth(async (request, { user }) => {
             accepted: 0,
             rejected: 0,
             failed: 0,
-            acceptanceRate: 0
+            acceptanceRate: 0,
+            totalInvitesSent: 0
           },
           byCampaign: [],
-          timeline: []
+          timeline: [],
+          campaigns: []
         }
       });
     }
@@ -81,7 +94,8 @@ export const GET = withAuth(async (request, { user }) => {
     const globalStats = calculateStats(allLeads);
     
     // Calculate per-campaign statistics
-    const byCampaign = userCampaigns.map(campaign => {
+    const campaignsToSummarize = selectedCampaign ? [selectedCampaign] : userCampaigns;
+    const byCampaign = campaignsToSummarize.map(campaign => {
       const campaignLeads = allLeads.filter(lead => lead.campaignId === campaign.id);
       const stats = calculateStats(campaignLeads);
       

@@ -13,6 +13,7 @@ export default function DetailedBreakdown({ byCampaign, loading }) {
   const [expandedCampaigns, setExpandedCampaigns] = useState(new Set());
   const [campaignLeads, setCampaignLeads] = useState({});
   const [loadingLeads, setLoadingLeads] = useState({});
+  const [leadErrors, setLeadErrors] = useState({});
   
   const toggleCampaign = async (campaignId) => {
     const newExpanded = new Set(expandedCampaigns);
@@ -25,10 +26,15 @@ export default function DetailedBreakdown({ byCampaign, loading }) {
       // Fetch leads for this campaign if not already loaded
       if (!campaignLeads[campaignId]) {
         setLoadingLeads(prev => ({ ...prev, [campaignId]: true }));
+        setLeadErrors(prev => ({ ...prev, [campaignId]: "" }));
         
         try {
           const response = await fetch(`/api/campaigns/${campaignId}/leads`);
           const data = await response.json();
+
+          if (!response.ok) {
+            throw new Error(data.error || "Failed to fetch campaign leads");
+          }
           
           setCampaignLeads(prev => ({
             ...prev,
@@ -36,6 +42,10 @@ export default function DetailedBreakdown({ byCampaign, loading }) {
           }));
         } catch (error) {
           console.error('Failed to fetch leads:', error);
+          setLeadErrors(prev => ({
+            ...prev,
+            [campaignId]: error.message || "Failed to fetch campaign leads"
+          }));
         } finally {
           setLoadingLeads(prev => ({ ...prev, [campaignId]: false }));
         }
@@ -77,7 +87,7 @@ export default function DetailedBreakdown({ byCampaign, loading }) {
     // Try to extract name from URL (LinkedIn username)
     if (lead.url) {
       try {
-        const match = lead.url.match(/linkedin\.com\/in\/([^\/\?]+)/i);
+        const match = lead.url.match(/linkedin\.com\/in\/([^/?]+)/i);
         if (match && match[1]) {
           // Format username: "john-doe-123" -> "John Doe"
           const username = match[1];
@@ -158,6 +168,7 @@ export default function DetailedBreakdown({ byCampaign, loading }) {
                 const isExpanded = expandedCampaigns.has(campaign.campaignId);
                 const leads = campaignLeads[campaign.campaignId] || [];
                 const isLoadingLeads = loadingLeads[campaign.campaignId];
+                const leadError = leadErrors[campaign.campaignId];
                 
                 return (
                   <React.Fragment key={campaign.campaignId}>
@@ -199,6 +210,10 @@ export default function DetailedBreakdown({ byCampaign, loading }) {
                             {isLoadingLeads ? (
                               <div className="flex items-center justify-center py-8">
                                 <span className="loading loading-spinner loading-md"></span>
+                              </div>
+                            ) : leadError ? (
+                              <div className="alert alert-error text-sm">
+                                <span>{leadError}</span>
                               </div>
                             ) : leads.length === 0 ? (
                               <div className="text-center py-4 text-base-content/60">
