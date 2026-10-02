@@ -19,6 +19,7 @@ Add these to `.env.local` (dev) and the deployment environment. Also create `.en
 | `INTERVIEW_ENGINE_PORT` | engine | `8090` | |
 | `INTERVIEW_MAX_SESSIONS` | engine | `20` | |
 | `INTERVIEW_SILENCE_MS` | engine | `8000` | silence to finalise an answer |
+| `LOG_LEVEL` | engine | `info` | `debug` adds per-answer loop logs (never transcripts at info level) |
 | `INTERVIEWER_NAME` | engine | `Raasta AI Interviewer` | |
 | `TTS_VOICE` | engine | `am_michael` | |
 | `DEEPGRAM_API_KEY` | engine | – | if empty, the Whisper fallback is used |

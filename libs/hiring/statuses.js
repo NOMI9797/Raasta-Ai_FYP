@@ -44,3 +44,11 @@ export const MANUAL_TRANSITIONS = {
 };
 export const ALL_STATUSES = Object.keys(STATUS_META);
 export function canTransition(from, to) { return (MANUAL_TRANSITIONS[from] || []).includes(to); }
+
+// Interview (one invite / AI interview) statuses — interviews.status (docs/ai-hiring/05-data-model.md §4)
+export const INTERVIEW_STATUS = {
+  INVITED: 'invited', OPENED: 'opened', IN_PROGRESS: 'in_progress', COMPLETED: 'completed',
+  ABANDONED: 'abandoned', EXPIRED: 'expired', FAILED: 'failed', CANCELLED: 'cancelled',
+};
+// At most one of these per candidate at a time
+export const ACTIVE_INTERVIEW_STATUSES = [INTERVIEW_STATUS.INVITED, INTERVIEW_STATUS.OPENED, INTERVIEW_STATUS.IN_PROGRESS];

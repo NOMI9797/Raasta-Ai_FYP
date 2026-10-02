@@ -23,9 +23,9 @@ Never use real candidates' resumes or recordings in the repo.
 | `fit-postprocess.test.js` | clamping, synonym matching, hallucinated-skill removal, parseError handling (LLM mocked) |
 | `shortlist.test.js` | threshold + top-N behaviour, ties by `appliedAt`, already-shortlisted count (DB mocked or test schema) |
 | `tokens.test.js` | hash stability, ticket sign/verify/expiry/typ check |
-| `answer-analyzer.test.js` | each of the 7 conditions with fixed texts (LLM mocked) |
-| `answer-scorer.test.js` | fallback scoring formula; JSON parsing |
+| `interview-modules.test.js` | answer analyzer (each of the 7 conditions with fixed texts, LLM mocked), scorer (fallback formula, JSON parsing), follow-up fallback table and prompt, mappers, TTS client, Whisper/Deepgram STT adapters with fakes, weighted interview score |
 | `session-engine.test.js` | **critical** (see below) |
+| `session-manager.test.js` | engine attach / duplicate / close codes, audio frame limits, `answer_done` flushes STT, disconnect → resume window → abandon, restart resume, shutdown |
 | `final-evaluator.test.js` | communication score formula, missing components → renormalised, final score, `needs_review` guard, autoFinalize on/off |
 
 ### `session-engine.test.js` scenarios (fake timers, fake deps)
@@ -43,6 +43,7 @@ Fake deps: `llm` returns scripted JSON, `tts` returns a tiny buffer, `repo` reco
 11. Never sends `score` or `idealAnswer` to the candidate channel (inspect all `send` payloads).
 
 ## 3. Integration tests (manual or scripted)
+- `scripts/interview-test-client.js --interview <id>` (dev mode, Phase 5): signs a ticket locally with `INTERVIEW_TICKET_SECRET` for an interview row with status `opened`. Options: `--answers`, `--no-answer-done`, `--disconnect-after <n>`, `--talk-during-processing`, `--speed`, `--quiet`. It exits non-zero if a question arrives while the candidate is still answering.
 - `scripts/interview-test-client.js <interviewToken>`: calls `/session`, connects to the WS, sends `ready`, streams the fixture WAVs as PCM frames in real time, responds `ai_done_speaking` after each `ai_speaking`, and prints all messages. Use it for the Phase 5 acceptance and the Phase 9 load test (run 3 in parallel).
 - Worker: enqueue each job type against a dev DB and assert the state changes.
 - ai-engine: `pytest` hitting each router with fixture media.
