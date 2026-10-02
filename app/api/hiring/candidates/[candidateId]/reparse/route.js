@@ -1,11 +1,82 @@
 import { NextResponse } from "next/server";
 import { db } from "@/libs/db";
-import { candidates } from "@/libs/schema";
-import { eq } from "drizzle-orm";
+import { candidates, jobs } from "@/libs/schema";
+import { eq, and } from "drizzle-orm";
 import { withAuth } from "@/libs/auth-middleware";
-import { parseResumeWithLLM } from "@/libs/hiring/resume-parser";
-import { getOwnedCandidate } from "@/libs/hiring/access";
-import { logCandidateActivity, ACTIVITY_TYPES } from "@/libs/hiring/activity";
+import OpenAI from "openai";
+
+const groq = new OpenAI({
+  apiKey: process.env.GROQ_API_KEY || "",
+  baseURL: "https://api.groq.com/openai/v1",
+});
+
+async function parseResumeWithLLM(text) {
+  const systemPrompt = `You are an expert resume parser. Extract ALL available structured data from the resume.
+Return a valid JSON object with exactly these fields (use null or [] if not found):
+{
+  "name": "full name",
+  "location": "city, country",
+  "email": "email or null",
+  "phone": "phone or null",
+  "github": "github url or null",
+  "linkedin": "linkedin url or null",
+  "summary": "professional summary paragraph from the resume",
+  "skills": ["every skill mentioned: languages, frameworks, tools, databases, cloud, etc"],
+  "skillsByCategory": {
+    "languages": [],
+    "frontend": [],
+    "backend": [],
+    "databases": [],
+    "tools": [],
+    "other": []
+  },
+  "yearsExperience": <number estimate or null>,
+  "jobTitles": ["all job titles or roles mentioned"],
+  "experience": [
+    {
+      "title": "job title",
+      "company": "company or freelance",
+      "period": "date range",
+      "bullets": ["key responsibility or achievement"]
+    }
+  ],
+  "projects": [
+    {
+      "name": "project name",
+      "description": "what it does",
+      "technologies": ["tech used"]
+    }
+  ],
+  "education": [
+    {
+      "degree": "degree name",
+      "institution": "university/school",
+      "period": "graduation year or expected"
+    }
+  ],
+  "availability": "availability info or null",
+  "strengths": ["listed strengths"]
+}
+Return ONLY the JSON object. No markdown fences, no explanation, no extra text.`;
+
+  const completion = await groq.chat.completions.create({
+    model: "llama-3.3-70b-versatile",
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: `Parse this resume completely:\n\n${text.slice(0, 8000)}` },
+    ],
+    temperature: 0.1,
+    max_tokens: 2000,
+  });
+
+  const raw = completion.choices[0]?.message?.content?.trim() || "{}";
+  try {
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    return jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+  } catch {
+    return { rawParsed: raw };
+  }
+}
 
 // POST /api/hiring/candidates/[candidateId]/reparse
 // Uses stored resume text from DB — no file upload needed
@@ -13,9 +84,29 @@ export const POST = withAuth(async (request, { params, user }) => {
   try {
     const { candidateId } = params;
 
-    const { candidate, error, status } = await getOwnedCandidate(candidateId, user);
-    if (error) {
-      return NextResponse.json({ error }, { status });
+    const [candidate] = await db
+      .select()
+      .from(candidates)
+      .where(eq(candidates.id, candidateId))
+      .limit(1);
+
+    if (!candidate) {
+      return NextResponse.json({ error: "Candidate not found" }, { status: 404 });
+    }
+
+    const isAdmin = user.role === "admin";
+    const [job] = await db
+      .select()
+      .from(jobs)
+      .where(
+        isAdmin
+          ? eq(jobs.id, candidate.jobId)
+          : and(eq(jobs.id, candidate.jobId), eq(jobs.userId, user.id))
+      )
+      .limit(1);
+
+    if (!job) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     // Build context from stored data
@@ -52,15 +143,6 @@ export const POST = withAuth(async (request, { params, user }) => {
       .set({ parsedData, updatedAt: new Date() })
       .where(eq(candidates.id, candidateId))
       .returning();
-
-    await logCandidateActivity({
-      candidateId,
-      jobId: candidate.jobId,
-      type: ACTIVITY_TYPES.RESUME_PARSED,
-      actorId: user.id,
-      message: "Resume re-parsed by AI",
-      metadata: { skillsFound: parsedData.skills?.length || 0 },
-    });
 
     return NextResponse.json({ success: true, candidate: updated });
   } catch (error) {

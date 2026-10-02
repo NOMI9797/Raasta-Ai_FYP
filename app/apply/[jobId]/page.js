@@ -180,12 +180,12 @@ export default function ApplyPage({ params }) {
             <input
               type="file"
               className="file-input file-input-bordered file-input-sm w-full"
-              accept=".pdf,.docx,.txt"
+              accept=".txt,.docx,.doc,.pdf"
               onChange={(e) => setResumeFile(e.target.files?.[0] || null)}
             />
             <label className="label">
               <span className="label-text-alt text-base-content/50">
-                PDF, DOCX or TXT — max 5 MB
+                .docx or .txt recommended for best AI parsing results
               </span>
             </label>
           </div>
