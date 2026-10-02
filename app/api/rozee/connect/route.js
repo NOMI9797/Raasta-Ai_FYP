@@ -151,7 +151,7 @@ async function connectRozeeViaBrowser(sessionId, email, password) {
   } catch (error) {
     try {
       screenshots.push(await captureScreenshot(page, `Error state — ${error.message}`));
-    } catch {}
+    } catch { /* ignore cleanup errors */ }
     await context.close();
     await browser.close();
     error.screenshots = screenshots;

@@ -70,7 +70,7 @@ export default function AgentRunCard({ run: initialRun, onRefresh }) {
           setRun((prev) => ({ ...prev, status: data.finalStatus }));
           eventSource.close();
         }
-      } catch {}
+      } catch { /* ignore */ }
     };
 
     eventSource.onerror = () => {
