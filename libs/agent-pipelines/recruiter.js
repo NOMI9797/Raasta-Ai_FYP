@@ -2,6 +2,7 @@ import { jobs, candidates } from "@/libs/schema";
 import { eq, and, desc } from "drizzle-orm";
 import OpenAI from "openai";
 import { getAdapter } from "@/libs/platforms";
+import { logCandidateActivity, logStatusChange, ACTIVITY_TYPES } from "@/libs/hiring/activity";
 
 const groq = new OpenAI({
   apiKey: process.env.GROQ_API_KEY || "",
@@ -254,7 +255,7 @@ ${salaryPart}
         for (const candidate of scrapeResult.candidates || []) {
           if (!candidate?.profileUrl) continue;
           try {
-            await ctx.db.insert(candidates).values({
+            const [created] = await ctx.db.insert(candidates).values({
               userId: ctx.userId,
               jobId,
               name: candidate.name || "Rozee Candidate",
@@ -269,8 +270,16 @@ ${salaryPart}
                 location: candidate.location || null,
                 experience: candidate.experience || [],
               },
-            });
+            }).returning({ id: candidates.id });
             inserted += 1;
+            await logCandidateActivity({
+              candidateId: created.id,
+              jobId,
+              type: ACTIVITY_TYPES.APPLIED,
+              toStatus: "new",
+              message: "Imported from Rozee.pk applicants by the recruiter agent",
+              metadata: { source: "rozee", profileUrl: candidate.profileUrl },
+            }, ctx.db);
           } catch {
             // Likely a duplicate or constraint error — skip silently
           }
@@ -346,6 +355,12 @@ ${salaryPart}
             .update(candidates)
             .set({ status: recommended, updatedAt: new Date() })
             .where(eq(candidates.id, c.id));
+
+          await logStatusChange({
+            candidate: c,
+            toStatus: recommended,
+            reason: `Recruiter agent screening: ${matchCount} of ${requiredSkills.length} required skills matched`,
+          }, ctx.db);
 
           ranked.push({
             id: c.id,

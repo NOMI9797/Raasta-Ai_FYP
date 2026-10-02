@@ -3,6 +3,7 @@ import { db } from "@/libs/db";
 import { candidates, jobs } from "@/libs/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { validateResumeFile, processResumeFile } from "@/libs/hiring/resume-parser";
+import { logCandidateActivity, ACTIVITY_TYPES } from "@/libs/hiring/activity";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -87,6 +88,27 @@ export async function POST(request, { params }) {
         status: "new",
       })
       .returning();
+
+    await logCandidateActivity({
+      candidateId: candidate.id,
+      jobId: job.id,
+      type: ACTIVITY_TYPES.APPLIED,
+      toStatus: "new",
+      message: "Applied via the job application form",
+      metadata: { source: candidate.source, hasResume: !!resumeUrl },
+    });
+
+    if (parsedData) {
+      await logCandidateActivity({
+        candidateId: candidate.id,
+        jobId: job.id,
+        type: ACTIVITY_TYPES.RESUME_PARSED,
+        message: parsedData.parseError
+          ? `Resume could not be parsed: ${parsedData.parseError}`
+          : "Resume parsed by AI",
+        metadata: { skillsFound: parsedData.skills?.length || 0, parseError: parsedData.parseError || null },
+      });
+    }
 
     return NextResponse.json({
       success: true,

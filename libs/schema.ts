@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, integer, boolean, json, uuid, varchar } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, integer, boolean, json, uuid, varchar, index } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 // Users table - for authentication and user isolation
@@ -129,7 +129,7 @@ export const workflowJobs = pgTable('workflow_jobs', {
   campaignId: uuid('campaign_id').references(() => campaigns.id, { onDelete: 'cascade' }).notNull(),
   userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   accountId: uuid('account_id').references(() => linkedinAccounts.id, { onDelete: 'cascade' }).notNull(),
-  status: varchar('status', { length: 20 }).default('queued').notNull(), // queued, processing, completed, failed
+  status: varchar('status', { length: 20 }).default('queued').notNull(), // queued, processing, paused, cancelled, completed, failed, timeout
   progress: integer('progress').default(0), // 0-100
   totalLeads: integer('total_leads'),
   processedLeads: integer('processed_leads').default(0),
@@ -139,6 +139,9 @@ export const workflowJobs = pgTable('workflow_jobs', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
   startedAt: timestamp('started_at'),
   completedAt: timestamp('completed_at'),
+  pausedAt: timestamp('paused_at'), // When job was paused
+  resumedAt: timestamp('resumed_at'), // When job was last resumed
+  pauseCount: integer('pause_count').default(0), // Number of times paused
 });
 
 // Jobs table - Recruiter module (hiring workflow)
@@ -183,10 +186,33 @@ export const candidates = pgTable('candidates', {
   parsedData: json('parsed_data'), // { skills[], yearsExperience, education[], jobTitles[] }
   source: varchar('source', { length: 20 }).notNull().default('linkedin'), // linkedin | rozee | indeed | direct
   sourceData: json('source_data'), // Source-specific fields (Rozee profile URL, scraped extras)
-  status: varchar('status', { length: 20 }).notNull().default('new'), // new | reviewed | shortlisted | rejected
+  status: varchar('status', { length: 20 }).notNull().default('new'), // see CANDIDATE_STATUSES in libs/hiring/stages.js
+  // AI evaluation against the job (AI hiring pipeline)
+  matchScore: integer('match_score'), // 0-100 fit score, null until evaluated
+  aiEvaluation: json('ai_evaluation'), // { recommendation, summary, matchedSkills[], missingSkills[], strengths[], concerns[], ... }
+  evaluatedAt: timestamp('evaluated_at'),
   appliedAt: timestamp('applied_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+}, (table) => [
+  index('candidates_job_id_idx').on(table.jobId),
+]);
+
+// Candidate Activities — timeline of everything that happens to a candidate
+// type: applied | resume_parsed | status_changed | ai_evaluated | note | email_sent
+export const candidateActivities = pgTable('candidate_activities', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  candidateId: uuid('candidate_id').references(() => candidates.id, { onDelete: 'cascade' }).notNull(),
+  jobId: uuid('job_id').references(() => jobs.id, { onDelete: 'cascade' }).notNull(),
+  actorId: text('actor_id').references(() => users.id, { onDelete: 'set null' }), // null = candidate, agent or system
+  type: varchar('type', { length: 30 }).notNull(),
+  fromStatus: varchar('from_status', { length: 20 }),
+  toStatus: varchar('to_status', { length: 20 }),
+  message: text('message'),
+  metadata: json('metadata'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  index('candidate_activities_candidate_id_idx').on(table.candidateId, table.createdAt),
+]);
 
 // Rozee.pk Accounts table — mirror of linkedinAccounts for Rozee.pk session storage
 export const rozeeAccounts = pgTable('rozee_accounts', {
@@ -216,10 +242,10 @@ export const rozeeAccounts = pgTable('rozee_accounts', {
 export const agentConfigs = pgTable('agent_configs', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
-  pipelineType: varchar('pipeline_type', { length: 30 }).notNull(),
+  pipelineType: varchar('pipeline_type', { length: 30 }).notNull(), // recruiter | sales_operator
   name: text('name').notNull(),
-  mode: varchar('mode', { length: 20 }).notNull().default('semi_auto'),
-  config: json('config').notNull(),
+  mode: varchar('mode', { length: 20 }).notNull().default('semi_auto'), // full_auto | semi_auto
+  config: json('config').notNull(), // pipeline-specific preferences
   isActive: boolean('is_active').default(true).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -232,10 +258,10 @@ export const agentRuns = pgTable('agent_runs', {
   userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   pipelineType: varchar('pipeline_type', { length: 30 }).notNull(),
   mode: varchar('mode', { length: 20 }).notNull(),
-  status: varchar('status', { length: 30 }).notNull().default('queued'),
+  status: varchar('status', { length: 30 }).notNull().default('queued'), // queued | running | paused_at_checkpoint | completed | failed | cancelled
   currentStep: varchar('current_step', { length: 50 }),
   totalSteps: integer('total_steps'),
-  results: json('results'),
+  results: json('results'), // accumulated output per step
   errorMessage: text('error_message'),
   startedAt: timestamp('started_at'),
   completedAt: timestamp('completed_at'),
@@ -248,7 +274,7 @@ export const agentSteps = pgTable('agent_steps', {
   agentRunId: uuid('agent_run_id').references(() => agentRuns.id, { onDelete: 'cascade' }).notNull(),
   stepKey: varchar('step_key', { length: 50 }).notNull(),
   stepIndex: integer('step_index').notNull(),
-  status: varchar('status', { length: 30 }).notNull().default('pending'),
+  status: varchar('status', { length: 30 }).notNull().default('pending'), // pending | running | awaiting_approval | approved | skipped | completed | failed
   input: json('input'),
   output: json('output'),
   startedAt: timestamp('started_at'),

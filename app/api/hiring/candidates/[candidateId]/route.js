@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { db } from "@/libs/db";
-import { candidates, jobs } from "@/libs/schema";
-import { eq, and } from "drizzle-orm";
+import { candidates } from "@/libs/schema";
+import { eq } from "drizzle-orm";
 import { withAuth } from "@/libs/auth-middleware";
+import { getOwnedCandidate } from "@/libs/hiring/access";
+import { isValidCandidateStatus } from "@/libs/hiring/stages";
+import { logStatusChange } from "@/libs/hiring/activity";
 
 // PATCH /api/hiring/candidates/[candidateId] — update candidate status
 export const PATCH = withAuth(async (request, { params, user }) => {
@@ -11,34 +14,13 @@ export const PATCH = withAuth(async (request, { params, user }) => {
     const body = await request.json();
     const { status } = body;
 
-    const ALLOWED = ["new", "reviewed", "shortlisted", "rejected"];
-    if (status && !ALLOWED.includes(status)) {
+    if (status && !isValidCandidateStatus(status)) {
       return NextResponse.json({ error: "Invalid status" }, { status: 400 });
     }
 
-    const [candidate] = await db
-      .select()
-      .from(candidates)
-      .where(eq(candidates.id, candidateId))
-      .limit(1);
-
-    if (!candidate) {
-      return NextResponse.json({ error: "Candidate not found" }, { status: 404 });
-    }
-
-    const isAdmin = user.role === "admin";
-    const [job] = await db
-      .select()
-      .from(jobs)
-      .where(
-        isAdmin
-          ? eq(jobs.id, candidate.jobId)
-          : and(eq(jobs.id, candidate.jobId), eq(jobs.userId, user.id))
-      )
-      .limit(1);
-
-    if (!job) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const { candidate, error, status: errorStatus } = await getOwnedCandidate(candidateId, user);
+    if (error) {
+      return NextResponse.json({ error }, { status: errorStatus });
     }
 
     const updateData = {};
@@ -50,6 +32,10 @@ export const PATCH = withAuth(async (request, { params, user }) => {
       .set(updateData)
       .where(eq(candidates.id, candidateId))
       .returning();
+
+    if (status && status !== candidate.status) {
+      await logStatusChange({ candidate, toStatus: status, actorId: user.id });
+    }
 
     return NextResponse.json({ success: true, candidate: updated });
   } catch (error) {
@@ -63,29 +49,9 @@ export const DELETE = withAuth(async (request, { params, user }) => {
   try {
     const { candidateId } = params;
 
-    const [candidate] = await db
-      .select()
-      .from(candidates)
-      .where(eq(candidates.id, candidateId))
-      .limit(1);
-
-    if (!candidate) {
-      return NextResponse.json({ error: "Candidate not found" }, { status: 404 });
-    }
-
-    const isAdmin = user.role === "admin";
-    const [job] = await db
-      .select()
-      .from(jobs)
-      .where(
-        isAdmin
-          ? eq(jobs.id, candidate.jobId)
-          : and(eq(jobs.id, candidate.jobId), eq(jobs.userId, user.id))
-      )
-      .limit(1);
-
-    if (!job) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const { error, status: errorStatus } = await getOwnedCandidate(candidateId, user);
+    if (error) {
+      return NextResponse.json({ error }, { status: errorStatus });
     }
 
     await db.delete(candidates).where(eq(candidates.id, candidateId));
