@@ -12,7 +12,7 @@ transformers>=4.40
 accelerate
 safetensors
 kokoro>=0.9.2
-opencv-python-headless>=4.9
+opencv-python-headless>=4.9,<5   # 5.x no longer bundles the Haar cascades used by /analyze/face
 mediapipe>=0.10
 # optional (FACE_ANALYSIS_ENABLED=true):
 # tensorflow>=2.15

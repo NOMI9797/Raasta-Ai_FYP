@@ -130,10 +130,10 @@ Read CLAUDE.md and docs/ai-hiring/07-question-bank.md. Implement Phase 3 from do
 **Docs:** 14, 04 (server rows)
 
 **Tasks**
-- [ ] Port TTS, voice, emotion and gaze from `../interview-engine-src/server/` into routers; storage-key inputs; auth.
-- [ ] `/media/concat` with ffmpeg.
-- [ ] Optional face router behind `FACE_ANALYSIS_ENABLED`.
-- [ ] Dockerfile; README with run steps.
+- [x] Port TTS, voice, emotion and gaze from `../interview-engine-src/server/` into routers; storage-key inputs; auth.
+- [x] `/media/concat` with ffmpeg.
+- [x] Optional face router behind `FACE_ANALYSIS_ENABLED`.
+- [x] Dockerfile; README with run steps.
 
 **Acceptance:** 14 acceptance list.
 
@@ -252,7 +252,7 @@ Read CLAUDE.md, docs/ai-hiring/15-env-deployment.md and 17-testing.md. Implement
 | 1 | ☑ | 2026-10-02 | `feat(hiring): phase 1 – data layer and resume storage` | Verified on local Postgres 16 + Redis: migration applies twice cleanly and matches `schema.ts` (`db:push` reports no changes); PDF stored and downloaded byte-identical; duplicate → 409. LLM parse tested with a stub (no Groq key in the dev container). Added `STORAGE_SIGNING_SECRET`. |
 | 2 | ☑ | 2026-10-02 | `feat(hiring): phase 2 – AI resume screening and shortlist` | End-to-end on local Postgres + Redis + worker with a stub LLM (`LLM_BASE_URL`): 10 fixtures → 9 screened, 1 debounced shortlist run, exactly top 3 shortlisted with min 70 / max 3. The real-score acceptance (strong ≥ 75, unrelated < 40) still needs a run with a Groq key. Hooks to queue `ensure-questions` / `send-invite` after shortlisting are wired in Phases 3 and 6. |
 | 3 | ☑ | 2026-10-02 | `feat(hiring): phase 3 – interview question bank` | Verified on local Postgres + Redis + worker with a stub LLM: shortlist → ensure-questions builds an 8-question bank (warm-up, technical, role, behavioral; invalid question dropped); personalise-questions only for candidates with screening gaps; append/replace/reorder/edit/soft and hard delete; editing a question leaves an existing interview snapshot unchanged. Real-model check (8 valid questions, ≥ 3 keywords each) still needs a Groq key. |
-| 4 | ☐ | | | |
+| 4 | ☑ | 2026-10-02 | `feat(hiring): phase 4 – AI engine` | 34 pytest tests pass. Real: storage, /media/concat (MediaRecorder chunks and separate files), voice metrics on the fixture, gaze with the real MediaPipe model on a real face, face router with a stand-in classifier. TTS and speech emotion tested with stand-in models only: huggingface.co and download.pytorch.org were blocked in the dev container, so the `/tts` → playable WAV acceptance must be run on a machine that can reach HuggingFace. |
 | 5 | ☐ | | | |
 | 6 | ☐ | | | |
 | 7 | ☐ | | | |

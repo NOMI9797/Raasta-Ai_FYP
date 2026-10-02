@@ -41,6 +41,13 @@ Behaviour notes (ported):
 - **Gaze:** MediaPipe face landmarker with iris ratios. Directions: center/left/right/up/down/no_face. `eyeContactScore` = center share × 100.
 - **TTS:** Kokoro-82M `KPipeline(lang_code='a')`, voices `af_heart, af_bella, af_nicole, af_sarah, af_sky, am_adam, am_michael`; default `am_michael`.
 
+Implementation notes (Phase 4):
+- Pause detection: the silence threshold is the higher of the original 10th-percentile RMS and 10% of the loud-speech RMS (90th percentile). The percentile alone only ever marks the quietest 10% of frames as silent, so long pauses were missed in recordings with more silence than that.
+- Filler words are matched as whole words (the original substring count treated "also" as "so").
+- Gaze directions use the original iris thresholds; combined or "looking away" labels map to the dominant axis so the timeline uses center/left/right/up/down/no_face. `lookAwayCount` still counts the original "looking away" segments.
+- Facial emotion class names are a JSON list at `FACE_CLASSES_KEY` (default `models/face_emotion_classes.json`) instead of a pickle, which is unsafe to load from storage.
+- `opencv-python-headless` is pinned below 5 (5.x no longer ships the Haar cascades), and the image needs `libegl1 libgles2` for MediaPipe.
+
 ## Models and weights
 - All weights are downloaded on first use into `MODEL_CACHE_DIR` (`HF_HOME` set to it).
 - The MediaPipe `face_landmarker.task` is downloaded from the official MediaPipe model URL at startup if missing.
