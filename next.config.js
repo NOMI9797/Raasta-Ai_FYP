@@ -1,5 +1,9 @@
 const nextConfig = {
   reactStrictMode: true,
+  experimental: {
+    // pdf-parse (pdfjs) breaks when bundled by webpack; load it from node_modules at runtime
+    serverComponentsExternalPackages: ["pdf-parse"],
+  },
   images: {
     domains: [
       // NextJS <Image> component needs to whitelist domains for src={}

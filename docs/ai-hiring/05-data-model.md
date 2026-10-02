@@ -180,9 +180,9 @@ ALTER TABLE "candidates" ADD COLUMN IF NOT EXISTS "decided_by" text;
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "interview_questions" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-  "user_id" text NOT NULL REFERENCES "users"("id") ON DELETE cascade,
-  "job_id" uuid NOT NULL REFERENCES "jobs"("id") ON DELETE cascade,
-  "candidate_id" uuid REFERENCES "candidates"("id") ON DELETE cascade,
+  "user_id" text NOT NULL CONSTRAINT "interview_questions_user_id_users_id_fk" REFERENCES "users"("id") ON DELETE cascade,
+  "job_id" uuid NOT NULL CONSTRAINT "interview_questions_job_id_jobs_id_fk" REFERENCES "jobs"("id") ON DELETE cascade,
+  "candidate_id" uuid CONSTRAINT "interview_questions_candidate_id_candidates_id_fk" REFERENCES "candidates"("id") ON DELETE cascade,
   "question" text NOT NULL,
   "category" varchar(20) DEFAULT 'technical' NOT NULL,
   "difficulty" varchar(10) DEFAULT 'medium' NOT NULL,
@@ -199,11 +199,11 @@ CREATE INDEX IF NOT EXISTS "interview_questions_job_idx" ON "interview_questions
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "interviews" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-  "user_id" text NOT NULL REFERENCES "users"("id") ON DELETE cascade,
-  "job_id" uuid NOT NULL REFERENCES "jobs"("id") ON DELETE cascade,
-  "candidate_id" uuid NOT NULL REFERENCES "candidates"("id") ON DELETE cascade,
+  "user_id" text NOT NULL CONSTRAINT "interviews_user_id_users_id_fk" REFERENCES "users"("id") ON DELETE cascade,
+  "job_id" uuid NOT NULL CONSTRAINT "interviews_job_id_jobs_id_fk" REFERENCES "jobs"("id") ON DELETE cascade,
+  "candidate_id" uuid NOT NULL CONSTRAINT "interviews_candidate_id_candidates_id_fk" REFERENCES "candidates"("id") ON DELETE cascade,
   "status" varchar(20) DEFAULT 'invited' NOT NULL,
-  "token_hash" text NOT NULL UNIQUE,
+  "token_hash" text NOT NULL CONSTRAINT "interviews_token_hash_unique" UNIQUE,
   "expires_at" timestamp NOT NULL,
   "invited_at" timestamp DEFAULT now() NOT NULL,
   "reminder_sent_at" timestamp,
@@ -237,7 +237,7 @@ CREATE INDEX IF NOT EXISTS "interviews_user_status_idx" ON "interviews" ("user_i
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "interview_turns" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-  "interview_id" uuid NOT NULL REFERENCES "interviews"("id") ON DELETE cascade,
+  "interview_id" uuid NOT NULL CONSTRAINT "interview_turns_interview_id_interviews_id_fk" REFERENCES "interviews"("id") ON DELETE cascade,
   "seq" integer NOT NULL,
   "speaker" varchar(10) NOT NULL,
   "kind" varchar(15) NOT NULL,
@@ -251,8 +251,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS "interview_turns_seq_idx" ON "interview_turns"
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "interview_responses" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-  "interview_id" uuid NOT NULL REFERENCES "interviews"("id") ON DELETE cascade,
-  "question_id" uuid REFERENCES "interview_questions"("id") ON DELETE set null,
+  "interview_id" uuid NOT NULL CONSTRAINT "interview_responses_interview_id_interviews_id_fk" REFERENCES "interviews"("id") ON DELETE cascade,
+  "question_id" uuid CONSTRAINT "interview_responses_question_id_interview_questions_id_fk" REFERENCES "interview_questions"("id") ON DELETE set null,
   "question_text" text NOT NULL,
   "answer" text NOT NULL,
   "is_follow_up" boolean DEFAULT false NOT NULL,
@@ -268,6 +268,8 @@ CREATE TABLE IF NOT EXISTS "interview_responses" (
 );
 CREATE INDEX IF NOT EXISTS "interview_responses_interview_idx" ON "interview_responses" ("interview_id");
 ```
+Constraints are named the way Drizzle names them (`<table>_<column>_<ref>_id_fk`, `interviews_token_hash_unique`), so a later `npm run db:push` sees no difference.
+
 Apply: `psql "$DATABASE_URL" -f drizzle/0009_ai_hiring.sql`. Verify with `npm run db:studio`.
 
 ## 8. `libs/hiring/statuses.js`

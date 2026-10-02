@@ -1,0 +1,17 @@
+Fatima Noor
+fatima.noor@example.com | Faisalabad, Pakistan
+
+SUMMARY
+Linux systems administrator with 4 years of experience managing on-premise servers and networks.
+
+SKILLS
+Linux (RHEL, CentOS, Ubuntu), Bash, Ansible, Nginx, Apache, MySQL, VMware, networking (TCP/IP, DNS, firewalls), Nagios
+
+EXPERIENCE
+Systems Administrator — Textile Data Centre (fictional) | 2020 – Present
+- Maintain 120 on-premise Linux servers and VMware hosts.
+- Automated user provisioning and patching with Ansible playbooks.
+- Configured Nginx reverse proxies and Nagios monitoring.
+
+EDUCATION
+BS Information Technology — University of Agriculture Faisalabad (2016 – 2020)

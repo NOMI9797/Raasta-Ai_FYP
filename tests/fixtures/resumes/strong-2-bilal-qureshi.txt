@@ -1,0 +1,24 @@
+Bilal Qureshi
+bilal.qureshi@example.com | +92 300 0000002 | Karachi, Pakistan | github.com/bilal-q-example
+
+SUMMARY
+DevOps engineer with 3 years of experience running containerised workloads on AWS. Focused on automation, reliable releases and infrastructure as code.
+
+SKILLS
+Docker, Kubernetes (EKS), Helm, AWS (EC2, EKS, RDS, S3, IAM, CloudWatch), Terraform, GitHub Actions, Jenkins, Linux (Ubuntu, Amazon Linux), Bash, Python, Prometheus, Grafana
+
+EXPERIENCE
+DevOps Engineer — CloudNest Solutions (fictional), Karachi | Jan 2022 – Present
+- Migrated 14 services from EC2 VMs to Docker containers on EKS using Helm charts.
+- Wrote Terraform modules for VPC, EKS and RDS; all environments now created from code.
+- Built GitHub Actions CI/CD pipelines with automated tests, image scanning and blue/green deploys.
+- Set up Prometheus and Grafana dashboards and alerting; cut mean time to recovery by 40%.
+
+Junior Systems Administrator — DataBridge Pvt Ltd (fictional) | Jun 2021 – Dec 2021
+- Administered 40 Linux servers, patching and hardening with Bash scripts.
+
+EDUCATION
+BS Computer Science — NED University (2017 – 2021)
+
+CERTIFICATIONS
+AWS Certified Solutions Architect – Associate

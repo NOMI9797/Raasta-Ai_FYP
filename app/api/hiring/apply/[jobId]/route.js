@@ -1,117 +1,26 @@
 import { NextResponse } from "next/server";
+import crypto from "crypto";
 import { db } from "@/libs/db";
 import { candidates, jobs } from "@/libs/schema";
-import { eq } from "drizzle-orm";
-import OpenAI from "openai";
+import { eq, and, sql } from "drizzle-orm";
+import { CANDIDATE_STATUS } from "@/libs/hiring/statuses";
+import { getHiringConfig } from "@/libs/hiring/config";
+import { enqueue } from "@/libs/hiring/queue";
+import { putObject, deleteObject } from "@/libs/hiring/storage";
+import {
+  RESUME_TYPES,
+  resumeExtension,
+  validateResumeFile,
+  buildParsedData,
+} from "@/libs/hiring/resume-text";
 
-let mammoth = null;
-try { mammoth = require("mammoth"); } catch { /* optional dependency */ }
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-const groq = new OpenAI({
-  apiKey: process.env.GROQ_API_KEY || "",
-  baseURL: "https://api.groq.com/openai/v1",
-});
+const duplicateResponse = () =>
+  NextResponse.json({ error: "You have already applied for this position" }, { status: 409 });
 
-async function extractTextFromFile(file) {
-  const name = file.name?.toLowerCase() || "";
-  const arrayBuffer = await file.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
-
-  if (name.endsWith(".docx")) {
-    if (!mammoth) {
-      try { mammoth = require("mammoth"); } catch { /* not installed */ }
-    }
-    if (mammoth) {
-      try {
-        const result = await mammoth.extractRawText({ buffer });
-        return result.value?.trim() || "";
-      } catch (err) {
-        console.error("mammoth extraction error:", err);
-        return "";
-      }
-    }
-    return "";
-  }
-
-  if (name.endsWith(".txt")) {
-    return buffer.toString("utf-8").trim();
-  }
-
-  if (name.endsWith(".pdf")) {
-    const raw = buffer.toString("latin1");
-    const chunks = raw.match(/[A-Za-z0-9 .,:\-\n\r\t@/()&+]{20,}/g) || [];
-    return chunks.join(" ").replace(/\s+/g, " ").trim();
-  }
-
-  return buffer.toString("utf-8").trim();
-}
-
-async function parseResumeWithLLM(text) {
-  const systemPrompt = `You are an expert resume parser. Extract ALL available structured data from the resume.
-Return a valid JSON object with exactly these fields (use null or [] if not found):
-{
-  "name": "full name",
-  "location": "city, country",
-  "email": "email or null",
-  "phone": "phone or null",
-  "github": "github url or null",
-  "linkedin": "linkedin url or null",
-  "summary": "professional summary paragraph from the resume",
-  "skills": ["every skill mentioned: languages, frameworks, tools, databases, cloud, etc"],
-  "skillsByCategory": {
-    "languages": [],
-    "frontend": [],
-    "backend": [],
-    "databases": [],
-    "tools": [],
-    "other": []
-  },
-  "yearsExperience": <number estimate or null>,
-  "jobTitles": ["all job titles or roles mentioned"],
-  "experience": [
-    {
-      "title": "job title",
-      "company": "company or freelance",
-      "period": "date range",
-      "bullets": ["key responsibility or achievement"]
-    }
-  ],
-  "projects": [
-    {
-      "name": "project name",
-      "description": "what it does",
-      "technologies": ["tech used"]
-    }
-  ],
-  "education": [
-    {
-      "degree": "degree name",
-      "institution": "university/school",
-      "period": "graduation year or expected"
-    }
-  ],
-  "availability": "availability info or null",
-  "strengths": ["listed strengths"]
-}
-Return ONLY the JSON object. No markdown fences, no explanation, no extra text.`;
-
-  const completion = await groq.chat.completions.create({
-    model: "llama-3.3-70b-versatile",
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: `Parse this resume completely:\n\n${text.slice(0, 8000)}` },
-    ],
-    temperature: 0.1,
-    max_tokens: 2000,
-  });
-
-  const raw = completion.choices[0]?.message?.content?.trim() || "{}";
-  try {
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    return jsonMatch ? JSON.parse(jsonMatch[0]) : {};
-  } catch {
-    return { rawParsed: raw };
-  }
+function sameApplicant(jobId, email) {
+  return and(eq(candidates.jobId, jobId), sql`lower(${candidates.email}) = ${email}`);
 }
 
 // POST /api/hiring/apply/[jobId] — public endpoint for candidates to apply
@@ -138,10 +47,11 @@ export async function POST(request, { params }) {
 
     const formData = await request.formData();
     const name = formData.get("name")?.toString().trim();
-    const email = formData.get("email")?.toString().trim();
+    const email = formData.get("email")?.toString().trim().toLowerCase();
     const linkedinUrl = formData.get("linkedinUrl")?.toString().trim() || null;
     const coverNote = formData.get("coverNote")?.toString().trim() || null;
     const resumeFile = formData.get("resume");
+    const hasResume = resumeFile && typeof resumeFile.arrayBuffer === "function" && resumeFile.size > 0;
 
     if (!name || !email) {
       return NextResponse.json(
@@ -150,40 +60,87 @@ export async function POST(request, { params }) {
       );
     }
 
-    let resumeUrl = null;
-    let parsedData = null;
+    if (!EMAIL_PATTERN.test(email)) {
+      return NextResponse.json({ error: "Please enter a valid email address" }, { status: 400 });
+    }
 
-    if (resumeFile && resumeFile instanceof File && resumeFile.size > 0) {
-      resumeUrl = `uploaded:${resumeFile.name}`;
-      try {
-        const extractedText = await extractTextFromFile(resumeFile);
-        if (extractedText.length > 30) {
-          parsedData = await parseResumeWithLLM(extractedText);
-          // Store raw text so re-parse never needs the file again
-          parsedData._resumeText = extractedText.slice(0, 10000);
-        } else {
-          parsedData = { parseError: "Could not extract readable text from resume" };
-        }
-      } catch (err) {
-        console.error("Resume processing error:", err);
-        parsedData = { parseError: "Failed to process resume" };
+    if (hasResume) {
+      const fileError = validateResumeFile({ filename: resumeFile.name, size: resumeFile.size });
+      if (fileError) {
+        return NextResponse.json({ error: fileError }, { status: 400 });
       }
     }
 
-    const [candidate] = await db
-      .insert(candidates)
-      .values({
-        jobId: job.id,
-        userId: job.userId,
-        name,
-        email,
-        linkedinUrl,
-        coverNote,
-        resumeUrl,
-        parsedData,
-        status: "new",
-      })
-      .returning();
+    // Fail fast on duplicates before storing or parsing anything
+    const [existing] = await db
+      .select({ id: candidates.id })
+      .from(candidates)
+      .where(sameApplicant(job.id, email))
+      .limit(1);
+    if (existing) return duplicateResponse();
+
+    let resumeKey = null;
+    let resumeUrl = null;
+    let parsedData = null;
+
+    if (hasResume) {
+      const ext = resumeExtension(resumeFile.name);
+      const buffer = Buffer.from(await resumeFile.arrayBuffer());
+      resumeUrl = resumeFile.name.slice(0, 255); // original filename, for display
+
+      const key = `resumes/${job.id}/${crypto.randomUUID()}${ext}`;
+      try {
+        await putObject(key, buffer, RESUME_TYPES[ext]);
+        resumeKey = key;
+      } catch (error) {
+        // Keep the application even if storage is down; the parsed text is still saved
+        console.error("Resume storage failed:", error?.message);
+      }
+
+      parsedData = await buildParsedData({ buffer, filename: resumeFile.name });
+    }
+
+    // Serialise concurrent submissions for the same job + email, then re-check
+    const candidate = await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`${job.id}:${email}`}))`);
+      const [dup] = await tx
+        .select({ id: candidates.id })
+        .from(candidates)
+        .where(sameApplicant(job.id, email))
+        .limit(1);
+      if (dup) return null;
+
+      const [created] = await tx
+        .insert(candidates)
+        .values({
+          jobId: job.id,
+          userId: job.userId,
+          name,
+          email,
+          linkedinUrl,
+          coverNote,
+          resumeUrl,
+          resumeKey,
+          parsedData,
+          status: CANDIDATE_STATUS.NEW,
+        })
+        .returning();
+      return created;
+    });
+
+    if (!candidate) {
+      if (resumeKey) await deleteObject(resumeKey).catch(() => {});
+      return duplicateResponse();
+    }
+
+    // Screening is asynchronous; a queue outage must not lose the application
+    if (getHiringConfig(job).autoScreen) {
+      try {
+        await enqueue("screen-candidate", { candidateId: candidate.id });
+      } catch (error) {
+        console.error("Failed to queue screening:", error?.message);
+      }
+    }
 
     return NextResponse.json({
       success: true,
@@ -191,7 +148,7 @@ export async function POST(request, { params }) {
       candidateId: candidate.id,
     });
   } catch (error) {
-    console.error("Apply error:", error);
+    console.error("Apply error:", error?.message);
     return NextResponse.json(
       { error: "Failed to submit application" },
       { status: 500 }

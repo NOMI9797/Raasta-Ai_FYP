@@ -3,6 +3,7 @@ import { db } from "@/libs/db";
 import { candidates, jobs } from "@/libs/schema";
 import { eq, and } from "drizzle-orm";
 import { withAuth } from "@/libs/auth-middleware";
+import { ALL_STATUSES, STATUS_META, canTransition } from "@/libs/hiring/statuses";
 
 // PATCH /api/hiring/candidates/[candidateId] — update candidate status
 export const PATCH = withAuth(async (request, { params, user }) => {
@@ -11,8 +12,7 @@ export const PATCH = withAuth(async (request, { params, user }) => {
     const body = await request.json();
     const { status } = body;
 
-    const ALLOWED = ["new", "reviewed", "shortlisted", "rejected"];
-    if (status && !ALLOWED.includes(status)) {
+    if (status && !ALL_STATUSES.includes(status)) {
       return NextResponse.json({ error: "Invalid status" }, { status: 400 });
     }
 
@@ -39,6 +39,15 @@ export const PATCH = withAuth(async (request, { params, user }) => {
 
     if (!job) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    // Manual moves must follow MANUAL_TRANSITIONS; re-sending the current status is a no-op
+    if (status && status !== candidate.status && !canTransition(candidate.status, status)) {
+      const from = STATUS_META[candidate.status]?.label || candidate.status;
+      return NextResponse.json(
+        { error: `Cannot move a candidate from "${from}" to "${STATUS_META[status].label}"` },
+        { status: 400 }
+      );
     }
 
     const updateData = {};

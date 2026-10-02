@@ -3,80 +3,7 @@ import { db } from "@/libs/db";
 import { candidates, jobs } from "@/libs/schema";
 import { eq, and } from "drizzle-orm";
 import { withAuth } from "@/libs/auth-middleware";
-import OpenAI from "openai";
-
-const groq = new OpenAI({
-  apiKey: process.env.GROQ_API_KEY || "",
-  baseURL: "https://api.groq.com/openai/v1",
-});
-
-async function parseResumeWithLLM(text) {
-  const systemPrompt = `You are an expert resume parser. Extract ALL available structured data from the resume.
-Return a valid JSON object with exactly these fields (use null or [] if not found):
-{
-  "name": "full name",
-  "location": "city, country",
-  "email": "email or null",
-  "phone": "phone or null",
-  "github": "github url or null",
-  "linkedin": "linkedin url or null",
-  "summary": "professional summary paragraph from the resume",
-  "skills": ["every skill mentioned: languages, frameworks, tools, databases, cloud, etc"],
-  "skillsByCategory": {
-    "languages": [],
-    "frontend": [],
-    "backend": [],
-    "databases": [],
-    "tools": [],
-    "other": []
-  },
-  "yearsExperience": <number estimate or null>,
-  "jobTitles": ["all job titles or roles mentioned"],
-  "experience": [
-    {
-      "title": "job title",
-      "company": "company or freelance",
-      "period": "date range",
-      "bullets": ["key responsibility or achievement"]
-    }
-  ],
-  "projects": [
-    {
-      "name": "project name",
-      "description": "what it does",
-      "technologies": ["tech used"]
-    }
-  ],
-  "education": [
-    {
-      "degree": "degree name",
-      "institution": "university/school",
-      "period": "graduation year or expected"
-    }
-  ],
-  "availability": "availability info or null",
-  "strengths": ["listed strengths"]
-}
-Return ONLY the JSON object. No markdown fences, no explanation, no extra text.`;
-
-  const completion = await groq.chat.completions.create({
-    model: "llama-3.3-70b-versatile",
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: `Parse this resume completely:\n\n${text.slice(0, 8000)}` },
-    ],
-    temperature: 0.1,
-    max_tokens: 2000,
-  });
-
-  const raw = completion.choices[0]?.message?.content?.trim() || "{}";
-  try {
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    return jsonMatch ? JSON.parse(jsonMatch[0]) : {};
-  } catch {
-    return { rawParsed: raw };
-  }
-}
+import { parseResumeWithLLM } from "@/libs/hiring/resume-text";
 
 // POST /api/hiring/candidates/[candidateId]/reparse
 // Uses stored resume text from DB — no file upload needed
@@ -131,7 +58,7 @@ export const POST = withAuth(async (request, { params, user }) => {
       return NextResponse.json({ error: "No content to parse" }, { status: 400 });
     }
 
-    const parsedData = await parseResumeWithLLM(contextParts.join("\n\n"));
+    const parsedData = { ...(await parseResumeWithLLM(contextParts.join("\n\n"))) };
 
     // Preserve stored resume text for future re-parses
     if (candidate.parsedData?._resumeText) {
@@ -146,7 +73,7 @@ export const POST = withAuth(async (request, { params, user }) => {
 
     return NextResponse.json({ success: true, candidate: updated });
   } catch (error) {
-    console.error("Reparse error:", error);
+    console.error("Reparse error:", error?.code || error?.message);
     return NextResponse.json({ error: "Failed to re-parse" }, { status: 500 });
   }
 }, { requireUser: true });

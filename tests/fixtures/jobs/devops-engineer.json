@@ -1,0 +1,10 @@
+{
+  "title": "DevOps Engineer",
+  "formalDescription": "We are looking for a DevOps Engineer to build and run our cloud platform. You will containerise services with Docker, operate Kubernetes clusters on AWS, manage infrastructure as code with Terraform, and own our CI/CD pipelines. You will work closely with developers to improve reliability, observability and release speed. Strong Linux fundamentals are essential.",
+  "requiredSkills": ["Docker", "Kubernetes", "AWS", "CI/CD", "Terraform", "Linux"],
+  "techStack": ["GitHub Actions", "Prometheus", "Grafana", "Helm", "Bash", "Python"],
+  "experienceRange": "2-4 years",
+  "location": "Lahore, Pakistan",
+  "locationType": "hybrid",
+  "employmentType": "full-time"
+}

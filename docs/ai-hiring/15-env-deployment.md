@@ -25,6 +25,7 @@ Add these to `.env.local` (dev) and the deployment environment. Also create `.en
 | `AI_ENGINE_TOKEN` | engine, worker, ai-engine | 32+ random bytes | |
 | `STORAGE_DRIVER` | web, worker, ai-engine | `local` | `s3` in prod |
 | `STORAGE_LOCAL_DIR` | web, worker, ai-engine | `./.storage` | must be the **same folder** for all processes in dev (gitignored) |
+| `STORAGE_SIGNING_SECRET` | web | 32+ random bytes | signs short-lived `/api/files/<token>` download links (local driver) |
 | `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | storage | – | `S3_ENDPOINT` for R2/MinIO |
 | `HIRING_WORKER_CONCURRENCY` | worker | `3` | |
 | `WORKER_ID` | worker | hostname | consumer name |

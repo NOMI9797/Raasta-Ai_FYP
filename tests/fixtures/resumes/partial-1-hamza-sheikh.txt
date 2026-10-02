@@ -1,0 +1,17 @@
+Hamza Sheikh
+hamza.sheikh@example.com | Islamabad, Pakistan
+
+SUMMARY
+Backend developer (Node.js) with 3 years of experience who has started taking on deployment work.
+
+SKILLS
+Node.js, Express, PostgreSQL, MongoDB, Docker, Git, Linux, REST APIs, basic AWS (EC2, S3)
+
+EXPERIENCE
+Backend Developer — Orbit Apps (fictional) | 2021 – Present
+- Built REST APIs in Node.js and PostgreSQL for a logistics platform.
+- Wrote Dockerfiles and docker-compose setups for local development.
+- Deployed services to EC2 manually and maintained a few cron jobs on Linux.
+
+EDUCATION
+BS Software Engineering — COMSATS Islamabad (2017 – 2021)

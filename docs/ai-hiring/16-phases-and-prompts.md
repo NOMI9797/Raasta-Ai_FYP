@@ -60,13 +60,13 @@ First give me a short plan (files to create/modify), wait for my "go", then impl
 **Docs:** 05, 06 §1, 15
 
 **Tasks**
-- [ ] Add the tables and columns from 05 to **both** `libs/schema.js` and `libs/schema.ts`.
-- [ ] Write `drizzle/0009_ai_hiring.sql` (from 05); apply it to a dev DB.
-- [ ] `libs/hiring/storage.js`: `putObject(key, buffer, contentType)`, `getObjectStream(key)`, `getSignedUrl(key, seconds)`, `listKeys(prefix)`, `deleteObject(key)`. Drivers `local` (under `STORAGE_LOCAL_DIR`) and `s3` (`@aws-sdk/client-s3`, optional `S3_ENDPOINT`). For `local`, `getSignedUrl` returns `/api/files/<signed-token>`; add that route (HMAC token with expiry, owner check not required because the token is the authorisation).
-- [ ] `libs/hiring/resume-text.js` (pdf-parse → fallback).
-- [ ] Update the apply route as in 06 §1 (validate, store, extract, dedupe, enqueue if autoScreen).
-- [ ] `GET /api/hiring/candidates/[candidateId]/resume`.
-- [ ] Candidate PATCH route uses `canTransition` from `statuses.js`.
+- [x] Add the tables and columns from 05 to **both** `libs/schema.js` and `libs/schema.ts`.
+- [x] Write `drizzle/0009_ai_hiring.sql` (from 05); apply it to a dev DB.
+- [x] `libs/hiring/storage.js`: `putObject(key, buffer, contentType)`, `getObjectStream(key)`, `getSignedUrl(key, seconds)`, `listKeys(prefix)`, `deleteObject(key)`. Drivers `local` (under `STORAGE_LOCAL_DIR`) and `s3` (`@aws-sdk/client-s3`, optional `S3_ENDPOINT`). For `local`, `getSignedUrl` returns `/api/files/<signed-token>`; add that route (HMAC token with expiry, owner check not required because the token is the authorisation).
+- [x] `libs/hiring/resume-text.js` (pdf-parse → fallback). `next.config.js` lists `pdf-parse` in `serverComponentsExternalPackages`; bundled by webpack it fails.
+- [x] Update the apply route as in 06 §1 (validate, store, extract, dedupe, enqueue if autoScreen).
+- [x] `GET /api/hiring/candidates/[candidateId]/resume`.
+- [x] Candidate PATCH route uses `canTransition` from `statuses.js`.
 - [x] `libs/hiring/queue.js` `enqueue()` (from 13). Done in Phase 0.
 
 **Acceptance**
@@ -249,7 +249,7 @@ Read CLAUDE.md, docs/ai-hiring/15-env-deployment.md and 17-testing.md. Implement
 | Phase | Status | Date | Commit | Notes |
 |---|---|---|---|---|
 | 0 | ☑ | 2026-10-02 | `feat(hiring): phase 0 – foundations and restructure` | Full `npm run build` still fails on pre-existing lint errors in 5 non-hiring files; verified with `npm run build -- --no-lint`. Docker images not built (no Docker in the dev container). |
-| 1 | ☐ | | | |
+| 1 | ☑ | 2026-10-02 | `feat(hiring): phase 1 – data layer and resume storage` | Verified on local Postgres 16 + Redis: migration applies twice cleanly and matches `schema.ts` (`db:push` reports no changes); PDF stored and downloaded byte-identical; duplicate → 409. LLM parse tested with a stub (no Groq key in the dev container). Added `STORAGE_SIGNING_SECRET`. |
 | 2 | ☐ | | | |
 | 3 | ☐ | | | |
 | 4 | ☐ | | | |

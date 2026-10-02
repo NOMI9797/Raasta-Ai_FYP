@@ -10,6 +10,7 @@ In `app/api/hiring/apply/[jobId]/route.js`:
 2. **Store the original:** `libs/hiring/storage.js` → `putObject(key, buffer, contentType)`. The key is `resumes/{jobId}/{uuid}.{ext}`. Save it in `candidates.resume_key`, and keep `resume_url` = the original filename for display.
 3. **Extract text properly:** `libs/hiring/resume-text.js`.
    - PDF → `pdf-parse` (add the dependency), falling back to the current regex approach if it throws.
+     `pdf-parse` must be listed in `experimental.serverComponentsExternalPackages` in `next.config.js`; when webpack bundles it, it throws and every PDF falls back to the regex. If `pdf-parse` returns empty text (a scanned PDF), keep it empty so the resume is flagged unreadable.
    - DOCX → `mammoth`; TXT → utf-8.
 4. Keep the existing LLM parse (`parsedData`, `_resumeText`).
 5. **Deduplicate:** if a candidate with the same `email` already exists for the same `jobId`, return 409 "You have already applied".

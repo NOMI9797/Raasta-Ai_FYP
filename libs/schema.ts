@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, integer, boolean, json, uuid, varchar } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, integer, boolean, json, uuid, varchar, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 // Users table - for authentication and user isolation
@@ -129,7 +129,7 @@ export const workflowJobs = pgTable('workflow_jobs', {
   campaignId: uuid('campaign_id').references(() => campaigns.id, { onDelete: 'cascade' }).notNull(),
   userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   accountId: uuid('account_id').references(() => linkedinAccounts.id, { onDelete: 'cascade' }).notNull(),
-  status: varchar('status', { length: 20 }).default('queued').notNull(), // queued, processing, completed, failed
+  status: varchar('status', { length: 20 }).default('queued').notNull(), // queued, processing, paused, cancelled, completed, failed, timeout
   progress: integer('progress').default(0), // 0-100
   totalLeads: integer('total_leads'),
   processedLeads: integer('processed_leads').default(0),
@@ -139,6 +139,9 @@ export const workflowJobs = pgTable('workflow_jobs', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
   startedAt: timestamp('started_at'),
   completedAt: timestamp('completed_at'),
+  pausedAt: timestamp('paused_at'), // When job was paused
+  resumedAt: timestamp('resumed_at'), // When job was last resumed
+  pauseCount: integer('pause_count').default(0), // Number of times paused
 });
 
 // Jobs table - Recruiter module (hiring workflow)
@@ -164,6 +167,7 @@ export const jobs = pgTable('jobs', {
   rozeePost: text('rozee_post'),
   rozeePostUrl: text('rozee_post_url'),
   rozeePublishedAt: timestamp('rozee_published_at'),
+  hiringConfig: json('hiring_config'), // see DEFAULT_HIRING_CONFIG in libs/hiring/config.js
   status: varchar('status', { length: 20 }).notNull().default('draft'), // draft | published | closed
   publishedAt: timestamp('published_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -183,10 +187,118 @@ export const candidates = pgTable('candidates', {
   parsedData: json('parsed_data'), // { skills[], yearsExperience, education[], jobTitles[] }
   source: varchar('source', { length: 20 }).notNull().default('linkedin'), // linkedin | rozee | indeed | direct
   sourceData: json('source_data'), // Source-specific fields (Rozee profile URL, scraped extras)
-  status: varchar('status', { length: 20 }).notNull().default('new'), // new | reviewed | shortlisted | rejected
+  status: varchar('status', { length: 30 }).notNull().default('new'), // see libs/hiring/statuses.js
+  // AI hiring pipeline (docs/ai-hiring/05-data-model.md §2)
+  resumeKey: text('resume_key'),              // storage key of original file
+  fitScore: integer('fit_score'),
+  fitAnalysis: json('fit_analysis'),          // see 06-stage1-screening.md
+  screenedAt: timestamp('screened_at'),
+  finalScore: integer('final_score'),
+  finalAnalysis: json('final_analysis'),      // see 11-stage2-evaluation.md
+  finalDecidedAt: timestamp('final_decided_at'),
+  decidedBy: text('decided_by'),              // 'system' | users.id
   appliedAt: timestamp('applied_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
+
+// Interview Questions — AI hiring pipeline (docs/ai-hiring/05-data-model.md §3)
+export const interviewQuestions = pgTable('interview_questions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  jobId: uuid('job_id').references(() => jobs.id, { onDelete: 'cascade' }).notNull(),
+  candidateId: uuid('candidate_id').references(() => candidates.id, { onDelete: 'cascade' }), // null = job-wide; set = personalised
+  question: text('question').notNull(),
+  category: varchar('category', { length: 20 }).notNull().default('technical'), // technical | role | behavioral
+  difficulty: varchar('difficulty', { length: 10 }).notNull().default('medium'), // easy | medium | hard
+  idealAnswer: text('ideal_answer').notNull(),
+  expectedKeywords: json('expected_keywords').default([]),
+  scoreWeight: integer('score_weight').default(1).notNull(), // 1-5
+  orderIndex: integer('order_index').default(0).notNull(),
+  source: varchar('source', { length: 10 }).notNull().default('ai'), // ai | manual
+  isActive: boolean('is_active').default(true).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (t) => [
+  index('interview_questions_job_idx').on(t.jobId, t.isActive),
+]);
+
+// Interviews — one row per invite / AI interview (§4)
+export const interviews = pgTable('interviews', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(), // job owner
+  jobId: uuid('job_id').references(() => jobs.id, { onDelete: 'cascade' }).notNull(),
+  candidateId: uuid('candidate_id').references(() => candidates.id, { onDelete: 'cascade' }).notNull(),
+  status: varchar('status', { length: 20 }).notNull().default('invited'),
+  //  invited | opened | in_progress | completed | abandoned | expired | failed | cancelled
+  tokenHash: text('token_hash').notNull().unique(),
+  expiresAt: timestamp('expires_at').notNull(),
+  invitedAt: timestamp('invited_at').defaultNow().notNull(),
+  reminderSentAt: timestamp('reminder_sent_at'),
+  openedAt: timestamp('opened_at'),
+  consentAt: timestamp('consent_at'),
+  startedAt: timestamp('started_at'),
+  endedAt: timestamp('ended_at'),
+  lastActivityAt: timestamp('last_activity_at'),
+  durationSec: integer('duration_sec'),
+  questionSnapshot: json('question_snapshot'),   // questions frozen at start
+  state: json('state'),                          // live session snapshot (resume)
+  clientInfo: json('client_info'),               // UA, devices
+  integrityEvents: json('integrity_events').default([]), // [{type:'tab_hidden', at}]
+  recordingAudioKey: text('recording_audio_key'),
+  recordingVideoKey: text('recording_video_key'),
+  recordingStatus: varchar('recording_status', { length: 20 }).default('none'), // none|uploading|complete|failed
+  totalQuestions: integer('total_questions'),
+  totalAnswers: integer('total_answers'),
+  followUpCount: integer('follow_up_count'),
+  interviewScore: integer('interview_score'),
+  communicationScore: integer('communication_score'),
+  analysis: json('analysis'),                    // see 11-stage2-evaluation.md
+  analysisStatus: varchar('analysis_status', { length: 20 }).default('pending'), // pending|processing|complete|failed|skipped
+  errorMessage: text('error_message'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (t) => [
+  index('interviews_candidate_idx').on(t.candidateId),
+  index('interviews_job_status_idx').on(t.jobId, t.status),
+  index('interviews_user_status_idx').on(t.userId, t.status),
+]);
+
+// Interview Turns — full transcript (§5)
+export const interviewTurns = pgTable('interview_turns', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  interviewId: uuid('interview_id').references(() => interviews.id, { onDelete: 'cascade' }).notNull(),
+  seq: integer('seq').notNull(),
+  speaker: varchar('speaker', { length: 10 }).notNull(), // ai | candidate
+  kind: varchar('kind', { length: 15 }).notNull(),       // greeting | question | follow_up | answer | closing | system
+  questionId: text('question_id'),                       // base uuid or "fu-…"
+  text: text('text').notNull(),
+  startedAt: timestamp('started_at').notNull(),
+  endedAt: timestamp('ended_at'),
+  offsetMs: integer('offset_ms'),                        // ms since recording start (for video markers)
+}, (t) => [
+  uniqueIndex('interview_turns_seq_idx').on(t.interviewId, t.seq),
+]);
+
+// Interview Responses — scored Q&A (§6)
+export const interviewResponses = pgTable('interview_responses', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  interviewId: uuid('interview_id').references(() => interviews.id, { onDelete: 'cascade' }).notNull(),
+  questionId: uuid('question_id').references(() => interviewQuestions.id, { onDelete: 'set null' }), // base question
+  questionText: text('question_text').notNull(),
+  answer: text('answer').notNull(),
+  isFollowUp: boolean('is_follow_up').default(false).notNull(),
+  followUpDepth: integer('follow_up_depth').default(0).notNull(),
+  followUpReason: varchar('follow_up_reason', { length: 30 }),
+  score: integer('score'),
+  scoreReasoning: text('score_reasoning'),
+  keywordsCovered: json('keywords_covered').default([]),
+  keywordsMissed: json('keywords_missed').default([]),
+  scoredAt: timestamp('scored_at'),
+  answeredAt: timestamp('answered_at').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (t) => [
+  index('interview_responses_interview_idx').on(t.interviewId),
+]);
 
 // Rozee.pk Accounts table — mirror of linkedinAccounts for Rozee.pk session storage
 export const rozeeAccounts = pgTable('rozee_accounts', {

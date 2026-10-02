@@ -82,9 +82,9 @@ export default function PipelinePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
       });
-      if (!res.ok) throw new Error();
-    } catch {
-      toast.error("Failed to move candidate");
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error);
+    } catch (err) {
+      toast.error(err.message || "Failed to move candidate");
       setRows((rs) => rs.map((r) => (r.id === candidateId ? { ...r, status: prev.status } : r)));
     }
   };

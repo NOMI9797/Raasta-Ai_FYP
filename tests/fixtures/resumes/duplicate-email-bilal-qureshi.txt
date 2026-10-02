@@ -1,0 +1,8 @@
+Bilal Qureshi
+bilal.qureshi@example.com | Karachi, Pakistan
+
+This is a second application from the same email address as strong-2-bilal-qureshi.txt.
+It must be rejected with 409 "You have already applied" when sent to the same job.
+
+SKILLS
+Docker, Kubernetes, AWS, Terraform, Linux, GitHub Actions

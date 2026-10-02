@@ -15,16 +15,16 @@ import {
 } from "lucide-react";
 import Sidebar from "@/components/layout/Sidebar";
 import TopBar from "@/components/layout/TopBar";
-
-const STATUS_OPTIONS = [
-  { value: "new", label: "New", color: "badge-info" },
-  { value: "reviewed", label: "Reviewed", color: "badge-warning" },
-  { value: "shortlisted", label: "Shortlisted", color: "badge-success" },
-  { value: "rejected", label: "Rejected", color: "badge-error" },
-];
+import { ALL_STATUSES, CANDIDATE_STATUS, MANUAL_TRANSITIONS, STATUS_META } from "@/libs/hiring/statuses";
 
 function statusBadge(status) {
-  return STATUS_OPTIONS.find((o) => o.value === status) || STATUS_OPTIONS[0];
+  const meta = STATUS_META[status] || STATUS_META[CANDIDATE_STATUS.NEW];
+  return { label: meta.label, color: meta.badge };
+}
+
+// The current status plus the moves a recruiter may make from it
+function statusChoices(status) {
+  return [status, ...(MANUAL_TRANSITIONS[status] || [])].filter((s) => STATUS_META[s]);
 }
 
 export default function UnifiedCandidatesPage() {
@@ -108,9 +108,9 @@ export default function UnifiedCandidatesPage() {
 
   const counts = useMemo(() => ({
     total: rows.length,
-    shortlisted: rows.filter((c) => c.status === "shortlisted").length,
-    new: rows.filter((c) => c.status === "new").length,
-    rejected: rows.filter((c) => c.status === "rejected").length,
+    shortlisted: rows.filter((c) => c.status === CANDIDATE_STATUS.SHORTLISTED).length,
+    new: rows.filter((c) => c.status === CANDIDATE_STATUS.NEW).length,
+    rejected: rows.filter((c) => c.status === CANDIDATE_STATUS.REJECTED).length,
   }), [rows]);
 
   const uniqueSources = useMemo(
@@ -189,8 +189,8 @@ export default function UnifiedCandidatesPage() {
               onChange={(e) => setStatusFilter(e.target.value)}
             >
               <option value="all">All statuses</option>
-              {STATUS_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
+              {ALL_STATUSES.map((s) => (
+                <option key={s} value={s}>{STATUS_META[s].label}</option>
               ))}
             </select>
           </div>
@@ -235,13 +235,13 @@ export default function UnifiedCandidatesPage() {
                           </td>
                           <td>
                             <select
-                              className="select select-bordered select-xs w-32"
+                              className="select select-bordered select-xs w-36"
                               value={c.status}
                               onChange={(e) => handleStatusChange(c.id, e.target.value)}
-                              disabled={updatingId === c.id}
+                              disabled={updatingId === c.id || statusChoices(c.status).length < 2}
                             >
-                              {STATUS_OPTIONS.map((o) => (
-                                <option key={o.value} value={o.value}>{o.label}</option>
+                              {statusChoices(c.status).map((s) => (
+                                <option key={s} value={s}>{STATUS_META[s].label}</option>
                               ))}
                             </select>
                             <span className={`ml-2 badge badge-xs ${badge.color}`}>{badge.label}</span>

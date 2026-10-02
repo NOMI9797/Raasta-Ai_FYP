@@ -31,16 +31,16 @@ import {
   Zap,
 } from "lucide-react";
 import toast, { Toaster } from "react-hot-toast";
-
-const STATUS_OPTIONS = [
-  { value: "new", label: "New", color: "badge-info" },
-  { value: "reviewed", label: "Reviewed", color: "badge-warning" },
-  { value: "shortlisted", label: "Shortlisted", color: "badge-success" },
-  { value: "rejected", label: "Rejected", color: "badge-error" },
-];
+import { ALL_STATUSES, CANDIDATE_STATUS, MANUAL_TRANSITIONS, STATUS_META } from "@/libs/hiring/statuses";
 
 function statusBadge(status) {
-  return STATUS_OPTIONS.find((o) => o.value === status) || STATUS_OPTIONS[0];
+  const meta = STATUS_META[status] || STATUS_META[CANDIDATE_STATUS.NEW];
+  return { label: meta.label, color: meta.badge };
+}
+
+// The current status plus the moves a recruiter may make from it
+function statusChoices(status) {
+  return [status, ...(MANUAL_TRANSITIONS[status] || [])].filter((s) => STATUS_META[s]);
 }
 
 function hasUsableParsedData(parsed) {
@@ -120,8 +120,8 @@ export default function JobCandidatesPage({ params }) {
         prev.map((c) => (c.id === candidateId ? { ...c, status: newStatus } : c))
       );
       toast.success("Status updated");
-    } catch {
-      toast.error("Failed to update status");
+    } catch (err) {
+      toast.error(err.message || "Failed to update status");
     } finally {
       setUpdatingId(null);
     }
@@ -172,12 +172,15 @@ export default function JobCandidatesPage({ params }) {
   const filtered =
     filter === "all" ? candidateList : candidateList.filter((c) => c.status === filter);
 
+  const countOf = (status) => candidateList.filter((c) => c.status === status).length;
   const counts = {
     all: candidateList.length,
-    new: candidateList.filter((c) => c.status === "new").length,
-    shortlisted: candidateList.filter((c) => c.status === "shortlisted").length,
-    rejected: candidateList.filter((c) => c.status === "rejected").length,
+    new: countOf(CANDIDATE_STATUS.NEW),
+    shortlisted: countOf(CANDIDATE_STATUS.SHORTLISTED),
+    rejected: countOf(CANDIDATE_STATUS.REJECTED),
   };
+  // Tabs for the statuses that actually occur, plus the selected one
+  const filterTabs = ["all", ...ALL_STATUSES.filter((s) => s === filter || countOf(s) > 0)];
 
   if (loading) {
     return (
@@ -234,14 +237,14 @@ export default function JobCandidatesPage({ params }) {
         </div>
 
         <div className="tabs tabs-boxed w-fit">
-          {["all", "new", "reviewed", "shortlisted", "rejected"].map((f) => (
+          {filterTabs.map((f) => (
             <button
               key={f}
               className={`tab tab-sm ${filter === f ? "tab-active" : ""}`}
               onClick={() => setFilter(f)}
             >
-              {f.charAt(0).toUpperCase() + f.slice(1)}
-              {f !== "all" && ` (${candidateList.filter((c) => c.status === f).length})`}
+              {f === "all" ? "All" : STATUS_META[f].label}
+              {f !== "all" && ` (${countOf(f)})`}
             </button>
           ))}
         </div>
@@ -250,7 +253,7 @@ export default function JobCandidatesPage({ params }) {
           <div className="text-center py-12">
             <Users className="h-10 w-10 text-base-content/20 mx-auto mb-3" />
             <p className="text-base-content/60">
-              No candidates {filter !== "all" ? `with status "${filter}"` : "yet"}
+              No candidates {filter !== "all" ? `with status "${STATUS_META[filter]?.label || filter}"` : "yet"}
             </p>
             <p className="text-xs text-base-content/40 mt-1">
               Share the apply link to start receiving applications
@@ -316,14 +319,14 @@ export default function JobCandidatesPage({ params }) {
                     <span className={`badge badge-xs ${badge.color}`}>{badge.label}</span>
 
                     <select
-                      className="select select-bordered select-xs w-28"
+                      className="select select-bordered select-xs w-36"
                       value={c.status}
                       onClick={(e) => e.stopPropagation()}
                       onChange={(e) => handleStatusChange(c.id, e.target.value)}
-                      disabled={updatingId === c.id}
+                      disabled={updatingId === c.id || statusChoices(c.status).length < 2}
                     >
-                      {STATUS_OPTIONS.map((o) => (
-                        <option key={o.value} value={o.value}>{o.label}</option>
+                      {statusChoices(c.status).map((s) => (
+                        <option key={s} value={s}>{STATUS_META[s].label}</option>
                       ))}
                     </select>
 
@@ -361,7 +364,18 @@ export default function JobCandidatesPage({ params }) {
                             <Github className="h-3.5 w-3.5" /> GitHub
                           </a>
                         )}
-                        {c.resumeUrl && (
+                        {c.resumeKey ? (
+                          <a
+                            href={`/api/hiring/candidates/${c.id}/resume`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn btn-ghost btn-xs gap-1"
+                            title="Download resume"
+                          >
+                            <FileText className="h-3.5 w-3.5 text-primary" />
+                            {c.resumeUrl || "Resume"}
+                          </a>
+                        ) : c.resumeUrl && (
                           <span className="btn btn-ghost btn-xs gap-1 cursor-default">
                             <FileText className="h-3.5 w-3.5 text-primary" />
                             {c.resumeUrl.replace("uploaded:", "")}
