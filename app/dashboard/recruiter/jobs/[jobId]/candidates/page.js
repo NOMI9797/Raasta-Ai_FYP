@@ -31,6 +31,7 @@ import {
   Zap,
   Gauge,
   ListChecks,
+  MessageCircleQuestion,
 } from "lucide-react";
 import toast, { Toaster } from "react-hot-toast";
 import { CANDIDATE_STATUS, KANBAN_STAGES, MANUAL_TRANSITIONS, STATUS_META } from "@/libs/hiring/statuses";
@@ -324,6 +325,12 @@ export default function JobCandidatesPage({ params }) {
           >
             {bulkAction === "shortlist" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ListChecks className="h-4 w-4" />}
             Re-run shortlist
+          </button>
+          <button
+            className="btn btn-ghost btn-sm gap-1"
+            onClick={() => router.push(`/dashboard/recruiter/jobs/${jobId}/interview-questions`)}
+          >
+            <MessageCircleQuestion className="h-4 w-4" /> Interview questions
           </button>
           <select
             className="select select-bordered select-sm ml-auto"

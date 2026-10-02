@@ -12,6 +12,8 @@ import { getRedisClient, closeRedisConnection } from "../libs/redis";
 import { STREAM, DEAD, GROUP, enqueue, moveDueDelayed, parseStreamEntry } from "../libs/hiring/queue";
 import { screenCandidate } from "../libs/hiring/fit-scorer";
 import { applyShortlist } from "../libs/hiring/shortlist";
+import { queueAfterShortlist } from "../libs/hiring/shortlist-hooks";
+import { acquireQuestionLock, ensureJobQuestions, personaliseCandidate } from "../libs/interview/question-bank";
 
 const WORKER_ID = process.env.WORKER_ID || `${os.hostname()}-${process.pid}`;
 const CONCURRENCY = Math.max(1, Number(process.env.HIRING_WORKER_CONCURRENCY) || 3);
@@ -58,7 +60,28 @@ export const handlers = {
   "shortlist-job": {
     timeoutMs: 60 * 1000,
     async run({ jobId }) {
-      return applyShortlist(jobId, { triggeredBy: "system" });
+      return applyShortlist(jobId, { triggeredBy: "system", onShortlisted: queueAfterShortlist });
+    },
+  },
+
+  // Create the job's question bank if it has none (lock:questions:{jobId} guards concurrent runs)
+  "ensure-questions": {
+    timeoutMs: 90 * 1000,
+    async run({ jobId }) {
+      const release = await acquireQuestionLock(jobId, { redis, owner: WORKER_ID });
+      if (!release) return { jobId, skipped: "generation already in progress" };
+      try {
+        return await ensureJobQuestions(jobId);
+      } finally {
+        await release();
+      }
+    },
+  },
+
+  "personalise-questions": {
+    timeoutMs: 60 * 1000,
+    async run({ candidateId }) {
+      return personaliseCandidate(candidateId);
     },
   },
 };

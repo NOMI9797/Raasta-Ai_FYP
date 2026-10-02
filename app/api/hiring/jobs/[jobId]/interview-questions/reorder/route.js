@@ -3,8 +3,7 @@ import { db } from "@/libs/db";
 import { jobs } from "@/libs/schema";
 import { eq, and } from "drizzle-orm";
 import { withAuth } from "@/libs/auth-middleware";
-import { applyShortlist } from "@/libs/hiring/shortlist";
-import { queueAfterShortlist } from "@/libs/hiring/shortlist-hooks";
+import { reorderQuestions, QuestionBankError } from "@/libs/interview/question-bank";
 
 function ownerFilter(jobId, user) {
   return user.role === "admin"
@@ -12,7 +11,7 @@ function ownerFilter(jobId, user) {
     : and(eq(jobs.id, jobId), eq(jobs.userId, user.id));
 }
 
-// POST /api/hiring/jobs/[jobId]/shortlist — re-run the stage-1 shortlist now
+// POST /api/hiring/jobs/[jobId]/interview-questions/reorder — body { ids: [...] }
 export const POST = withAuth(async (request, { params, user }) => {
   try {
     const { jobId } = params;
@@ -21,17 +20,14 @@ export const POST = withAuth(async (request, { params, user }) => {
       return NextResponse.json({ error: "Job not found" }, { status: 404 });
     }
 
-    const result = await applyShortlist(jobId, { triggeredBy: user.id, onShortlisted: queueAfterShortlist });
-    return NextResponse.json({
-      success: true,
-      shortlisted: result.shortlisted.length,
-      notShortlisted: result.notShortlisted.length,
-      alreadyShortlisted: result.alreadyShortlisted,
-      minFitScore: result.minFitScore,
-      maxShortlist: result.maxShortlist,
-    });
+    const body = await request.json().catch(() => ({}));
+    const order = await reorderQuestions(jobId, body?.ids);
+    return NextResponse.json({ success: true, order });
   } catch (error) {
-    console.error("Shortlist error:", error?.message);
+    if (error instanceof QuestionBankError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    console.error("Reorder interview questions error:", error?.message);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }, { requireUser: true });

@@ -111,10 +111,10 @@ Plan first, wait for "go". Afterwards give me a manual test script using the fix
 **Docs:** 07
 
 **Tasks**
-- [ ] `libs/ai/prompts/questions.js` + `libs/interview/question-generator.js` (+ validation).
-- [ ] Worker handlers `ensure-questions`, `personalise-questions`.
-- [ ] APIs from 07.
-- [ ] UI page `app/dashboard/recruiter/jobs/[jobId]/interview-questions/page.js` with dnd reorder.
+- [x] `libs/ai/prompts/questions.js` + `libs/interview/question-generator.js` (+ validation).
+- [x] Worker handlers `ensure-questions`, `personalise-questions`.
+- [x] APIs from 07.
+- [x] UI page `app/dashboard/recruiter/jobs/[jobId]/interview-questions/page.js` with dnd reorder.
 
 **Acceptance:** 07 acceptance list.
 
@@ -251,7 +251,7 @@ Read CLAUDE.md, docs/ai-hiring/15-env-deployment.md and 17-testing.md. Implement
 | 0 | ☑ | 2026-10-02 | `feat(hiring): phase 0 – foundations and restructure` | Full `npm run build` still fails on pre-existing lint errors in 5 non-hiring files; verified with `npm run build -- --no-lint`. Docker images not built (no Docker in the dev container). |
 | 1 | ☑ | 2026-10-02 | `feat(hiring): phase 1 – data layer and resume storage` | Verified on local Postgres 16 + Redis: migration applies twice cleanly and matches `schema.ts` (`db:push` reports no changes); PDF stored and downloaded byte-identical; duplicate → 409. LLM parse tested with a stub (no Groq key in the dev container). Added `STORAGE_SIGNING_SECRET`. |
 | 2 | ☑ | 2026-10-02 | `feat(hiring): phase 2 – AI resume screening and shortlist` | End-to-end on local Postgres + Redis + worker with a stub LLM (`LLM_BASE_URL`): 10 fixtures → 9 screened, 1 debounced shortlist run, exactly top 3 shortlisted with min 70 / max 3. The real-score acceptance (strong ≥ 75, unrelated < 40) still needs a run with a Groq key. Hooks to queue `ensure-questions` / `send-invite` after shortlisting are wired in Phases 3 and 6. |
-| 3 | ☐ | | | |
+| 3 | ☑ | 2026-10-02 | `feat(hiring): phase 3 – interview question bank` | Verified on local Postgres + Redis + worker with a stub LLM: shortlist → ensure-questions builds an 8-question bank (warm-up, technical, role, behavioral; invalid question dropped); personalise-questions only for candidates with screening gaps; append/replace/reorder/edit/soft and hard delete; editing a question leaves an existing interview snapshot unchanged. Real-model check (8 valid questions, ≥ 3 keywords each) still needs a Groq key. |
 | 4 | ☐ | | | |
 | 5 | ☐ | | | |
 | 6 | ☐ | | | |

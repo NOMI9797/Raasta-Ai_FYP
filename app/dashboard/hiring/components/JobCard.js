@@ -14,6 +14,7 @@ import {
   Link2,
   Send,
   ExternalLink,
+  MessageCircleQuestion,
 } from "lucide-react";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -147,6 +148,12 @@ export default function JobCard({
           onClick={() => router.push(`/dashboard/recruiter/jobs/${job.id}/candidates`)}
         >
           <Users className="h-3.5 w-3.5" /> View candidates
+        </button>
+        <button
+          className="btn btn-ghost btn-xs gap-1"
+          onClick={() => router.push(`/dashboard/recruiter/jobs/${job.id}/interview-questions`)}
+        >
+          <MessageCircleQuestion className="h-3.5 w-3.5" /> Interview questions
         </button>
       </div>
 
