@@ -21,16 +21,16 @@ If Claude Code drifts, remind it: *"Re-read CLAUDE.md and docs/ai-hiring/<file>.
 **Docs:** 02, 03, 04, 15
 
 **Tasks**
-- [ ] Create the folders: `libs/ai/`, `libs/hiring/`, `libs/interview/`, `libs/interview/stt/`, `services/interview-engine/`, `services/ai-engine/`, `workers/`, `tests/hiring/`, `tests/fixtures/`.
-- [ ] `libs/ai/llm.js` (spec below).
-- [ ] `libs/hiring/config.js` and `libs/hiring/statuses.js` (from 05).
-- [ ] `libs/mailgun.js`: change `import config from "@/config"` to a relative import (`../config`).
-- [ ] `libs/db.ts`: SSL configurable via `DATABASE_SSL`.
-- [ ] Root `package.json`: scripts + deps from 15; `.env.example`; `.gitignore` gets `.storage/`, `services/ai-engine/.venv/`, `__pycache__/`.
-- [ ] `scripts/check-branding.sh` in place and wired to `npm run check:branding`.
-- [ ] Engine skeleton: `services/interview-engine/index.js` with `/health` and a WS endpoint that verifies the ticket and echoes `session_ready`.
-- [ ] Worker skeleton: `workers/hiring-worker.js` with the consumer group loop and a `ping` job type.
-- [ ] ai-engine skeleton: `main.py` with `/health` + auth dependency, `requirements.txt`, `Dockerfile`.
+- [x] Create the folders: `libs/ai/`, `libs/hiring/`, `libs/interview/`, `libs/interview/stt/`, `services/interview-engine/`, `services/ai-engine/`, `workers/`, `tests/hiring/`, `tests/fixtures/`.
+- [x] `libs/ai/llm.js` (spec below).
+- [x] `libs/hiring/config.js` and `libs/hiring/statuses.js` (from 05).
+- [x] `libs/mailgun.js`: change `import config from "@/config"` to a relative import (`../config`).
+- [x] `libs/db.ts`: SSL configurable via `DATABASE_SSL`.
+- [x] Root `package.json`: scripts + deps from 15; `.env.example`; `.gitignore` gets `.storage/`, `services/ai-engine/.venv/`, `__pycache__/`.
+- [x] `scripts/check-branding.sh` in place and wired to `npm run check:branding`.
+- [x] Engine skeleton: `services/interview-engine/index.js` with `/health` and a WS endpoint that verifies the ticket and echoes `session_ready`.
+- [x] Worker skeleton: `workers/hiring-worker.js` with the consumer group loop and a `ping` job type. (`libs/hiring/queue.js` was pulled forward from Phase 1 because the worker needs `enqueue()` for retries.)
+- [x] ai-engine skeleton: `main.py` with `/health` + auth dependency, `requirements.txt`, `Dockerfile`.
 
 **`libs/ai/llm.js` spec**
 ```js
@@ -67,7 +67,7 @@ First give me a short plan (files to create/modify), wait for my "go", then impl
 - [ ] Update the apply route as in 06 §1 (validate, store, extract, dedupe, enqueue if autoScreen).
 - [ ] `GET /api/hiring/candidates/[candidateId]/resume`.
 - [ ] Candidate PATCH route uses `canTransition` from `statuses.js`.
-- [ ] `libs/hiring/queue.js` `enqueue()` (from 13).
+- [x] `libs/hiring/queue.js` `enqueue()` (from 13). Done in Phase 0.
 
 **Acceptance**
 - The migration applies cleanly, and `npm run db:studio` shows the new tables.
@@ -248,7 +248,7 @@ Read CLAUDE.md, docs/ai-hiring/15-env-deployment.md and 17-testing.md. Implement
 ## Progress log
 | Phase | Status | Date | Commit | Notes |
 |---|---|---|---|---|
-| 0 | ☐ | | | |
+| 0 | ☑ | 2026-10-02 | `feat(hiring): phase 0 – foundations and restructure` | Full `npm run build` still fails on pre-existing lint errors in 5 non-hiring files; verified with `npm run build -- --no-lint`. Docker images not built (no Docker in the dev container). |
 | 1 | ☐ | | | |
 | 2 | ☐ | | | |
 | 3 | ☐ | | | |

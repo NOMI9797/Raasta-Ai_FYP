@@ -44,3 +44,7 @@ public/sitemap-0.xml
 
 # cursor
 .cursor/
+# AI hiring pipeline
+.storage/
+services/ai-engine/.venv/
+__pycache__/

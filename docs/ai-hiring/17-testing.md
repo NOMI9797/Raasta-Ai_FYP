@@ -1,6 +1,6 @@
 # 17 · Testing
 
-The repo has no JS test runner yet. Use Node's built-in runner (`node --test`) run through `tsx` so `libs/db.ts` imports work: `npx tsx --test tests/hiring/`. Python tests use `pytest` in `services/ai-engine/tests/`.
+The repo has no JS test runner yet. Use Node's built-in runner (`node --test`) run through `tsx` so `libs/db.ts` imports work: `npm run test:hiring` (`tsx --test tests/hiring/*.test.js`; Node 21+ no longer expands a directory argument). Python tests use `pytest` in `services/ai-engine/tests/`.
 
 ## 1. Fixtures (`tests/fixtures/`)
 - `jobs/devops-engineer.json`: a fixture job (title, formal description, required skills `["Docker","Kubernetes","AWS","CI/CD","Terraform","Linux"]`, experience `2-4 years`).
@@ -61,5 +61,5 @@ Fake deps: `llm` returns scripted JSON, `tts` returns a tiny buffer, `repo` reco
 Have a backup: a pre-recorded completed interview in the seed data in case the network fails.
 
 ## 5. Quality gates before merging to `main`
-- `npm run lint`, `npm run build`, `npm run check:branding`, `npx tsx --test tests/hiring/`, `pytest services/ai-engine/tests` all pass.
+- `npm run lint`, `npm run build`, `npm run check:branding`, `npm run test:hiring`, `pytest services/ai-engine/tests` all pass.
 - No new hard-coded status strings; no secrets in the diff (`git diff main --stat` + review).

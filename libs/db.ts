@@ -5,7 +5,10 @@ import * as schema from './schema';
 
 // Create the connection
 const connectionString = process.env.DATABASE_URL!;
-const client = postgres(connectionString, { ssl: 'require' });
+// Managed Postgres needs SSL; set DATABASE_SSL=false for a local database
+const client = postgres(connectionString, {
+  ssl: process.env.DATABASE_SSL === 'false' ? false : 'require',
+});
 
 // Create the database instance
 export const db = drizzle(client, { schema });

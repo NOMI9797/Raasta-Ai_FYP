@@ -1,0 +1,209 @@
+/**
+ * Hiring Worker — long-running Redis Streams consumer (docs/ai-hiring/13-workers-automation.md).
+ *
+ * Usage: npm run worker:hiring   (tsx workers/hiring-worker.js)
+ *
+ * Never log resume text, transcripts, tokens or emails — only job type, id, attempt and timing.
+ */
+import "../libs/load-env";
+import os from "os";
+import Redis from "ioredis";
+import { getRedisClient, closeRedisConnection } from "../libs/redis";
+import { STREAM, DEAD, GROUP, enqueue, moveDueDelayed, parseStreamEntry } from "../libs/hiring/queue";
+
+const WORKER_ID = process.env.WORKER_ID || `${os.hostname()}-${process.pid}`;
+const CONCURRENCY = Math.max(1, Number(process.env.HIRING_WORKER_CONCURRENCY) || 3);
+const MAX_ATTEMPTS = 3; // retries after the first failure before dead-lettering
+const READ_BLOCK_MS = 5000;
+const DELAYED_INTERVAL_MS = 5000;
+const RECLAIM_INTERVAL_MS = 60 * 1000;
+const RECLAIM_IDLE_MS = 5 * 60 * 1000;
+const SWEEP_INTERVAL_MS = 15 * 60 * 1000;
+const DEFAULT_TIMEOUT_MS = 60 * 1000;
+
+function log(level, fields) {
+  const line = JSON.stringify({ service: "hiring-worker", level, worker: WORKER_ID, at: new Date().toISOString(), ...fields });
+  (level === "error" ? console.error : console.log)(line);
+}
+
+// ─── Job handlers ───
+// Each handler must be idempotent: it may run more than once for the same job.
+export const handlers = {
+  ping: {
+    timeoutMs: 10 * 1000,
+    async run(payload) {
+      if (payload?.fail) throw new Error("ping asked to fail");
+      return { pong: true };
+    },
+  },
+};
+
+// Periodic maintenance (expire invites, reminders, abandoned sessions) — added in later phases
+const sweeps = [];
+
+// ─── Infrastructure ───
+const redis = getRedisClient(); // shared: XADD, XACK, locks
+const blocking = process.env.REDIS_URL
+  ? new Redis(process.env.REDIS_URL, { maxRetriesPerRequest: null })
+  : new Redis({
+      host: process.env.REDIS_HOST,
+      port: process.env.REDIS_PORT,
+      password: process.env.REDIS_PASSWORD,
+      maxRetriesPerRequest: null,
+    });
+blocking.on("error", (error) => log("error", { msg: "blocking redis error", error: error.message }));
+
+let stopping = false;
+const inFlight = new Set();
+const timers = [];
+
+function withTimeout(promise, ms, type) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${type} timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+function retryDelayMs(attempt, error) {
+  const backoff = 2 ** attempt * 10 * 1000;
+  // Respect Groq's retry-after on rate limits
+  if (error?.code === "rate_limit" && error.retryAfterMs) return Math.max(backoff, error.retryAfterMs);
+  return backoff;
+}
+
+async function deadLetter(job, errorMessage) {
+  await redis.xadd(
+    DEAD, "MAXLEN", "~", 1000, "*",
+    "type", job.type || "",
+    "payload", JSON.stringify(job.payload ?? {}),
+    "attempt", String(job.attempt),
+    "originalId", job.id,
+    "error", errorMessage.slice(0, 500),
+    "failedAt", new Date().toISOString(),
+  );
+}
+
+// Acknowledge only after the job is done or safely re-queued/dead-lettered.
+// If that bookkeeping throws, the message stays pending and reclaimStale() retries it.
+async function processJob(job) {
+  const started = Date.now();
+  const handler = handlers[job.type];
+
+  if (!handler) {
+    await deadLetter(job, `Unknown job type: ${job.type}`);
+    await redis.xack(STREAM, GROUP, job.id);
+    log("error", { type: job.type, id: job.id, attempt: job.attempt, ms: 0, ok: false, error: "unknown job type" });
+    return;
+  }
+
+  try {
+    await withTimeout(handler.run(job.payload, { jobId: job.id, attempt: job.attempt }), handler.timeoutMs || DEFAULT_TIMEOUT_MS, job.type);
+    log("info", { type: job.type, id: job.id, attempt: job.attempt, ms: Date.now() - started, ok: true });
+  } catch (error) {
+    const message = error?.message || String(error);
+    if (job.attempt < MAX_ATTEMPTS) {
+      const delayMs = retryDelayMs(job.attempt, error);
+      await enqueue(job.type, job.payload, { delayMs, attempt: job.attempt + 1 }, redis);
+      log("warn", { type: job.type, id: job.id, attempt: job.attempt, ms: Date.now() - started, ok: false, error: message, retryInMs: delayMs });
+    } else {
+      await deadLetter(job, message);
+      log("error", { type: job.type, id: job.id, attempt: job.attempt, ms: Date.now() - started, ok: false, error: message, deadLettered: true });
+    }
+  }
+  await redis.xack(STREAM, GROUP, job.id);
+}
+
+function track(job) {
+  const promise = processJob(job)
+    .catch((error) => log("error", { msg: "job bookkeeping failed", type: job.type, id: job.id, error: error.message }))
+    .finally(() => inFlight.delete(promise));
+  inFlight.add(promise);
+}
+
+async function ensureGroup() {
+  try {
+    // "0" so jobs queued before the first worker ever started are not skipped
+    await redis.xgroup("CREATE", STREAM, GROUP, "0", "MKSTREAM");
+  } catch (error) {
+    if (!String(error?.message).includes("BUSYGROUP")) throw error;
+  }
+}
+
+async function readLoop() {
+  while (!stopping) {
+    const free = CONCURRENCY - inFlight.size;
+    if (free <= 0) {
+      await Promise.race(inFlight);
+      continue;
+    }
+    let result;
+    try {
+      result = await blocking.xreadgroup(
+        "GROUP", GROUP, WORKER_ID,
+        "COUNT", Math.min(5, free),
+        "BLOCK", READ_BLOCK_MS,
+        "STREAMS", STREAM, ">",
+      );
+    } catch (error) {
+      if (stopping) break;
+      log("error", { msg: "read failed", error: error.message });
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      continue;
+    }
+    // Anything read during shutdown stays pending and is reclaimed by the next worker
+    if (!result || stopping) continue;
+    for (const [, entries] of result) {
+      for (const [id, fields] of entries) track(parseStreamEntry(id, fields));
+    }
+  }
+}
+
+async function reclaimStale() {
+  // Recover messages left pending by a crashed worker
+  const [, entries] = await redis.xautoclaim(STREAM, GROUP, WORKER_ID, RECLAIM_IDLE_MS, "0-0", "COUNT", 20);
+  for (const [id, fields] of entries || []) {
+    if (fields) track(parseStreamEntry(id, fields));
+  }
+}
+
+function every(ms, name, fn) {
+  const timer = setInterval(() => {
+    if (stopping) return;
+    fn().catch((error) => log("error", { msg: `${name} failed`, error: error.message }));
+  }, ms);
+  timers.push(timer);
+}
+
+async function shutdown(signal) {
+  if (stopping) return;
+  stopping = true;
+  log("info", { msg: `received ${signal}, finishing ${inFlight.size} in-flight job(s)` });
+  timers.forEach(clearInterval);
+  await Promise.allSettled([...inFlight]);
+  blocking.disconnect();
+  await closeRedisConnection().catch(() => {});
+  log("info", { msg: "stopped" });
+  process.exit(0);
+}
+
+async function main() {
+  await ensureGroup();
+  log("info", { msg: "started", concurrency: CONCURRENCY, jobTypes: Object.keys(handlers) });
+
+  every(DELAYED_INTERVAL_MS, "move delayed jobs", () => moveDueDelayed(redis));
+  every(RECLAIM_INTERVAL_MS, "reclaim stale jobs", reclaimStale);
+  every(SWEEP_INTERVAL_MS, "sweep", async () => {
+    for (const sweep of sweeps) await sweep();
+  });
+
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
+
+  await readLoop();
+}
+
+main().catch((error) => {
+  log("error", { msg: "worker crashed", error: error.message });
+  process.exit(1);
+});

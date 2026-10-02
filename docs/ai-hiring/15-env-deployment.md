@@ -42,7 +42,7 @@ Add `.storage/` to `.gitignore`.
 "engine:start": "tsx services/interview-engine/index.js",
 "worker:hiring": "tsx workers/hiring-worker.js",
 "check:branding": "bash scripts/check-branding.sh",
-"test:hiring": "tsx --test tests/hiring/"
+"test:hiring": "tsx --test tests/hiring/*.test.js"
 ```
 New dependencies: `ws`, `jose`, `@deepgram/sdk`, `pdf-parse`, `@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner`. `tsx` is already present.
 

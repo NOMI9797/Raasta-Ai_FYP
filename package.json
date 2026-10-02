@@ -12,9 +12,17 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "engine:dev": "tsx watch services/interview-engine/index.js",
+    "engine:start": "tsx services/interview-engine/index.js",
+    "worker:hiring": "tsx workers/hiring-worker.js",
+    "check:branding": "bash scripts/check-branding.sh",
+    "test:hiring": "tsx --test tests/hiring/*.test.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1145.0",
+    "@aws-sdk/s3-request-presigner": "^3.1145.0",
+    "@deepgram/sdk": "^5.14.0",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
@@ -34,6 +42,7 @@
     "form-data": "^4.0.0",
     "groq-sdk": "^0.32.0",
     "ioredis": "^5.7.0",
+    "jose": "^6.2.12",
     "lucide-react": "^0.544.0",
     "mailgun.js": "^9.4.1",
     "mammoth": "^1.11.0",
@@ -44,6 +53,7 @@
     "nextjs-toploader": "^1.6.11",
     "nodemailer": "^6.9.13",
     "openai": "^5.20.2",
+    "pdf-parse": "^2.4.5",
     "playwright": "^1.55.0",
     "postgres": "^3.4.7",
     "react": "18.2.0",
@@ -56,7 +66,8 @@
     "sharp": "^0.34.4",
     "stripe": "^13.11.0",
     "tsx": "^4.20.6",
-    "uuid": "^13.0.0"
+    "uuid": "^13.0.0",
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.19",
