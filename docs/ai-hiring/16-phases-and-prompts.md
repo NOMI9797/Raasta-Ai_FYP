@@ -88,12 +88,12 @@ Plan first, wait for "go", then implement. End with verification steps including
 **Docs:** 06, 13, 12 §2–3
 
 **Tasks**
-- [ ] `libs/ai/prompts/fit.js` + `libs/hiring/fit-scorer.js` (prompt, rubric, post-processing, synonyms).
-- [ ] `libs/hiring/shortlist.js` (`applyShortlist`).
-- [ ] Worker handlers: `screen-candidate`, `shortlist-job` (debounced).
-- [ ] APIs: `POST /api/hiring/jobs/[jobId]/screen`, `POST /api/hiring/candidates/[candidateId]/screen`; `PATCH /api/hiring/jobs/[jobId]` accepts a validated `hiringConfig`; the candidates list returns the new fields.
-- [ ] UI: fit badges, screening section, Screen/Re-run buttons, Hiring automation card (12 §2).
-- [ ] Agent pipeline: new `screen_candidates` body.
+- [x] `libs/ai/prompts/fit.js` + `libs/hiring/fit-scorer.js` (prompt, rubric, post-processing, synonyms).
+- [x] `libs/hiring/shortlist.js` (`applyShortlist`).
+- [x] Worker handlers: `screen-candidate`, `shortlist-job` (debounced).
+- [x] APIs: `POST /api/hiring/jobs/[jobId]/screen`, `POST /api/hiring/candidates/[candidateId]/screen`, `POST /api/hiring/jobs/[jobId]/shortlist` (backs the Re-run shortlist button); `PATCH /api/hiring/jobs/[jobId]` accepts a validated `hiringConfig`; the candidates list returns the new fields.
+- [x] UI: fit badges, screening section, Screen/Re-run buttons, Hiring automation card (12 §2).
+- [x] Agent pipeline: new `screen_candidates` body.
 
 **Acceptance:** the 06 acceptance list + 10 fixture resumes ranked sensibly.
 
@@ -250,7 +250,7 @@ Read CLAUDE.md, docs/ai-hiring/15-env-deployment.md and 17-testing.md. Implement
 |---|---|---|---|---|
 | 0 | ☑ | 2026-10-02 | `feat(hiring): phase 0 – foundations and restructure` | Full `npm run build` still fails on pre-existing lint errors in 5 non-hiring files; verified with `npm run build -- --no-lint`. Docker images not built (no Docker in the dev container). |
 | 1 | ☑ | 2026-10-02 | `feat(hiring): phase 1 – data layer and resume storage` | Verified on local Postgres 16 + Redis: migration applies twice cleanly and matches `schema.ts` (`db:push` reports no changes); PDF stored and downloaded byte-identical; duplicate → 409. LLM parse tested with a stub (no Groq key in the dev container). Added `STORAGE_SIGNING_SECRET`. |
-| 2 | ☐ | | | |
+| 2 | ☑ | 2026-10-02 | `feat(hiring): phase 2 – AI resume screening and shortlist` | End-to-end on local Postgres + Redis + worker with a stub LLM (`LLM_BASE_URL`): 10 fixtures → 9 screened, 1 debounced shortlist run, exactly top 3 shortlisted with min 70 / max 3. The real-score acceptance (strong ≥ 75, unrelated < 40) still needs a run with a Groq key. Hooks to queue `ensure-questions` / `send-invite` after shortlisting are wired in Phases 3 and 6. |
 | 3 | ☐ | | | |
 | 4 | ☐ | | | |
 | 5 | ☐ | | | |

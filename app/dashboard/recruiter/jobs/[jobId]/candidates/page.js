@@ -29,9 +29,18 @@ import {
   Github,
   FolderGit2,
   Zap,
+  Gauge,
+  ListChecks,
 } from "lucide-react";
 import toast, { Toaster } from "react-hot-toast";
-import { ALL_STATUSES, CANDIDATE_STATUS, MANUAL_TRANSITIONS, STATUS_META } from "@/libs/hiring/statuses";
+import { CANDIDATE_STATUS, KANBAN_STAGES, MANUAL_TRANSITIONS, STATUS_META } from "@/libs/hiring/statuses";
+import FitBadge, { fitState } from "../../../components/FitBadge";
+import ScreeningSection from "../../../components/ScreeningSection";
+import JobHiringSettings from "../../../components/JobHiringSettings";
+
+// Statuses where the row offers a "Screen" action (docs/ai-hiring/12-recruiter-ui.md §3)
+const SCREENABLE = [CANDIDATE_STATUS.NEW, CANDIDATE_STATUS.SCREENED, CANDIDATE_STATUS.REVIEWED];
+const POLL_MS = 5000;
 
 function statusBadge(status) {
   const meta = STATUS_META[status] || STATUS_META[CANDIDATE_STATUS.NEW];
@@ -81,6 +90,9 @@ export default function JobCandidatesPage({ params }) {
   const [expandedId, setExpandedId] = useState(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [filter, setFilter] = useState("all");
+  const [sortBy, setSortBy] = useState("newest");
+  const [screeningIds, setScreeningIds] = useState(new Set());
+  const [bulkAction, setBulkAction] = useState(null);
 
   const applyUrl =
     typeof window !== "undefined"
@@ -105,6 +117,67 @@ export default function JobCandidatesPage({ params }) {
   useEffect(() => {
     fetchCandidates();
   }, [fetchCandidates]);
+
+  // While any screening is queued, refresh so scores appear without a reload
+  const anyQueued = candidateList.some((c) => fitState(c) === "queued");
+  useEffect(() => {
+    if (!anyQueued) return undefined;
+    const timer = setInterval(fetchCandidates, POLL_MS);
+    return () => clearInterval(timer);
+  }, [anyQueued, fetchCandidates]);
+
+  const handleScreen = async (candidate) => {
+    setScreeningIds((ids) => new Set(ids).add(candidate.id));
+    try {
+      const res = await fetch(`/api/hiring/candidates/${candidate.id}/screen`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      toast.success("Screening queued");
+      await fetchCandidates();
+    } catch (err) {
+      toast.error(err.message || "Failed to queue screening");
+    } finally {
+      setScreeningIds((ids) => {
+        const next = new Set(ids);
+        next.delete(candidate.id);
+        return next;
+      });
+    }
+  };
+
+  const screenAllNew = async () => {
+    setBulkAction("screen");
+    try {
+      const res = await fetch(`/api/hiring/jobs/${jobId}/screen`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      toast.success(data.queued ? `Queued ${data.queued} candidate(s) for screening` : "No new candidates to screen");
+      await fetchCandidates();
+    } catch (err) {
+      toast.error(err.message || "Failed to queue screening");
+    } finally {
+      setBulkAction(null);
+    }
+  };
+
+  const rerunShortlist = async () => {
+    setBulkAction("shortlist");
+    try {
+      const res = await fetch(`/api/hiring/jobs/${jobId}/shortlist`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      toast.success(`Shortlist updated: ${data.shortlisted} shortlisted, ${data.notShortlisted} not shortlisted`);
+      await fetchCandidates();
+    } catch (err) {
+      toast.error(err.message || "Failed to run shortlist");
+    } finally {
+      setBulkAction(null);
+    }
+  };
 
   const handleStatusChange = async (candidateId, newStatus) => {
     setUpdatingId(candidateId);
@@ -169,8 +242,14 @@ export default function JobCandidatesPage({ params }) {
     setTimeout(() => setCopiedLink(false), 2000);
   };
 
-  const filtered =
-    filter === "all" ? candidateList : candidateList.filter((c) => c.status === filter);
+  const stageOf = (c) => STATUS_META[c.status]?.stage || "applied";
+  const filtered = (filter === "all" ? candidateList : candidateList.filter((c) => stageOf(c) === filter))
+    .slice()
+    .sort((a, b) =>
+      sortBy === "fit"
+        ? (b.fitScore ?? -1) - (a.fitScore ?? -1) || new Date(a.appliedAt) - new Date(b.appliedAt)
+        : new Date(b.appliedAt) - new Date(a.appliedAt)
+    );
 
   const countOf = (status) => candidateList.filter((c) => c.status === status).length;
   const counts = {
@@ -179,8 +258,10 @@ export default function JobCandidatesPage({ params }) {
     shortlisted: countOf(CANDIDATE_STATUS.SHORTLISTED),
     rejected: countOf(CANDIDATE_STATUS.REJECTED),
   };
-  // Tabs for the statuses that actually occur, plus the selected one
-  const filterTabs = ["all", ...ALL_STATUSES.filter((s) => s === filter || countOf(s) > 0)];
+  // Filter tabs by pipeline stage: All · Applied · Shortlisted · Interview · Evaluation · Decision · Closed
+  const stageCount = (stage) => candidateList.filter((c) => stageOf(c) === stage).length;
+  const stageLabel = (stage) => KANBAN_STAGES.find((s) => s.value === stage)?.label || stage;
+  const newCount = countOf(CANDIDATE_STATUS.NEW);
 
   if (loading) {
     return (
@@ -221,6 +302,39 @@ export default function JobCandidatesPage({ params }) {
           </button>
         </div>
 
+        {job && (
+          <JobHiringSettings job={job} onSaved={(updated) => setJob((j) => ({ ...j, ...updated }))} />
+        )}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            className="btn btn-primary btn-sm gap-1"
+            onClick={screenAllNew}
+            disabled={bulkAction !== null || newCount === 0}
+            title="Queue AI screening for every new applicant"
+          >
+            {bulkAction === "screen" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Gauge className="h-4 w-4" />}
+            Screen all new{newCount ? ` (${newCount})` : ""}
+          </button>
+          <button
+            className="btn btn-outline btn-sm gap-1"
+            onClick={rerunShortlist}
+            disabled={bulkAction !== null}
+            title="Shortlist screened candidates using the current settings"
+          >
+            {bulkAction === "shortlist" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ListChecks className="h-4 w-4" />}
+            Re-run shortlist
+          </button>
+          <select
+            className="select select-bordered select-sm ml-auto"
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+          >
+            <option value="newest">Newest first</option>
+            <option value="fit">Best fit first</option>
+          </select>
+        </div>
+
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
             { icon: <Users className="h-5 w-5 text-primary" />, label: "Total", val: counts.all },
@@ -237,14 +351,14 @@ export default function JobCandidatesPage({ params }) {
         </div>
 
         <div className="tabs tabs-boxed w-fit">
-          {filterTabs.map((f) => (
+          {["all", ...KANBAN_STAGES.map((s) => s.value)].map((f) => (
             <button
               key={f}
               className={`tab tab-sm ${filter === f ? "tab-active" : ""}`}
               onClick={() => setFilter(f)}
             >
-              {f === "all" ? "All" : STATUS_META[f].label}
-              {f !== "all" && ` (${countOf(f)})`}
+              {f === "all" ? "All" : stageLabel(f)}
+              {` (${f === "all" ? candidateList.length : stageCount(f)})`}
             </button>
           ))}
         </div>
@@ -253,7 +367,7 @@ export default function JobCandidatesPage({ params }) {
           <div className="text-center py-12">
             <Users className="h-10 w-10 text-base-content/20 mx-auto mb-3" />
             <p className="text-base-content/60">
-              No candidates {filter !== "all" ? `with status "${STATUS_META[filter]?.label || filter}"` : "yet"}
+              No candidates {filter !== "all" ? `in "${stageLabel(filter)}"` : "yet"}
             </p>
             <p className="text-xs text-base-content/40 mt-1">
               Share the apply link to start receiving applications
@@ -316,7 +430,21 @@ export default function JobCandidatesPage({ params }) {
                       </span>
                     )}
 
+                    <FitBadge candidate={c} size="badge-xs" />
+
                     <span className={`badge badge-xs ${badge.color}`}>{badge.label}</span>
+
+                    {SCREENABLE.includes(c.status) && (
+                      <button
+                        className="btn btn-ghost btn-xs gap-1"
+                        title={c.fitScore != null ? "Re-screen" : "Screen"}
+                        onClick={(e) => { e.stopPropagation(); handleScreen(c); }}
+                        disabled={screeningIds.has(c.id) || fitState(c) === "queued"}
+                      >
+                        <Gauge className="h-3.5 w-3.5" />
+                        <span className="hidden md:inline">{c.fitScore != null ? "Re-screen" : "Screen"}</span>
+                      </button>
+                    )}
 
                     <select
                       className="select select-bordered select-xs w-36"
@@ -388,6 +516,12 @@ export default function JobCandidatesPage({ params }) {
                           Applied {new Date(c.appliedAt).toLocaleDateString()}
                         </p>
                       </div>
+
+                      <ScreeningSection
+                        candidate={c}
+                        onScreen={handleScreen}
+                        screening={screeningIds.has(c.id)}
+                      />
 
                       {c.coverNote && (
                         <div className="p-4">

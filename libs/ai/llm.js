@@ -34,7 +34,14 @@ let client = null;
 
 function getClient() {
   if (!client) {
-    client = new OpenAI({ apiKey: process.env.GROQ_API_KEY || "", baseURL: GROQ_BASE_URL });
+    client = new OpenAI({
+      apiKey: process.env.GROQ_API_KEY || "",
+      // LLM_BASE_URL lets you point at another OpenAI-compatible endpoint (defaults to Groq)
+      baseURL: process.env.LLM_BASE_URL || GROQ_BASE_URL,
+      // Callers own retries (chatJSON, fit scorer, worker backoff); fail fast instead of hanging
+      timeout: 30 * 1000,
+      maxRetries: 0,
+    });
   }
   return client;
 }

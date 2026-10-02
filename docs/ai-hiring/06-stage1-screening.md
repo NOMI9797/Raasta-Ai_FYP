@@ -77,6 +77,7 @@ export async function applyShortlist(jobId, { triggeredBy = 'system' } = {})
 |---|---|---|
 | `POST /api/hiring/jobs/[jobId]/screen` | withAuth + owner | Body `{ rescore?: boolean }`. Enqueues `screen-candidate` for every `new` candidate (or all, if rescore), then `shortlist-job`. Returns counts |
 | `POST /api/hiring/candidates/[candidateId]/screen` | withAuth + owner | Re-screen one candidate |
+| `POST /api/hiring/jobs/[jobId]/shortlist` | withAuth + owner | Run `applyShortlist` now (the "Re-run shortlist" button) and return counts |
 | `PATCH /api/hiring/jobs/[jobId]` | existing | Accepts `hiringConfig` (validated) |
 | `GET /api/hiring/candidates?jobId=` | existing | Must now return `fitScore`, `fitAnalysis`, `finalScore` and the latest interview summary |
 

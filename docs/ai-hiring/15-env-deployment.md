@@ -12,6 +12,7 @@ Add these to `.env.local` (dev) and the deployment environment. Also create `.en
 | `GROQ_API_KEY` | web, engine, worker | existing | LLM + Whisper fallback |
 | `LLM_MODEL` | `libs/ai/llm.js` | `llama-3.3-70b-versatile` | main model |
 | `LLM_FAST_MODEL` | `libs/ai/llm.js` | `llama-3.1-8b-instant` | analyzer pre-checks (optional) |
+| `LLM_BASE_URL` | `libs/ai/llm.js` | `https://api.groq.com/openai/v1` | optional; any OpenAI-compatible endpoint (also used for a local stub in tests) |
 | `NEXT_PUBLIC_APP_URL` | web, worker | `http://localhost:8085` | used in email links |
 | `NEXT_PUBLIC_INTERVIEW_WS_URL` | web (client) | `ws://localhost:8090/ws` | `wss://…/ws` in prod |
 | `INTERVIEW_TICKET_SECRET` | web, engine | 32+ random bytes | JWT HS256 |

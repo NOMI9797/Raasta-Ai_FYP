@@ -3,6 +3,7 @@ import { db } from "@/libs/db";
 import { jobs } from "@/libs/schema";
 import { eq, and } from "drizzle-orm";
 import { withAuth } from "@/libs/auth-middleware";
+import { validateHiringConfig } from "@/libs/hiring/config";
 
 function ownerFilter(jobId, user) {
   return user.role === "admin"
@@ -57,6 +58,29 @@ export const PATCH = withAuth(async (request, { params, user }) => {
     const setData = { updatedAt: new Date() };
     for (const key of allowedFields) {
       if (body[key] !== undefined) setData[key] = body[key];
+    }
+
+    // Hiring automation settings: a partial update merges onto the job's saved settings,
+    // then the whole config is validated and stored normalised (weights sum to 1)
+    if (body.hiringConfig !== undefined) {
+      const [existing] = await db
+        .select({ hiringConfig: jobs.hiringConfig })
+        .from(jobs)
+        .where(ownerFilter(jobId, user))
+        .limit(1);
+      if (!existing) {
+        return NextResponse.json({ error: "Job not found" }, { status: 404 });
+      }
+      const incoming = body.hiringConfig;
+      const saved = existing.hiringConfig || {};
+      const merged = incoming && typeof incoming === "object" && !Array.isArray(incoming)
+        ? { ...saved, ...incoming, finalWeights: { ...(saved.finalWeights || {}), ...(incoming.finalWeights || {}) } }
+        : incoming;
+      const { config, errors } = validateHiringConfig(merged);
+      if (errors.length) {
+        return NextResponse.json({ error: "Invalid hiring settings", details: errors }, { status: 400 });
+      }
+      setData.hiringConfig = config;
     }
 
     if (body.status === "published" && !body.publishedAt) {

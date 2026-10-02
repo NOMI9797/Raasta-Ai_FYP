@@ -16,6 +16,7 @@ import {
 import Sidebar from "@/components/layout/Sidebar";
 import TopBar from "@/components/layout/TopBar";
 import { ALL_STATUSES, CANDIDATE_STATUS, MANUAL_TRANSITIONS, STATUS_META } from "@/libs/hiring/statuses";
+import FitBadge from "../components/FitBadge";
 
 function statusBadge(status) {
   const meta = STATUS_META[status] || STATUS_META[CANDIDATE_STATUS.NEW];
@@ -213,6 +214,7 @@ export default function UnifiedCandidatesPage() {
                       <th>Candidate</th>
                       <th>Job</th>
                       <th>Source</th>
+                      <th>Fit</th>
                       <th>Status</th>
                       <th>Applied</th>
                       <th></th>
@@ -232,6 +234,9 @@ export default function UnifiedCandidatesPage() {
                           <td className="text-sm">{job?.title ?? "—"}</td>
                           <td>
                             <span className="badge badge-outline badge-sm capitalize">{source}</span>
+                          </td>
+                          <td>
+                            <FitBadge candidate={c} size="badge-sm" />
                           </td>
                           <td>
                             <select

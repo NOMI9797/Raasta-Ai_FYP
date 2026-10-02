@@ -10,6 +10,8 @@ import os from "os";
 import Redis from "ioredis";
 import { getRedisClient, closeRedisConnection } from "../libs/redis";
 import { STREAM, DEAD, GROUP, enqueue, moveDueDelayed, parseStreamEntry } from "../libs/hiring/queue";
+import { screenCandidate } from "../libs/hiring/fit-scorer";
+import { applyShortlist } from "../libs/hiring/shortlist";
 
 const WORKER_ID = process.env.WORKER_ID || `${os.hostname()}-${process.pid}`;
 const CONCURRENCY = Math.max(1, Number(process.env.HIRING_WORKER_CONCURRENCY) || 3);
@@ -20,6 +22,7 @@ const RECLAIM_INTERVAL_MS = 60 * 1000;
 const RECLAIM_IDLE_MS = 5 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 15 * 60 * 1000;
 const DEFAULT_TIMEOUT_MS = 60 * 1000;
+const SHORTLIST_DEBOUNCE_MS = 30 * 1000;
 
 function log(level, fields) {
   const line = JSON.stringify({ service: "hiring-worker", level, worker: WORKER_ID, at: new Date().toISOString(), ...fields });
@@ -34,6 +37,28 @@ export const handlers = {
     async run(payload) {
       if (payload?.fail) throw new Error("ping asked to fail");
       return { pong: true };
+    },
+  },
+
+  // Stage 1: fit score one candidate, then schedule one shortlist run per job.
+  // Many screenings finishing close together share a single shortlist-job (debounce lock).
+  "screen-candidate": {
+    timeoutMs: 60 * 1000,
+    async run({ candidateId }) {
+      const result = await screenCandidate(candidateId);
+      if (result.skipped) return result;
+      const acquired = await redis.set(`lock:shortlist-pending:${result.jobId}`, WORKER_ID, "PX", SHORTLIST_DEBOUNCE_MS, "NX");
+      if (acquired) {
+        await enqueue("shortlist-job", { jobId: result.jobId }, { delayMs: SHORTLIST_DEBOUNCE_MS }, redis);
+      }
+      return result;
+    },
+  },
+
+  "shortlist-job": {
+    timeoutMs: 60 * 1000,
+    async run({ jobId }) {
+      return applyShortlist(jobId, { triggeredBy: "system" });
     },
   },
 };

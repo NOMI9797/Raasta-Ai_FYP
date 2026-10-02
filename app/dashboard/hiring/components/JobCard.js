@@ -119,6 +119,23 @@ export default function JobCard({
         </div>
       )}
 
+      {/* Pipeline counters (docs/ai-hiring/12-recruiter-ui.md §2) */}
+      {job.counts && (
+        <div className="grid grid-cols-4 gap-2 text-center">
+          {[
+            ["Applied", job.counts.applied],
+            ["Shortlisted", job.counts.shortlisted],
+            ["Interviewed", job.counts.interviewed],
+            ["Final", job.counts.final],
+          ].map(([label, value]) => (
+            <div key={label} className="bg-base-100 rounded-lg py-1.5 border border-base-300">
+              <p className="text-sm font-semibold">{value}</p>
+              <p className="text-[10px] text-base-content/60">{label}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Apply link + candidates */}
       <div className="flex items-center gap-2 flex-wrap">
         <button className="btn btn-ghost btn-xs gap-1" onClick={handleCopyLink}>

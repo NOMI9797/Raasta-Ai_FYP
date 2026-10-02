@@ -1,7 +1,12 @@
 import { jobs, candidates } from "@/libs/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, isNotNull } from "drizzle-orm";
 import OpenAI from "openai";
 import { getAdapter } from "@/libs/platforms";
+import { CANDIDATE_STATUS } from "@/libs/hiring/statuses";
+import { screenCandidate } from "@/libs/hiring/fit-scorer";
+import { applyShortlist } from "@/libs/hiring/shortlist";
+
+const SCREEN_CONCURRENCY = 3;
 
 const groq = new OpenAI({
   apiKey: process.env.GROQ_API_KEY || "",
@@ -260,7 +265,7 @@ ${salaryPart}
               name: candidate.name || "Rozee Candidate",
               email: candidate.email || `rozee_${Date.now()}_${inserted}@unknown.local`,
               linkedinUrl: candidate.profileUrl,
-              status: "new",
+              status: CANDIDATE_STATUS.NEW,
               source: "rozee",
               sourceData: candidate,
               parsedData: {
@@ -297,7 +302,7 @@ ${salaryPart}
         return {
           jobId,
           totalCandidates: allCandidates.length,
-          newCount: allCandidates.filter((c) => c.status === "new").length,
+          newCount: allCandidates.filter((c) => c.status === CANDIDATE_STATUS.NEW).length,
           candidates: allCandidates.map((c) => ({
             id: c.id,
             name: c.name,
@@ -309,58 +314,55 @@ ${salaryPart}
       },
     },
 
-    // ─── Step 6: AI Screen & Rank Candidates ───
+    // ─── Step 6: AI resume screening + stage-1 shortlist (docs/ai-hiring/06 §5) ───
+    //    Doesn't send interview invites; that is a separate step.
     {
       key: "screen_candidates",
-      label: "AI Screen & Rank Candidates",
+      label: "AI Resume Screening",
       isCheckpoint: false,
       async execute(ctx) {
         const { jobId } = ctx.stepOutputs.load_job;
-        const criteria = ctx.config.autoScreenCriteria || {};
-        const minSkillMatch = criteria.minSkillMatch || 2;
 
-        const [job] = await ctx.db
-          .select()
-          .from(jobs)
-          .where(eq(jobs.id, jobId))
-          .limit(1);
-        const requiredSkills = (job?.requiredSkills || []).map((s) => s.toLowerCase());
+        const [job] = await ctx.db.select().from(jobs).where(eq(jobs.id, jobId)).limit(1);
+        if (!job) throw new Error("Job not found");
 
-        const allCandidates = await ctx.db
-          .select()
+        const pending = await ctx.db
+          .select({ id: candidates.id })
           .from(candidates)
-          .where(and(eq(candidates.jobId, jobId), eq(candidates.status, "new")));
+          .where(and(eq(candidates.jobId, jobId), eq(candidates.status, CANDIDATE_STATUS.NEW)));
 
-        const ranked = [];
-
-        for (const c of allCandidates) {
-          const parsed = c.parsedData || {};
-          const candidateSkills = (parsed.skills || []).map((s) => s.toLowerCase());
-          const matchCount = requiredSkills.filter((rs) =>
-            candidateSkills.some((cs) => cs.includes(rs) || rs.includes(cs))
-          ).length;
-
-          const recommended = matchCount >= minSkillMatch ? "shortlisted" : "reviewed";
-
-          await ctx.db
-            .update(candidates)
-            .set({ status: recommended, updatedAt: new Date() })
-            .where(eq(candidates.id, c.id));
-
-          ranked.push({
-            id: c.id,
-            name: c.name,
-            score: matchCount,
-            recommendation: recommended,
+        // Score a few at a time to stay inside the LLM rate limit and the route time limit
+        const failed = [];
+        let screened = 0;
+        for (let i = 0; i < pending.length; i += SCREEN_CONCURRENCY) {
+          const batch = pending.slice(i, i + SCREEN_CONCURRENCY);
+          const results = await Promise.allSettled(batch.map((c) => screenCandidate(c.id, { database: ctx.db })));
+          results.forEach((r, idx) => {
+            if (r.status === "fulfilled" && !r.value.skipped) screened += 1;
+            else if (r.status === "rejected") failed.push(batch[idx].id);
           });
         }
 
-        ranked.sort((a, b) => b.score - a.score);
+        // minFitScore comes from the job's hiring config; the agent config is only a fallback
+        const fallbackMin = ctx.config.autoScreenCriteria?.minFitScore;
+        const overrides =
+          job.hiringConfig?.minFitScore == null && Number.isFinite(fallbackMin) ? { minFitScore: fallbackMin } : {};
+        const shortlist = await applyShortlist(jobId, { triggeredBy: "agent", overrides, database: ctx.db });
+
+        // Report the job's totals, not just this run's changes (the worker may shortlist concurrently)
+        const ranked = await ctx.db
+          .select({ id: candidates.id, name: candidates.name, fitScore: candidates.fitScore, status: candidates.status })
+          .from(candidates)
+          .where(and(eq(candidates.jobId, jobId), isNotNull(candidates.fitScore)))
+          .orderBy(desc(candidates.fitScore));
 
         return {
-          screened: ranked.length,
-          shortlisted: ranked.filter((r) => r.recommendation === "shortlisted").length,
-          reviewed: ranked.filter((r) => r.recommendation === "reviewed").length,
+          screened,
+          failed: failed.length,
+          shortlisted: ranked.filter((c) => c.status === CANDIDATE_STATUS.SHORTLISTED).length,
+          notShortlisted: ranked.filter((c) => c.status === CANDIDATE_STATUS.NOT_SHORTLISTED).length,
+          minFitScore: shortlist.minFitScore,
+          maxShortlist: shortlist.maxShortlist,
           rankings: ranked,
         };
       },

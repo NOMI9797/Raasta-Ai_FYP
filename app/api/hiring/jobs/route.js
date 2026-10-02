@@ -1,8 +1,38 @@
 import { NextResponse } from "next/server";
 import { db } from "@/libs/db";
-import { jobs } from "@/libs/schema";
-import { eq, desc } from "drizzle-orm";
+import { jobs, candidates } from "@/libs/schema";
+import { eq, desc, inArray, sql } from "drizzle-orm";
 import { withAuth } from "@/libs/auth-middleware";
+import { CANDIDATE_STATUS } from "@/libs/hiring/statuses";
+import { POST_SHORTLIST_STATUSES } from "@/libs/hiring/shortlist";
+
+const INTERVIEWED_STATUSES = [
+  CANDIDATE_STATUS.INTERVIEW_COMPLETED,
+  CANDIDATE_STATUS.FINAL_SHORTLISTED,
+  CANDIDATE_STATUS.FINAL_REJECTED,
+  CANDIDATE_STATUS.HIRED,
+];
+const FINAL_STATUSES = [CANDIDATE_STATUS.FINAL_SHORTLISTED, CANDIDATE_STATUS.HIRED];
+
+// Adds counts { applied, shortlisted, interviewed, final } to each job
+async function withCounts(jobRows) {
+  if (jobRows.length === 0) return jobRows;
+  const grouped = await db
+    .select({ jobId: candidates.jobId, status: candidates.status, n: sql`count(*)::int` })
+    .from(candidates)
+    .where(inArray(candidates.jobId, jobRows.map((j) => j.id)))
+    .groupBy(candidates.jobId, candidates.status);
+
+  const counts = new Map(jobRows.map((j) => [j.id, { applied: 0, shortlisted: 0, interviewed: 0, final: 0 }]));
+  for (const { jobId, status, n } of grouped) {
+    const c = counts.get(jobId);
+    c.applied += n;
+    if (POST_SHORTLIST_STATUSES.includes(status)) c.shortlisted += n;
+    if (INTERVIEWED_STATUSES.includes(status)) c.interviewed += n;
+    if (FINAL_STATUSES.includes(status)) c.final += n;
+  }
+  return jobRows.map((j) => ({ ...j, counts: counts.get(j.id) }));
+}
 
 // GET /api/hiring/jobs - list jobs visible to the current user
 export const GET = withAuth(async (request, { user }) => {
@@ -17,7 +47,7 @@ export const GET = withAuth(async (request, { user }) => {
           .where(eq(jobs.userId, user.id))
           .orderBy(desc(jobs.createdAt));
 
-    return NextResponse.json({ success: true, jobs: allJobs });
+    return NextResponse.json({ success: true, jobs: await withCounts(allJobs) });
   } catch (error) {
     console.error("List jobs error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
