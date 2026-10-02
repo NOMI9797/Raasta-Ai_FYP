@@ -120,8 +120,11 @@ export class InterviewSession {
 
 Common interface:
 ```js
-createStt({ onPartial, onFinal, onError, onClose }) → { write(pcmBuffer), keepAlive(), close() }
+createStt({ onPartial, onFinal, onActivity, onError, onClose }) → { write(pcmBuffer), keepAlive(), flush(), close() }
 ```
+- `onActivity()` fires while the candidate is audibly talking (Deepgram `SpeechStarted` and interim results; Whisper: every 250 ms of loud audio). The session counts the silence window from the last activity **or** final. Whisper finals only arrive once an utterance ends, so a long answer would otherwise be finalised while the candidate is still speaking.
+- `flush()` runs on `answer_done` before the answer is finalised (capped at 2.5 s): Deepgram gets a `Finalize` message; Whisper transcribes what it has buffered.
+- `onClose({ unexpected: true })` lets the session manager reconnect once.
 **Deepgram (`deepgram.js`, default when `DEEPGRAM_API_KEY` is set).** Live streaming with:
 - `model=nova-3, language=en, encoding=linear16, sample_rate=16000, channels=1`
 - `interim_results=true, smart_format=true, punctuate=true`
@@ -151,6 +154,14 @@ synthesize(text, { voice = process.env.TTS_VOICE || 'am_michael' }) → { audio:
 3. Scoring (async, doesn't block the next question)
 
 Target latency from answer end to next question audio: **≤ 4s** with Groq.
+
+## Implementation notes (Phase 5)
+- Files: `services/interview-engine/{index,session-manager,deps}.js`, `libs/interview/session-engine.js`; all dependencies are injected (`deps.js` wires the real ones), so the loop and the manager are unit-tested with fake timers.
+- Nothing is persisted for a plan the pre-speak guard aborts: the answer goes back to the front of the buffer and is saved once, together with the extra speech, when the candidate stops. The next base question is only peeked at until it is spoken.
+- Everything the candidate says between the end of an answer and the next question being sent is treated as barge-in (rule 10), not as part of the next answer.
+- The interview clock excludes time spent disconnected. After an engine restart, the clock is treated as frozen at `last_activity_at`.
+- A socket closed by the client is kept for `resumeWindowMinutes`. After that, `end('abandoned')` marks the interview `completed` if ≥ 50% of the base questions were answered, and otherwise `abandoned` (candidate back to `interview_invited`, or `interview_expired` once the link has expired).
+- In-progress interviews that never reconnect after an engine restart have no resume timer; the worker sweep's `abandonStaleSessions()` ([13-workers-automation.md](13-workers-automation.md)) closes them.
 
 ## Security
 - The ticket JWT is verified on every connection (`typ`, `exp`, `sub`), and the interview row must match `cid`.

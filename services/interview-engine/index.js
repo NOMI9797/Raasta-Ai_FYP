@@ -3,54 +3,53 @@
  *
  * Usage: npm run engine:dev   (tsx watch services/interview-engine/index.js)
  *
- * Phase 0 skeleton: GET /health and WS /ws?ticket=<jwt>, which verifies the ticket and
- * replies session_ready. The interview loop arrives in Phase 5.
- * Runs as a single instance: sessions live in memory.
+ * GET /health and WS /ws?ticket=<jwt>. The ticket is verified on every connection; the
+ * session manager then runs the interview (libs/interview/session-engine.js).
+ * Runs as a single instance: sessions live in memory (horizontal scaling is out of scope).
  */
 import "../../libs/load-env";
 import http from "http";
 import { WebSocketServer } from "ws";
 import { verifyTicket } from "../../libs/interview/tokens";
-import { DEFAULT_HIRING_CONFIG } from "../../libs/hiring/config";
+import { sttProvider } from "../../libs/interview/stt";
+import { CLOSE_CODES, MAX_AUDIO_FRAME_BYTES, SessionManager } from "./session-manager";
+import { createEngineDeps } from "./deps";
+
+export { CLOSE_CODES };
 
 const PORT = Number(process.env.INTERVIEW_ENGINE_PORT) || 8090;
 const MAX_SESSIONS = Number(process.env.INTERVIEW_MAX_SESSIONS) || 20;
 const INTERVIEWER_NAME = process.env.INTERVIEWER_NAME || "Raasta AI Interviewer";
-
-export const CLOSE_CODES = {
-  BAD_TICKET: 4001,
-  NOT_FOUND: 4004,
-  DUPLICATE_SESSION: 4009,
-  ALREADY_COMPLETED: 4010,
-  EXPIRED: 4011,
-  TRY_AGAIN_LATER: 1013,
-  SERVICE_RESTART: 1012,
-};
-
-// interviewId -> WebSocket (one live socket per interview)
-const sessions = new Map();
+const SILENCE_MS = Number(process.env.INTERVIEW_SILENCE_MS) || 8000;
+const SNAPSHOT_MS = 15 * 1000;
+const DEBUG = process.env.LOG_LEVEL === "debug";
 
 function log(level, fields) {
+  if (level === "debug" && !DEBUG) return;
   const line = JSON.stringify({ service: "interview-engine", level, at: new Date().toISOString(), ...fields });
   (level === "error" ? console.error : console.log)(line);
 }
 
-function send(ws, type, payload = {}) {
-  if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type, ...payload }));
-}
+const manager = new SessionManager({
+  deps: createEngineDeps({ log }),
+  maxSessions: MAX_SESSIONS,
+  interviewerName: INTERVIEWER_NAME,
+  silenceMs: SILENCE_MS,
+});
 
 const server = http.createServer((req, res) => {
   const { pathname } = new URL(req.url, "http://localhost");
   if (req.method === "GET" && pathname === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ ok: true, activeSessions: sessions.size }));
+    res.end(JSON.stringify({ ok: true, activeSessions: manager.activeSessions, stt: sttProvider() }));
     return;
   }
   res.writeHead(404, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ error: "Not found" }));
 });
 
-const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
+// Audio frames are ≤ 64 KB; JSON messages are small
+const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_AUDIO_FRAME_BYTES });
 
 server.on("upgrade", (req, socket, head) => {
   const { pathname } = new URL(req.url, "http://localhost");
@@ -64,7 +63,6 @@ server.on("upgrade", (req, socket, head) => {
 
 wss.on("connection", async (ws, req) => {
   const ticket = new URL(req.url, "http://localhost").searchParams.get("ticket");
-
   let claims;
   try {
     claims = await verifyTicket(ticket);
@@ -74,57 +72,30 @@ wss.on("connection", async (ws, req) => {
     ws.close(CLOSE_CODES.BAD_TICKET, error.name === "TicketError" ? error.message : "Invalid ticket");
     return;
   }
-
-  const { interviewId } = claims;
-  if (sessions.has(interviewId)) {
-    send(ws, "error", { code: "duplicate_session", message: "This interview is already open in another window", retryable: false });
-    ws.close(CLOSE_CODES.DUPLICATE_SESSION, "Duplicate session");
-    return;
-  }
-  if (sessions.size >= MAX_SESSIONS) {
-    ws.close(CLOSE_CODES.TRY_AGAIN_LATER, "Engine at capacity");
-    return;
-  }
-
-  sessions.set(interviewId, ws);
-  log("info", { msg: "session attached", interviewId, activeSessions: sessions.size });
-
-  // Phase 0: echo session_ready without loading the interview from the database
-  send(ws, "session_ready", {
-    interviewId,
-    resume: false,
-    totalQuestions: 0,
-    maxMinutes: DEFAULT_HIRING_CONFIG.interviewMaxMinutes,
-    interviewerName: INTERVIEWER_NAME,
-    jobTitle: null,
-  });
-
-  ws.on("message", (data, isBinary) => {
-    if (isBinary) return; // microphone audio — handled from Phase 5
-    let message;
-    try {
-      message = JSON.parse(data.toString());
-    } catch {
-      send(ws, "error", { code: "invalid_state", message: "Messages must be JSON", retryable: false });
-      return;
-    }
-    if (message?.type === "ping") send(ws, "pong", { t: message.t ?? Date.now() });
-  });
-
-  ws.on("close", () => {
-    if (sessions.get(interviewId) === ws) sessions.delete(interviewId);
-    log("info", { msg: "session detached", interviewId, activeSessions: sessions.size });
-  });
+  ws.on("error", (error) => log("warn", { msg: "socket error", interviewId: claims.interviewId, error: error.message }));
+  await manager.attach(ws, claims);
 });
 
-server.listen(PORT, () => log("info", { msg: "listening", port: PORT, maxSessions: MAX_SESSIONS }));
+const snapshotTimer = setInterval(() => {
+  manager.snapshotAll().catch((error) => log("warn", { msg: "snapshot failed", error: error.message }));
+}, SNAPSHOT_MS);
 
-function shutdown(signal) {
-  log("info", { msg: `received ${signal}, closing ${sessions.size} session(s)` });
-  for (const ws of sessions.values()) ws.close(CLOSE_CODES.SERVICE_RESTART, "Engine restarting");
+server.listen(PORT, () => log("info", { msg: "listening", port: PORT, maxSessions: MAX_SESSIONS, stt: sttProvider() }));
+
+let shuttingDown = false;
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  log("info", { msg: `received ${signal}, closing ${manager.activeSessions} session(s)` });
+  clearInterval(snapshotTimer);
+  setTimeout(() => process.exit(0), 5000).unref();
+  try {
+    await manager.shutdown();
+  } catch (error) {
+    log("error", { msg: "shutdown snapshot failed", error: error.message });
+  }
   wss.close();
   server.close(() => process.exit(0));
-  setTimeout(() => process.exit(0), 5000).unref();
 }
 
 process.on("SIGTERM", () => shutdown("SIGTERM"));

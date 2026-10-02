@@ -151,12 +151,12 @@ Plan first, wait for "go".
 **Docs:** 09, 04 (loop rules), 05
 
 **Tasks**
-- [ ] `libs/interview/{tokens,mappers,answer-analyzer,answer-scorer,follow-up,tts-client,repository,events}.js`.
-- [ ] `libs/interview/session-engine.js` (`InterviewSession`): port the loop **preserving every rule in 04**.
-- [ ] STT adapters: Deepgram + Whisper fallback.
-- [ ] `services/interview-engine/{index,session-manager}.js`: ticket auth, protocol from 09, snapshots, resume, shutdown.
-- [ ] Unit tests for the session engine with fake deps (see 17).
-- [ ] Test client script `scripts/interview-test-client.js` that streams fixture WAVs.
+- [x] `libs/interview/{tokens,mappers,answer-analyzer,answer-scorer,follow-up,tts-client,repository,events}.js`.
+- [x] `libs/interview/session-engine.js` (`InterviewSession`): port the loop **preserving every rule in 04**.
+- [x] STT adapters: Deepgram + Whisper fallback.
+- [x] `services/interview-engine/{index,session-manager}.js`: ticket auth, protocol from 09, snapshots, resume, shutdown.
+- [x] Unit tests for the session engine with fake deps (see 17).
+- [x] Test client script `scripts/interview-test-client.js` that streams fixture WAVs.
 
 **Acceptance:** 09 acceptance list + unit tests pass.
 
@@ -253,7 +253,7 @@ Read CLAUDE.md, docs/ai-hiring/15-env-deployment.md and 17-testing.md. Implement
 | 2 | ☑ | 2026-10-02 | `feat(hiring): phase 2 – AI resume screening and shortlist` | End-to-end on local Postgres + Redis + worker with a stub LLM (`LLM_BASE_URL`): 10 fixtures → 9 screened, 1 debounced shortlist run, exactly top 3 shortlisted with min 70 / max 3. The real-score acceptance (strong ≥ 75, unrelated < 40) still needs a run with a Groq key. Hooks to queue `ensure-questions` / `send-invite` after shortlisting are wired in Phases 3 and 6. |
 | 3 | ☑ | 2026-10-02 | `feat(hiring): phase 3 – interview question bank` | Verified on local Postgres + Redis + worker with a stub LLM: shortlist → ensure-questions builds an 8-question bank (warm-up, technical, role, behavioral; invalid question dropped); personalise-questions only for candidates with screening gaps; append/replace/reorder/edit/soft and hard delete; editing a question leaves an existing interview snapshot unchanged. Real-model check (8 valid questions, ≥ 3 keywords each) still needs a Groq key. |
 | 4 | ☑ | 2026-10-02 | `feat(hiring): phase 4 – AI engine` | 34 pytest tests pass. Real: storage, /media/concat (MediaRecorder chunks and separate files), voice metrics on the fixture, gaze with the real MediaPipe model on a real face, face router with a stand-in classifier. TTS and speech emotion tested with stand-in models only: huggingface.co and download.pytorch.org were blocked in the dev container, so the `/tts` → playable WAV acceptance must be run on a machine that can reach HuggingFace. |
-| 5 | ☐ | | | |
+| 5 | ☑ | 2026-10-02 | `feat(hiring): phase 5 – interview engine` | 116 unit tests pass (all 11 session-engine scenarios from 17, plus analyzer, scorer, follow-up, STT adapters and session manager). End-to-end on local Postgres + Redis + engine + ai-engine (TTS 503 → `audio:null`, browser speech) with espeak-ng fixture WAVs, a stub LLM and a scripted transcriber (the speech-model hosts are blocked in the dev container): 3-question interview completes (12 turns, 5 scored responses, weighted score, candidate `interview_completed`, `analyse-interview` queued); `answer_done` → next question in < 50 ms with the stub LLM; drop mid-answer → reconnect resumes the same question, with the time away excluded; talking during processing merges into the answer and never produces two questions. Found and fixed during e2e: the silence window now also counts voice activity, because Whisper finals lag behind speech. Real Groq latency (target ≤ 4 s) and Deepgram still need a run with keys. `analyse-interview` has no worker handler until Phase 8. |
 | 6 | ☐ | | | |
 | 7 | ☐ | | | |
 | 8 | ☐ | | | |
