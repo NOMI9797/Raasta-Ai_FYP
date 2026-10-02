@@ -15,6 +15,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import Sidebar from "@/components/layout/Sidebar";
+import { useSidebar } from "@/components/layout/SidebarContext";
 import TopBar from "@/components/layout/TopBar";
 import { PLATFORM_LIST } from "@/libs/platforms/meta";
 
@@ -29,7 +30,7 @@ export default function LeadScraperPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
 
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } = useSidebar();
   const [platform, setPlatform] = useState("rozee");
   const [filters, setFilters] = useState({
     query: "",
@@ -208,8 +209,8 @@ export default function LeadScraperPage() {
         activeSection="sales-lead-scraper"
       />
       <div
-        className={`flex-1 transition-all duration-300 ${
-          sidebarCollapsed ? "ml-16" : "ml-64"
+        className={`flex-1 min-w-0 transition-all duration-300 ${
+          sidebarCollapsed ? "ml-16" : "ml-16 md:ml-64"
         } flex flex-col`}
       >
         <TopBar title="Lead Scraper" />

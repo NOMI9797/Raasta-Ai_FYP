@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import Sidebar from "@/components/layout/Sidebar";
+import { useSidebar } from "@/components/layout/SidebarContext";
 import TopBar from "@/components/layout/TopBar";
 import {
   Briefcase,
@@ -17,7 +18,7 @@ import {
 
 export default function HomePage() {
   const { data: session } = useSession();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } = useSidebar();
   const [stats, setStats] = useState({ loading: true });
 
   const modes = Array.isArray(session?.user?.modes) ? session.user.modes : [];
@@ -57,7 +58,7 @@ export default function HomePage() {
         onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
         activeSection="home"
       />
-      <div className={`flex-1 transition-all duration-300 ${sidebarCollapsed ? "ml-16" : "ml-64"} flex flex-col`}>
+      <div className={`flex-1 min-w-0 transition-all duration-300 ${sidebarCollapsed ? "ml-16" : "ml-16 md:ml-64"} flex flex-col`}>
         <TopBar title="Home" />
         <main className="flex-1 p-6 space-y-6">
           <div>

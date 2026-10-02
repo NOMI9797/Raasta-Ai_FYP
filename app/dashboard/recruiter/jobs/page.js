@@ -6,6 +6,7 @@ import { useEffect, useState, useCallback } from "react";
 import toast from "react-hot-toast";
 import { Plus, Briefcase, Bot, Loader2 } from "lucide-react";
 import Sidebar from "@/components/layout/Sidebar";
+import { useSidebar } from "@/components/layout/SidebarContext";
 import TopBar from "@/components/layout/TopBar";
 import CreateJobModal from "@/app/dashboard/hiring/components/CreateJobModal";
 import JobCard from "@/app/dashboard/hiring/components/JobCard";
@@ -13,11 +14,13 @@ import JobCard from "@/app/dashboard/hiring/components/JobCard";
 export default function RecruiterJobsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } = useSidebar();
 
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  // Bumped after each create so the modal remounts with an empty form
+  const [createFormKey, setCreateFormKey] = useState(0);
   const [creating, setCreating] = useState(false);
   const [generatingId, setGeneratingId] = useState(null);
   const [launchingAgent, setLaunchingAgent] = useState(false);
@@ -41,7 +44,8 @@ export default function RecruiterJobsPage() {
       setLoading(true);
       const res = await fetch("/api/hiring/jobs");
       const data = await res.json();
-      if (data.success) setJobs(data.jobs || []);
+      if (!res.ok || !data.success) throw new Error(data.error);
+      setJobs(data.jobs || []);
     } catch {
       toast.error("Failed to load jobs");
     } finally {
@@ -65,6 +69,7 @@ export default function RecruiterJobsPage() {
       if (!res.ok) throw new Error(data.error);
       setJobs((prev) => [data.job, ...prev]);
       setShowCreate(false);
+      setCreateFormKey((k) => k + 1);
       toast.success("Job created successfully");
     } catch (err) {
       toast.error(err.message || "Failed to create job");
@@ -74,6 +79,14 @@ export default function RecruiterJobsPage() {
   };
 
   const handleDelete = async (jobId) => {
+    const job = jobs.find((j) => j.id === jobId);
+    if (
+      !confirm(
+        `Delete "${job?.title || "this job"}"?\n\nThis also deletes all of its candidates, interviews and interview questions. This cannot be undone.`
+      )
+    ) {
+      return;
+    }
     try {
       const res = await fetch(`/api/hiring/jobs/${jobId}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Delete failed");
@@ -107,6 +120,9 @@ export default function RecruiterJobsPage() {
   };
 
   const handlePublishToRozee = async (jobId) => {
+    const job = jobs.find((j) => j.id === jobId);
+    const verb = job?.rozeePublishedAt ? "Re-publish" : "Publish";
+    if (!confirm(`${verb} "${job?.title || "this job"}" to Rozee.pk? It will be visible publicly.`)) return;
     try {
       setPublishingRozeeId(jobId);
       const res = await fetch(`/api/rozee/jobs/${jobId}/publish`, {
@@ -179,13 +195,13 @@ export default function RecruiterJobsPage() {
         activeSection="recruiter-jobs"
       />
       <div
-        className={`flex-1 transition-all duration-300 ${
-          sidebarCollapsed ? "ml-16" : "ml-64"
+        className={`flex-1 min-w-0 transition-all duration-300 ${
+          sidebarCollapsed ? "ml-16" : "ml-16 md:ml-64"
         } flex flex-col h-full overflow-hidden`}
       >
         <TopBar title="Jobs" />
         <main className="flex-1 p-6 overflow-auto space-y-6">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h1 className="text-2xl font-bold text-base-content">Jobs</h1>
               <p className="text-sm text-base-content/70 mt-1">
@@ -260,6 +276,7 @@ export default function RecruiterJobsPage() {
       </div>
 
       <CreateJobModal
+        key={createFormKey}
         open={showCreate}
         onClose={() => setShowCreate(false)}
         onSubmit={handleCreate}

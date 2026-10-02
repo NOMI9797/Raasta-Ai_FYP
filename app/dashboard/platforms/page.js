@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import Sidebar from "@/components/layout/Sidebar";
+import { useSidebar } from "@/components/layout/SidebarContext";
 import TopBar from "@/components/layout/TopBar";
 import RozeeAccountsPanel from "@/app/dashboard/accounts/components/RozeeAccountsPanel";
 import LinkedInAccountsPanel from "./components/LinkedInAccountsPanel";
@@ -16,7 +17,7 @@ const PLATFORMS = PLATFORM_LIST;
 export default function PlatformsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } = useSidebar();
   const [active, setActive] = useState("linkedin");
 
   useEffect(() => {
@@ -42,7 +43,7 @@ export default function PlatformsPage() {
         onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
         activeSection="platforms"
       />
-      <div className={`flex-1 transition-all duration-300 ${sidebarCollapsed ? "ml-16" : "ml-64"} flex flex-col`}>
+      <div className={`flex-1 min-w-0 transition-all duration-300 ${sidebarCollapsed ? "ml-16" : "ml-16 md:ml-64"} flex flex-col`}>
         <TopBar title="Platforms" />
         <main className="flex-1 p-6 space-y-6">
           <div>

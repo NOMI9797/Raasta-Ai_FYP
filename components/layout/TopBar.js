@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useSession } from "next-auth/react";
+import Link from "next/link";
+import { useSession, signOut } from "next-auth/react";
+import NotificationBell from "./NotificationBell";
 import {
-  Bell,
   Moon,
   Sun,
   User,
@@ -11,7 +12,7 @@ import {
   Settings,
 } from "lucide-react";
 
-export default function TopBar({ title = "Campaigns", showStatus = true }) {
+export default function TopBar({ title = "Campaigns", showStatus = false }) {
   const { data: session } = useSession();
   const [theme, setTheme] = useState("reachly");
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -33,8 +34,7 @@ export default function TopBar({ title = "Campaigns", showStatus = true }) {
   };
 
   const handleLogout = () => {
-    // This would typically call a logout API
-    window.location.href = "/api/auth/signout";
+    signOut({ callbackUrl: "/" });
   };
 
   return (
@@ -71,10 +71,7 @@ export default function TopBar({ title = "Campaigns", showStatus = true }) {
         </button>
 
         {/* Notifications */}
-        <button className="btn btn-ghost btn-sm btn-circle relative">
-          <Bell className="h-4 w-4" />
-          <div className="absolute -top-1 -right-1 w-3 h-3 bg-error rounded-full"></div>
-        </button>
+        <NotificationBell />
 
         {/* User Menu */}
         <div className="relative">
@@ -82,6 +79,8 @@ export default function TopBar({ title = "Campaigns", showStatus = true }) {
             onClick={() => setShowUserMenu(!showUserMenu)}
             className="btn btn-ghost btn-sm btn-circle"
             aria-label="User menu"
+            aria-haspopup="menu"
+            aria-expanded={showUserMenu}
           >
             {session?.user?.image ? (
               <img
@@ -96,21 +95,31 @@ export default function TopBar({ title = "Campaigns", showStatus = true }) {
 
           {/* Dropdown Menu */}
           {showUserMenu && (
-            <div className="absolute right-0 mt-2 w-48 bg-base-100 border border-base-300 rounded-lg shadow-lg z-50">
+            <div
+              className="absolute right-0 mt-2 w-48 bg-base-100 border border-base-300 rounded-lg shadow-lg z-50"
+              role="menu"
+              onKeyDown={(e) => e.key === "Escape" && setShowUserMenu(false)}
+            >
               <div className="p-3 border-b border-base-300">
                 <div className="text-sm font-semibold text-base-content">
                   {session?.user?.name || "User"}
                 </div>
-                <div className="text-xs text-base-content/60">
+                <div className="text-xs text-base-content/60 truncate">
                   {session?.user?.email}
                 </div>
               </div>
               <div className="py-1">
-                <button className="w-full px-3 py-2 text-left text-sm hover:bg-base-200 flex items-center gap-2">
+                <Link
+                  href="/dashboard/settings"
+                  role="menuitem"
+                  onClick={() => setShowUserMenu(false)}
+                  className="w-full px-3 py-2 text-left text-sm hover:bg-base-200 flex items-center gap-2"
+                >
                   <Settings className="h-4 w-4" />
                   Settings
-                </button>
+                </Link>
                 <button
+                  role="menuitem"
                   onClick={handleLogout}
                   className="w-full px-3 py-2 text-left text-sm hover:bg-base-200 flex items-center gap-2 text-error"
                 >

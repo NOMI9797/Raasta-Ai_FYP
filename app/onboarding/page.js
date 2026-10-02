@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
@@ -62,6 +62,8 @@ export default function OnboardingPage() {
   const [credentials, setCredentials] = useState({ email: "", password: "" });
   const [showPassword, setShowPassword] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  // Set once modes are saved here, so the session refresh doesn't skip step 2
+  const savedModesHere = useRef(false);
 
   useEffect(() => {
     if (status === "loading") return;
@@ -70,7 +72,7 @@ export default function OnboardingPage() {
       return;
     }
     const modes = session.user?.modes ?? [];
-    if (modes.length > 0) {
+    if (modes.length > 0 && !savedModesHere.current) {
       // Already onboarded — bounce to dashboard.
       router.replace("/dashboard/home");
     }
@@ -100,6 +102,7 @@ export default function OnboardingPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to save modes");
+      savedModesHere.current = true;
       await updateSession();
       setStep(2);
     } catch (err) {

@@ -37,20 +37,14 @@ export const GET = withAuth(async (request, { user }) => {
     const userCampaigns = await db.query.campaigns.findMany(campaignQueryOptions);
     
     if (userCampaigns.length === 0) {
+      // Same shape as the populated response so the dashboard can render zeros
       return NextResponse.json({
         success: true,
         data: {
-          global: {
-            total: 0,
-            pending: 0,
-            sent: 0,
-            accepted: 0,
-            rejected: 0,
-            failed: 0,
-            acceptanceRate: 0
-          },
+          global: calculateStats([]),
           byCampaign: [],
-          timeline: []
+          timeline: calculateTimeline([]),
+          campaigns: []
         }
       });
     }

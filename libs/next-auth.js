@@ -4,7 +4,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import { compare, hash } from "bcryptjs";
 import { db } from "@/libs/db";
 import { users } from "@/libs/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import config from "@/config";
 
 export const authOptions = {
@@ -38,7 +38,8 @@ export const authOptions = {
 
         try {
           // Find user by email
-          const result = await db.select().from(users).where(eq(users.email, credentials.email));
+          const email = credentials.email.trim().toLowerCase();
+          const result = await db.select().from(users).where(sql`lower(${users.email}) = ${email}`);
           const user = result[0];
 
           if (!user || !user.password) {
@@ -89,6 +90,9 @@ export const authOptions = {
   },
   session: {
     strategy: "jwt",
+  },
+  pages: {
+    signIn: "/signin",
   },
   theme: {
     brandColor: config.colors.main,

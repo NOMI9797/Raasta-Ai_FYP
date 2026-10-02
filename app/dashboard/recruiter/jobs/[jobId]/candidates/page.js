@@ -33,7 +33,8 @@ import {
   ListChecks,
   MessageCircleQuestion,
 } from "lucide-react";
-import toast, { Toaster } from "react-hot-toast";
+import toast from "react-hot-toast";
+import DashboardShell from "@/components/layout/DashboardShell";
 import { CANDIDATE_STATUS, KANBAN_STAGES, MANUAL_TRANSITIONS, STATUS_META } from "@/libs/hiring/statuses";
 import FitBadge, { fitState } from "../../../components/FitBadge";
 import ScreeningSection from "../../../components/ScreeningSection";
@@ -86,6 +87,7 @@ export default function JobCandidatesPage({ params }) {
   const [job, setJob] = useState(null);
   const [candidateList, setCandidateList] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [updatingId, setUpdatingId] = useState(null);
   const [reparsingId, setReparsingId] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
@@ -104,12 +106,12 @@ export default function JobCandidatesPage({ params }) {
     try {
       const res = await fetch(`/api/hiring/candidates?jobId=${jobId}`);
       const data = await res.json();
-      if (data.success) {
-        setCandidateList(data.candidates || []);
-        setJob(data.job || null);
-      }
-    } catch {
-      toast.error("Failed to load candidates");
+      if (!res.ok || !data.success) throw new Error(data.error || "Failed to load candidates");
+      setCandidateList(data.candidates || []);
+      setJob(data.job || null);
+      setLoadError("");
+    } catch (err) {
+      setLoadError(err.message || "Failed to load candidates");
     } finally {
       setLoading(false);
     }
@@ -217,8 +219,8 @@ export default function JobCandidatesPage({ params }) {
         )
       );
       toast.success("Resume parsed successfully");
-    } catch {
-      toast.error("Failed to parse resume");
+    } catch (err) {
+      toast.error(err.message || "Failed to parse resume");
     } finally {
       setReparsingId(null);
     }
@@ -272,13 +274,40 @@ export default function JobCandidatesPage({ params }) {
     );
   }
 
+  if (loadError && !job) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-base-100 p-4">
+        <div className="text-center space-y-3">
+          <AlertCircle className="h-12 w-12 text-error mx-auto" />
+          <h1 className="text-xl font-semibold">Couldn&apos;t load this job</h1>
+          <p className="text-base-content/60">{loadError}</p>
+          <div className="flex justify-center gap-2">
+            <button className="btn btn-ghost btn-sm" onClick={() => router.push("/dashboard/recruiter/jobs")}>
+              Back to jobs
+            </button>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={() => { setLoading(true); fetchCandidates(); }}
+            >
+              Try again
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-base-100">
-      <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
+    <DashboardShell title="Candidates" activeSection="recruiter-jobs">
 
       <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
         <div className="flex items-center gap-3">
-          <button className="btn btn-ghost btn-sm" onClick={() => router.push("/dashboard/recruiter/jobs")}>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => router.push("/dashboard/recruiter/jobs")}
+            aria-label="Back to jobs"
+            title="Back to jobs"
+          >
             <ArrowLeft className="h-4 w-4" />
           </button>
           <div className="flex-1 min-w-0">
@@ -334,6 +363,7 @@ export default function JobCandidatesPage({ params }) {
           </button>
           <select
             className="select select-bordered select-sm ml-auto"
+            aria-label="Sort candidates"
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value)}
           >
@@ -357,11 +387,13 @@ export default function JobCandidatesPage({ params }) {
           ))}
         </div>
 
-        <div className="tabs tabs-boxed w-fit">
+        <div className="tabs tabs-boxed w-fit max-w-full overflow-x-auto flex-nowrap" role="tablist">
           {["all", ...KANBAN_STAGES.map((s) => s.value)].map((f) => (
             <button
               key={f}
-              className={`tab tab-sm ${filter === f ? "tab-active" : ""}`}
+              role="tab"
+              aria-selected={filter === f}
+              className={`tab tab-sm whitespace-nowrap ${filter === f ? "tab-active" : ""}`}
               onClick={() => setFilter(f)}
             >
               {f === "all" ? "All" : stageLabel(f)}
@@ -403,8 +435,19 @@ export default function JobCandidatesPage({ params }) {
                   className="bg-base-200 rounded-xl border border-base-300 overflow-hidden"
                 >
                   <div
-                    className="flex items-center gap-3 p-4 cursor-pointer hover:bg-base-300/40 transition-colors"
+                    className="flex flex-wrap sm:flex-nowrap items-center gap-3 p-4 cursor-pointer hover:bg-base-300/40 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={isExpanded}
+                    aria-label={`${displayName}, ${badge.label}. ${isExpanded ? "Hide" : "Show"} details`}
                     onClick={() => setExpandedId(isExpanded ? null : c.id)}
+                    onKeyDown={(e) => {
+                      if (e.target !== e.currentTarget) return;
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setExpandedId(isExpanded ? null : c.id);
+                      }
+                    }}
                   >
                     <div className="bg-primary/10 text-primary rounded-full w-10 h-10 flex items-center justify-center shrink-0 font-bold text-sm">
                       {displayName?.charAt(0)?.toUpperCase() || "?"}
@@ -455,6 +498,7 @@ export default function JobCandidatesPage({ params }) {
 
                     <select
                       className="select select-bordered select-xs w-36"
+                      aria-label={`Status for ${displayName}`}
                       value={c.status}
                       onClick={(e) => e.stopPropagation()}
                       onChange={(e) => handleStatusChange(c.id, e.target.value)}
@@ -725,6 +769,6 @@ export default function JobCandidatesPage({ params }) {
           </div>
         )}
       </div>
-    </div>
+    </DashboardShell>
   );
 }

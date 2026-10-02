@@ -14,6 +14,7 @@ import {
   Eye,
 } from "lucide-react";
 import Sidebar from "@/components/layout/Sidebar";
+import { useSidebar } from "@/components/layout/SidebarContext";
 import TopBar from "@/components/layout/TopBar";
 import { ALL_STATUSES, CANDIDATE_STATUS, MANUAL_TRANSITIONS, STATUS_META } from "@/libs/hiring/statuses";
 import FitBadge from "../components/FitBadge";
@@ -31,7 +32,7 @@ function statusChoices(status) {
 export default function UnifiedCandidatesPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } = useSidebar();
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]);
   const [jobsMap, setJobsMap] = useState({});
@@ -135,7 +136,7 @@ export default function UnifiedCandidatesPage() {
         onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
         activeSection="recruiter-candidates"
       />
-      <div className={`flex-1 transition-all duration-300 ${sidebarCollapsed ? "ml-16" : "ml-64"} flex flex-col`}>
+      <div className={`flex-1 min-w-0 transition-all duration-300 ${sidebarCollapsed ? "ml-16" : "ml-16 md:ml-64"} flex flex-col`}>
         <TopBar title="Candidates" />
         <main className="flex-1 p-6 space-y-6 overflow-auto">
           <div className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between">

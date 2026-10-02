@@ -99,6 +99,7 @@ export default function JobCard({
           className="btn btn-ghost btn-xs text-error"
           onClick={() => onDelete(job.id)}
           title="Delete job"
+          aria-label={`Delete job ${job.title}`}
         >
           <Trash2 className="h-4 w-4" />
         </button>
@@ -163,7 +164,12 @@ export default function JobCard({
           <span className="text-xs font-medium text-base-content/70">LinkedIn post</span>
           <div className="flex items-center gap-1">
             {job.linkedinPost && (
-              <button className="btn btn-ghost btn-xs" onClick={handleCopy}>
+              <button
+                className="btn btn-ghost btn-xs"
+                onClick={handleCopy}
+                title="Copy LinkedIn post"
+                aria-label="Copy LinkedIn post"
+              >
                 {copied ? (
                   <Check className="h-3.5 w-3.5 text-success" />
                 ) : (

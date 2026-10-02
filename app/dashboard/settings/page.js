@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Settings as SettingsIcon, User, Shield, Plug } from "lucide-react";
 import Link from "next/link";
 import Sidebar from "@/components/layout/Sidebar";
+import { useSidebar } from "@/components/layout/SidebarContext";
 import TopBar from "@/components/layout/TopBar";
 
 const MODES = [
@@ -16,7 +17,7 @@ const MODES = [
 export default function SettingsPage() {
   const { data: session, status, update } = useSession();
   const router = useRouter();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } = useSidebar();
   const [modes, setModes] = useState([]);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -78,7 +79,7 @@ export default function SettingsPage() {
         onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
         activeSection="settings"
       />
-      <div className={`flex-1 transition-all duration-300 ${sidebarCollapsed ? "ml-16" : "ml-64"} flex flex-col`}>
+      <div className={`flex-1 min-w-0 transition-all duration-300 ${sidebarCollapsed ? "ml-16" : "ml-16 md:ml-64"} flex flex-col`}>
         <TopBar title="Settings" />
         <main className="flex-1 p-6 space-y-6 max-w-3xl">
           <div>

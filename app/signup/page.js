@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import config from "@/config";
@@ -20,6 +20,14 @@ export default function SignUp() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const router = useRouter();
+  const alertRef = useRef(null);
+
+  // The submit button sits below the fold on small screens; bring the message into view
+  const showError = (message) => {
+    setError(message);
+    setIsLoading(false);
+    requestAnimationFrame(() => alertRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }));
+  };
 
   const handleChange = (field, value) => {
     setFormData((prev) => ({
@@ -35,20 +43,17 @@ export default function SignUp() {
 
     // Validation
     if (formData.password !== formData.confirmPassword) {
-      setError("Passwords do not match");
-      setIsLoading(false);
+      showError("Passwords do not match");
       return;
     }
 
-    if (formData.password.length < 6) {
-      setError("Password must be at least 6 characters long");
-      setIsLoading(false);
+    if (formData.password.length < 8) {
+      showError("Password must be at least 8 characters long");
       return;
     }
 
     if (!formData.agreeToTerms) {
-      setError("You must agree to the Terms of Service");
-      setIsLoading(false);
+      showError("You must agree to the Terms of Service");
       return;
     }
 
@@ -70,7 +75,7 @@ export default function SignUp() {
       const data = await response.json();
 
       if (!response.ok) {
-        setError(data.error || "Registration failed");
+        showError(data.error || "Registration failed");
         return;
       }
 
@@ -88,7 +93,7 @@ export default function SignUp() {
         router.push("/onboarding");
       }
     } catch (error) {
-      setError("Something went wrong. Please try again.");
+      showError("Something went wrong. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -104,7 +109,7 @@ export default function SignUp() {
         {/* Logo/Brand Section */}
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold text-primary mb-2">Raasta-AI</h1>
-          <p className="text-neutral/70">Create your account and start reaching out</p>
+          <p className="text-neutral/70">Create your account to start hiring and selling with AI</p>
         </div>
 
         {/* Sign Up Card */}
@@ -117,7 +122,7 @@ export default function SignUp() {
             <form onSubmit={handleSubmit} className="space-y-5">
               {/* Error/Success Messages */}
               {error && (
-                <div className="alert alert-error">
+                <div className="alert alert-error" role="alert" ref={alertRef}>
                   <span>{error}</span>
                 </div>
               )}
@@ -130,10 +135,12 @@ export default function SignUp() {
               {/* Name Fields */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="form-control">
-                  <label className="label">
+                  <label className="label" htmlFor="signup-first-name">
                     <span className="label-text font-medium text-neutral">First Name</span>
                   </label>
                   <input
+                  id="signup-first-name"
+                  autoComplete="given-name"
                     type="text"
                     placeholder="John"
                     className="input input-bordered w-full focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 border-base-300"
@@ -143,10 +150,12 @@ export default function SignUp() {
                   />
                 </div>
                 <div className="form-control">
-                  <label className="label">
+                  <label className="label" htmlFor="signup-last-name">
                     <span className="label-text font-medium text-neutral">Last Name</span>
                   </label>
                   <input
+                  id="signup-last-name"
+                  autoComplete="family-name"
                     type="text"
                     placeholder="Doe"
                     className="input input-bordered w-full focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 border-base-300"
@@ -159,10 +168,12 @@ export default function SignUp() {
 
               {/* Email Field */}
               <div className="form-control">
-                <label className="label">
+                <label className="label" htmlFor="signup-email">
                   <span className="label-text font-medium text-neutral">Email</span>
                 </label>
                 <input
+                  id="signup-email"
+                  autoComplete="email"
                   type="email"
                   placeholder="john@example.com"
                   className="input input-bordered w-full focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 border-base-300"
@@ -174,24 +185,35 @@ export default function SignUp() {
 
               {/* Password Fields */}
               <div className="form-control">
-                <label className="label">
+                <label className="label" htmlFor="signup-password">
                   <span className="label-text font-medium text-neutral">Password</span>
                 </label>
                 <input
+                  id="signup-password"
+                  autoComplete="new-password"
                   type="password"
                   placeholder="Create a strong password"
                   className="input input-bordered w-full focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 border-base-300"
                   value={formData.password}
                   onChange={(e) => handleChange("password", e.target.value)}
+                  minLength={8}
+                  aria-describedby="signup-password-hint"
                   required
                 />
+                <label className="label">
+                  <span id="signup-password-hint" className="label-text-alt text-neutral/60">
+                    At least 8 characters
+                  </span>
+                </label>
               </div>
 
               <div className="form-control">
-                <label className="label">
+                <label className="label" htmlFor="signup-confirm-password">
                   <span className="label-text font-medium text-neutral">Confirm Password</span>
                 </label>
                 <input
+                  id="signup-confirm-password"
+                  autoComplete="new-password"
                   type="password"
                   placeholder="Confirm your password"
                   className="input input-bordered w-full focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 border-base-300"
@@ -240,7 +262,7 @@ export default function SignUp() {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="btn btn-primary w-full text-white font-medium hover:scale-105 transition-transform mt-6"
+                className="btn btn-primary w-full text-white font-medium mt-6"
               >
                 {isLoading ? (
                   <>
@@ -282,13 +304,6 @@ export default function SignUp() {
                   />
                 </svg>
                 Continue with Google
-              </button>
-
-              <button className="btn btn-outline w-full border-base-300 hover:bg-base-200 hover:border-base-300">
-                <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12.017 0C5.396 0 .029 5.367.029 11.987c0 5.079 3.158 9.417 7.618 11.024-.105-.949-.199-2.403.041-3.439.219-.937 1.406-5.957 1.406-5.957s-.359-.719-.359-1.781c0-1.663.967-2.911 2.168-2.911 1.024 0 1.518.769 1.518 1.688 0 1.029-.653 2.567-.992 3.992-.285 1.193.6 2.165 1.775 2.165 2.128 0 3.768-2.245 3.768-5.487 0-2.861-2.063-4.869-5.008-4.869-3.41 0-5.409 2.562-5.409 5.199 0 1.033.394 2.143.889 2.741.097.118.112.221.083.345-.09.375-.293 1.199-.334 1.363-.053.225-.172.271-.402.165-1.495-.69-2.433-2.878-2.433-4.646 0-3.776 2.748-7.252 7.92-7.252 4.158 0 7.392 2.967 7.392 6.923 0 4.135-2.607 7.462-6.233 7.462-1.214 0-2.357-.629-2.746-1.378l-.748 2.853c-.271 1.043-1.002 2.35-1.492 3.146C9.57 23.812 10.763 24.009 12.017 24c6.624 0 11.99-5.367 11.99-12C24.007 5.367 18.641.001 12.017.001z"/>
-                </svg>
-                Continue with LinkedIn
               </button>
             </div>
 

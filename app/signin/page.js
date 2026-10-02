@@ -1,18 +1,43 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import config from "@/config";
 
+// Messages for the ?error= codes NextAuth adds when it redirects here
+const AUTH_ERRORS = {
+  CredentialsSignin: "Invalid email or password",
+  OAuthSignin: "Couldn't start sign-in with that provider. Please try again.",
+  OAuthCallback: "Sign-in with that provider failed. Please try again.",
+  OAuthAccountNotLinked: "This email is already registered. Sign in with your password instead.",
+  SessionRequired: "Please sign in to continue.",
+};
+
 export default function SignIn() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [callbackUrl, setCallbackUrl] = useState(config.auth.callbackUrl);
   const router = useRouter();
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("error");
+    if (code) setError(AUTH_ERRORS[code] || "Sign-in failed. Please try again.");
+    // Only follow same-site paths back after sign-in
+    const back = params.get("callbackUrl");
+    if (back) {
+      try {
+        const url = new URL(back, window.location.origin);
+        if (url.origin === window.location.origin) setCallbackUrl(url.pathname + url.search);
+      } catch {
+        // malformed callbackUrl: keep the default
+      }
+    }
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -29,7 +54,7 @@ export default function SignIn() {
       if (result?.error) {
         setError("Invalid email or password");
       } else {
-        router.push(config.auth.callbackUrl);
+        router.push(callbackUrl);
       }
     } catch (error) {
       setError("Something went wrong. Please try again.");
@@ -39,7 +64,7 @@ export default function SignIn() {
   };
 
   const handleGoogleSignIn = () => {
-    signIn("google", { callbackUrl: config.auth.callbackUrl });
+    signIn("google", { callbackUrl });
   };
 
   return (
@@ -61,18 +86,20 @@ export default function SignIn() {
             <form onSubmit={handleSubmit} className="space-y-6">
               {/* Error Message */}
               {error && (
-                <div className="alert alert-error">
+                <div className="alert alert-error" role="alert">
                   <span>{error}</span>
                 </div>
               )}
 
               {/* Email Field */}
               <div className="form-control">
-                <label className="label">
+                <label className="label" htmlFor="signin-email">
                   <span className="label-text font-medium text-neutral">Email</span>
                 </label>
                 <input
+                  id="signin-email"
                   type="email"
+                  autoComplete="email"
                   placeholder="Enter your email"
                   className="input input-bordered w-full focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 border-base-300"
                   value={email}
@@ -83,11 +110,13 @@ export default function SignIn() {
 
               {/* Password Field */}
               <div className="form-control">
-                <label className="label">
+                <label className="label" htmlFor="signin-password">
                   <span className="label-text font-medium text-neutral">Password</span>
                 </label>
                 <input
+                  id="signin-password"
                   type="password"
+                  autoComplete="current-password"
                   placeholder="Enter your password"
                   className="input input-bordered w-full focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 border-base-300"
                   value={password}
@@ -96,17 +125,8 @@ export default function SignIn() {
                 />
               </div>
 
-              {/* Remember Me & Forgot Password */}
-              <div className="flex items-center justify-between">
-                <label className="label cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="checkbox checkbox-primary checkbox-sm mr-2"
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                  />
-                  <span className="label-text text-neutral/80">Remember me</span>
-                </label>
+              {/* Forgot Password */}
+              <div className="flex items-center justify-end">
                 <Link
                   href="/forgot-password"
                   className="link link-primary text-sm hover:text-primary/80"
@@ -119,7 +139,7 @@ export default function SignIn() {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="btn btn-primary w-full text-white font-medium hover:scale-105 transition-transform"
+                className="btn btn-primary w-full text-white font-medium"
               >
                 {isLoading ? (
                   <>
@@ -161,13 +181,6 @@ export default function SignIn() {
                   />
                 </svg>
                 Continue with Google
-              </button>
-
-              <button className="btn btn-outline w-full border-base-300 hover:bg-base-200 hover:border-base-300">
-                <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12.017 0C5.396 0 .029 5.367.029 11.987c0 5.079 3.158 9.417 7.618 11.024-.105-.949-.199-2.403.041-3.439.219-.937 1.406-5.957 1.406-5.957s-.359-.719-.359-1.781c0-1.663.967-2.911 2.168-2.911 1.024 0 1.518.769 1.518 1.688 0 1.029-.653 2.567-.992 3.992-.285 1.193.6 2.165 1.775 2.165 2.128 0 3.768-2.245 3.768-5.487 0-2.861-2.063-4.869-5.008-4.869-3.41 0-5.409 2.562-5.409 5.199 0 1.033.394 2.143.889 2.741.097.118.112.221.083.345-.09.375-.293 1.199-.334 1.363-.053.225-.172.271-.402.165-1.495-.69-2.433-2.878-2.433-4.646 0-3.776 2.748-7.252 7.92-7.252 4.158 0 7.392 2.967 7.392 6.923 0 4.135-2.607 7.462-6.233 7.462-1.214 0-2.357-.629-2.746-1.378l-.748 2.853c-.271 1.043-1.002 2.35-1.492 3.146C9.57 23.812 10.763 24.009 12.017 24c6.624 0 11.99-5.367 11.99-12C24.007 5.367 18.641.001 12.017.001z"/>
-                </svg>
-                Continue with LinkedIn
               </button>
             </div>
 

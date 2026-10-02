@@ -1,6 +1,9 @@
 import { db } from "@/libs/db";
 import { agentRuns, agentSteps } from "@/libs/schema";
 import { eq, and } from "drizzle-orm";
+import { notify, NOTIFICATION_TYPES } from "@/libs/notifications";
+
+const PIPELINE_LABELS = { recruiter: "Recruiter agent", sales_operator: "Sales agent" };
 
 /**
  * AgentRunner — executes a pipeline definition step-by-step.
@@ -72,6 +75,7 @@ export class AgentRunner {
           .update(agentRuns)
           .set({ status: "paused_at_checkpoint" })
           .where(eq(agentRuns.id, this.runId));
+        await this._notify(NOTIFICATION_TYPES.AGENT_NEEDS_APPROVAL, "is waiting for your approval", `Step: ${step.label || step.key}`);
         return { paused: true, stepKey: step.key, stepIndex: i };
       }
 
@@ -117,6 +121,7 @@ export class AgentRunner {
             results: this.stepOutputs,
           })
           .where(eq(agentRuns.id, this.runId));
+        await this._notify(NOTIFICATION_TYPES.AGENT_RUN_FAILED, "failed", `Step "${step.label || step.key}" failed: ${err.message}`);
         return { failed: true, stepKey: step.key, error: err.message };
       }
     }
@@ -126,6 +131,7 @@ export class AgentRunner {
       .update(agentRuns)
       .set({ status: "completed", completedAt: new Date(), results: this.stepOutputs })
       .where(eq(agentRuns.id, this.runId));
+    await this._notify(NOTIFICATION_TYPES.AGENT_RUN_FINISHED, "finished");
 
     return { completed: true };
   }
@@ -166,6 +172,7 @@ export class AgentRunner {
         .update(agentRuns)
         .set({ status: "completed", completedAt: new Date(), results: this.stepOutputs })
         .where(eq(agentRuns.id, this.runId));
+      await this._notify(NOTIFICATION_TYPES.AGENT_RUN_FINISHED, "finished");
       return { completed: true };
     }
 
@@ -213,6 +220,7 @@ export class AgentRunner {
           .update(agentRuns)
           .set({ status: "paused_at_checkpoint" })
           .where(eq(agentRuns.id, this.runId));
+        await this._notify(NOTIFICATION_TYPES.AGENT_NEEDS_APPROVAL, "is waiting for your approval", `Step: ${step.label || step.key}`);
         return { paused: true, stepKey: step.key, stepIndex: i };
       }
 
@@ -252,6 +260,7 @@ export class AgentRunner {
             results: this.stepOutputs,
           })
           .where(eq(agentRuns.id, this.runId));
+        await this._notify(NOTIFICATION_TYPES.AGENT_RUN_FAILED, "failed", `Step "${step.label || step.key}" failed: ${err.message}`);
         return { failed: true, stepKey: step.key, error: err.message };
       }
     }
@@ -260,7 +269,20 @@ export class AgentRunner {
       .update(agentRuns)
       .set({ status: "completed", completedAt: new Date(), results: this.stepOutputs })
       .where(eq(agentRuns.id, this.runId));
+    await this._notify(NOTIFICATION_TYPES.AGENT_RUN_FINISHED, "finished");
     return { completed: true };
+  }
+
+  // notify() never throws, so a failed alert can't fail the run
+  async _notify(type, what, body = null) {
+    const [run] = await db
+      .select({ pipelineType: agentRuns.pipelineType })
+      .from(agentRuns)
+      .where(eq(agentRuns.id, this.runId))
+      .limit(1)
+      .catch(() => []);
+    const label = PIPELINE_LABELS[run?.pipelineType] || "Agent";
+    await notify({ userId: this.userId, type, title: `${label} ${what}`, body, link: "/dashboard/agents" });
   }
 
   async _updateStep(stepKey, data) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { X, Plus, Loader2 } from "lucide-react";
 
 const LOCATION_TYPES = [
@@ -28,13 +28,32 @@ export default function CreateJobModal({ open, onClose, onSubmit, isSubmitting }
     locationType: "remote",
     employmentType: "full-time",
   });
+  const [error, setError] = useState("");
 
-  const handleChange = (field, value) =>
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKeyDown = (e) => {
+      if (e.key === "Escape" && !isSubmitting) onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, isSubmitting, onClose]);
+
+  const handleChange = (field, value) => {
+    setError("");
     setForm((p) => ({ ...p, [field]: value }));
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!form.title.trim()) return;
+
+    const salaryMin = form.salaryMin ? Number(form.salaryMin) : null;
+    const salaryMax = form.salaryMax ? Number(form.salaryMax) : null;
+    if (salaryMin != null && salaryMax != null && salaryMin > salaryMax) {
+      setError("Min salary can't be higher than max salary");
+      return;
+    }
 
     const payload = {
       title: form.title.trim(),
@@ -47,8 +66,8 @@ export default function CreateJobModal({ open, onClose, onSubmit, isSubmitting }
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean),
-      salaryMin: form.salaryMin ? Number(form.salaryMin) : null,
-      salaryMax: form.salaryMax ? Number(form.salaryMax) : null,
+      salaryMin,
+      salaryMax,
       salaryCurrency: form.salaryCurrency,
       location: form.location || null,
       locationType: form.locationType,
@@ -61,39 +80,49 @@ export default function CreateJobModal({ open, onClose, onSubmit, isSubmitting }
   if (!open) return null;
 
   return (
-    <div className="modal modal-open">
+    <div className="modal modal-open" role="dialog" aria-modal="true" aria-labelledby="create-job-title">
       <div className="modal-box max-w-lg relative">
         <button
           className="btn btn-sm btn-circle btn-ghost absolute right-3 top-3"
           onClick={onClose}
+          aria-label="Close"
         >
           <X className="h-4 w-4" />
         </button>
 
-        <h3 className="font-bold text-lg mb-4">Create new job</h3>
+        <h3 id="create-job-title" className="font-bold text-lg mb-4">Create new job</h3>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <div className="alert alert-error text-sm py-2" role="alert">
+              {error}
+            </div>
+          )}
+
           {/* Title */}
           <div className="form-control">
-            <label className="label">
+            <label className="label" htmlFor="job-title">
               <span className="label-text font-medium">Job title *</span>
             </label>
             <input
+              id="job-title"
               className="input input-bordered input-sm w-full"
               placeholder="e.g. Senior React Developer"
               value={form.title}
               onChange={(e) => handleChange("title", e.target.value)}
               required
+              autoFocus
             />
           </div>
 
           {/* Skills + Stack */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="form-control">
-              <label className="label">
+              <label className="label" htmlFor="job-skills">
                 <span className="label-text text-xs">Required skills (comma-separated)</span>
               </label>
               <input
+                id="job-skills"
                 className="input input-bordered input-sm w-full"
                 placeholder="React, Node.js, TypeScript"
                 value={form.requiredSkills}
@@ -101,10 +130,11 @@ export default function CreateJobModal({ open, onClose, onSubmit, isSubmitting }
               />
             </div>
             <div className="form-control">
-              <label className="label">
+              <label className="label" htmlFor="job-stack">
                 <span className="label-text text-xs">Tech stack (comma-separated)</span>
               </label>
               <input
+                id="job-stack"
                 className="input input-bordered input-sm w-full"
                 placeholder="Next.js, PostgreSQL, AWS"
                 value={form.techStack}
@@ -116,10 +146,11 @@ export default function CreateJobModal({ open, onClose, onSubmit, isSubmitting }
           {/* Experience + Location */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="form-control">
-              <label className="label">
+              <label className="label" htmlFor="job-experience">
                 <span className="label-text text-xs">Experience range</span>
               </label>
               <input
+                id="job-experience"
                 className="input input-bordered input-sm w-full"
                 placeholder="3-5 years"
                 value={form.experienceRange}
@@ -127,12 +158,13 @@ export default function CreateJobModal({ open, onClose, onSubmit, isSubmitting }
               />
             </div>
             <div className="form-control">
-              <label className="label">
+              <label className="label" htmlFor="job-location">
                 <span className="label-text text-xs">Location</span>
               </label>
               <input
+                id="job-location"
                 className="input input-bordered input-sm w-full"
-                placeholder="San Francisco, CA"
+                placeholder="Lahore, Pakistan"
                 value={form.location}
                 onChange={(e) => handleChange("location", e.target.value)}
               />
@@ -142,10 +174,11 @@ export default function CreateJobModal({ open, onClose, onSubmit, isSubmitting }
           {/* Location type + Employment type */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="form-control">
-              <label className="label">
+              <label className="label" htmlFor="job-location-type">
                 <span className="label-text text-xs">Location type</span>
               </label>
               <select
+                id="job-location-type"
                 className="select select-bordered select-sm w-full"
                 value={form.locationType}
                 onChange={(e) => handleChange("locationType", e.target.value)}
@@ -158,10 +191,11 @@ export default function CreateJobModal({ open, onClose, onSubmit, isSubmitting }
               </select>
             </div>
             <div className="form-control">
-              <label className="label">
+              <label className="label" htmlFor="job-employment-type">
                 <span className="label-text text-xs">Employment type</span>
               </label>
               <select
+                id="job-employment-type"
                 className="select select-bordered select-sm w-full"
                 value={form.employmentType}
                 onChange={(e) => handleChange("employmentType", e.target.value)}
@@ -176,36 +210,41 @@ export default function CreateJobModal({ open, onClose, onSubmit, isSubmitting }
           </div>
 
           {/* Salary */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="form-control">
-              <label className="label">
+              <label className="label" htmlFor="job-salary-min">
                 <span className="label-text text-xs">Min salary</span>
               </label>
               <input
+                id="job-salary-min"
                 className="input input-bordered input-sm w-full"
                 type="number"
+                min={0}
                 placeholder="80000"
                 value={form.salaryMin}
                 onChange={(e) => handleChange("salaryMin", e.target.value)}
               />
             </div>
             <div className="form-control">
-              <label className="label">
+              <label className="label" htmlFor="job-salary-max">
                 <span className="label-text text-xs">Max salary</span>
               </label>
               <input
+                id="job-salary-max"
                 className="input input-bordered input-sm w-full"
                 type="number"
+                min={0}
                 placeholder="120000"
                 value={form.salaryMax}
                 onChange={(e) => handleChange("salaryMax", e.target.value)}
               />
             </div>
             <div className="form-control">
-              <label className="label">
+              <label className="label" htmlFor="job-salary-currency">
                 <span className="label-text text-xs">Currency</span>
               </label>
               <select
+                id="job-salary-currency"
                 className="select select-bordered select-sm w-full"
                 value={form.salaryCurrency}
                 onChange={(e) => handleChange("salaryCurrency", e.target.value)}
@@ -241,7 +280,7 @@ export default function CreateJobModal({ open, onClose, onSubmit, isSubmitting }
           </div>
         </form>
       </div>
-      <div className="modal-backdrop" onClick={onClose} />
+      <div className="modal-backdrop" onClick={isSubmitting ? undefined : onClose} />
     </div>
   );
 }

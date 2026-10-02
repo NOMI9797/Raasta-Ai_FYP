@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { Bot, Loader2 } from "lucide-react";
 import Sidebar from "@/components/layout/Sidebar";
+import { useSidebar } from "@/components/layout/SidebarContext";
 import TopBar from "@/components/layout/TopBar";
 import CampaignsList from "@/app/dashboard/campaigns/components/CampaignsList";
 import CampaignWorkspace from "@/app/dashboard/campaigns/components/CampaignWorkspace";
@@ -14,7 +15,7 @@ export default function SalesCampaignsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [selectedCampaign, setSelectedCampaign] = useState(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } = useSidebar();
   const [launchingAgent, setLaunchingAgent] = useState(false);
 
   useEffect(() => {
@@ -70,8 +71,8 @@ export default function SalesCampaignsPage() {
         activeSection="sales-campaigns"
       />
       <div
-        className={`flex-1 transition-all duration-300 ${
-          sidebarCollapsed ? "ml-16" : "ml-64"
+        className={`flex-1 min-w-0 transition-all duration-300 ${
+          sidebarCollapsed ? "ml-16" : "ml-16 md:ml-64"
         } flex flex-col h-full overflow-hidden`}
       >
         <div className="flex-shrink-0 flex items-center">

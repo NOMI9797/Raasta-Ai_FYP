@@ -1,7 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { Send, CheckCircle, Loader2, Briefcase, MapPin, AlertCircle } from "lucide-react";
+
+// Mirrors MAX_RESUME_BYTES in libs/hiring/resume-text.js (that module is server-only)
+const MAX_RESUME_BYTES = 5 * 1024 * 1024;
 
 export default function ApplyPage({ params }) {
   const { jobId } = params;
@@ -36,6 +40,15 @@ export default function ApplyPage({ params }) {
       setError("Name and email are required");
       return;
     }
+    if (resumeFile && resumeFile.size > MAX_RESUME_BYTES) {
+      setError("Resume must be 5 MB or smaller");
+      return;
+    }
+
+    // Accept "linkedin.com/in/…" without the scheme
+    const linkedinUrl = form.linkedinUrl.trim();
+    const normalizedLinkedin =
+      linkedinUrl && !/^https?:\/\//i.test(linkedinUrl) ? `https://${linkedinUrl}` : linkedinUrl;
 
     setSubmitting(true);
     setError("");
@@ -44,7 +57,7 @@ export default function ApplyPage({ params }) {
       const fd = new FormData();
       fd.append("name", form.name);
       fd.append("email", form.email);
-      if (form.linkedinUrl) fd.append("linkedinUrl", form.linkedinUrl);
+      if (normalizedLinkedin) fd.append("linkedinUrl", normalizedLinkedin);
       if (form.coverNote) fd.append("coverNote", form.coverNote);
       if (resumeFile) fd.append("resume", resumeFile);
 
@@ -128,18 +141,20 @@ export default function ApplyPage({ params }) {
           <h2 className="text-lg font-semibold">Apply for this position</h2>
 
           {error && (
-            <div className="alert alert-error text-sm py-2">
+            <div className="alert alert-error text-sm py-2" role="alert">
               <AlertCircle className="h-4 w-4" />
               {error}
             </div>
           )}
 
           <div className="form-control">
-            <label className="label">
+            <label className="label" htmlFor="apply-name">
               <span className="label-text">Full name *</span>
             </label>
             <input
+              id="apply-name"
               type="text"
+              autoComplete="name"
               className="input input-bordered input-sm w-full"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -148,11 +163,13 @@ export default function ApplyPage({ params }) {
           </div>
 
           <div className="form-control">
-            <label className="label">
+            <label className="label" htmlFor="apply-email">
               <span className="label-text">Email *</span>
             </label>
             <input
+              id="apply-email"
               type="email"
+              autoComplete="email"
               className="input input-bordered input-sm w-full"
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
@@ -161,40 +178,50 @@ export default function ApplyPage({ params }) {
           </div>
 
           <div className="form-control">
-            <label className="label">
+            <label className="label" htmlFor="apply-linkedin">
               <span className="label-text">LinkedIn profile URL</span>
             </label>
             <input
-              type="url"
+              id="apply-linkedin"
+              type="text"
+              inputMode="url"
+              autoComplete="url"
               className="input input-bordered input-sm w-full"
-              placeholder="https://linkedin.com/in/..."
+              placeholder="linkedin.com/in/your-name"
               value={form.linkedinUrl}
               onChange={(e) => setForm({ ...form, linkedinUrl: e.target.value })}
             />
           </div>
 
           <div className="form-control">
-            <label className="label">
+            <label className="label" htmlFor="apply-resume">
               <span className="label-text">Resume / CV</span>
             </label>
             <input
+              id="apply-resume"
               type="file"
               className="file-input file-input-bordered file-input-sm w-full"
               accept=".pdf,.docx,.txt"
-              onChange={(e) => setResumeFile(e.target.files?.[0] || null)}
+              aria-describedby="apply-resume-hint"
+              onChange={(e) => {
+                const file = e.target.files?.[0] || null;
+                setResumeFile(file);
+                setError(file && file.size > MAX_RESUME_BYTES ? "Resume must be 5 MB or smaller" : "");
+              }}
             />
             <label className="label">
-              <span className="label-text-alt text-base-content/50">
+              <span id="apply-resume-hint" className="label-text-alt text-base-content/50">
                 PDF, DOCX or TXT, up to 5 MB
               </span>
             </label>
           </div>
 
           <div className="form-control">
-            <label className="label">
+            <label className="label" htmlFor="apply-cover-note">
               <span className="label-text">Cover note</span>
             </label>
             <textarea
+              id="apply-cover-note"
               className="textarea textarea-bordered textarea-sm w-full"
               rows={4}
               placeholder="Why are you a great fit for this role?"
@@ -202,6 +229,15 @@ export default function ApplyPage({ params }) {
               onChange={(e) => setForm({ ...form, coverNote: e.target.value })}
             />
           </div>
+
+          <p className="text-xs text-base-content/60">
+            Your application is reviewed with AI-assisted screening, and a recruiter makes the final
+            decision. See our{" "}
+            <Link href="/privacy-policy" className="link link-primary" target="_blank">
+              Privacy Policy
+            </Link>
+            .
+          </p>
 
           <button
             type="submit"

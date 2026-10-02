@@ -17,12 +17,13 @@ import {
   MessageSquare,
 } from "lucide-react";
 import Sidebar from "@/components/layout/Sidebar";
+import { useSidebar } from "@/components/layout/SidebarContext";
 import TopBar from "@/components/layout/TopBar";
 
 export default function LeadsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } = useSidebar();
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]);
   const [search, setSearch] = useState("");
@@ -158,7 +159,7 @@ export default function LeadsPage() {
         onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
         activeSection="sales-leads"
       />
-      <div className={`flex-1 transition-all duration-300 ${sidebarCollapsed ? "ml-16" : "ml-64"} flex flex-col`}>
+      <div className={`flex-1 min-w-0 transition-all duration-300 ${sidebarCollapsed ? "ml-16" : "ml-16 md:ml-64"} flex flex-col`}>
         <TopBar title="Leads" />
         <main className="flex-1 p-6 space-y-6 overflow-auto">
           <div>

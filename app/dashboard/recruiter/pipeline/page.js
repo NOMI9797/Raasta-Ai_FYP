@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { Loader2, LayoutGrid } from "lucide-react";
 import Sidebar from "@/components/layout/Sidebar";
+import { useSidebar } from "@/components/layout/SidebarContext";
 import TopBar from "@/components/layout/TopBar";
 
 const STAGES = [
@@ -18,7 +19,7 @@ const STAGES = [
 export default function PipelinePage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } = useSidebar();
   const [rows, setRows] = useState([]);
   const [jobsMap, setJobsMap] = useState({});
   const [jobFilter, setJobFilter] = useState("all");
@@ -106,8 +107,8 @@ export default function PipelinePage() {
         activeSection="recruiter-pipeline"
       />
       <div
-        className={`flex-1 transition-all duration-300 ${
-          sidebarCollapsed ? "ml-16" : "ml-64"
+        className={`flex-1 min-w-0 transition-all duration-300 ${
+          sidebarCollapsed ? "ml-16" : "ml-16 md:ml-64"
         } flex flex-col h-full overflow-hidden`}
       >
         <TopBar title="Pipeline" />

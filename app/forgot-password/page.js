@@ -2,17 +2,24 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import config from "@/config";
+
+const supportEmail = config.mailgun.supportEmail;
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState("");
   const [isSubmitted, setIsSubmitted] = useState(false);
 
+  // Self-service reset emails aren't built yet: tell the user how to get help
+  // instead of claiming a link was sent.
   const handleSubmit = (e) => {
     e.preventDefault();
-    // Password reset functionality will be added later
-    console.log("Password reset request for:", email);
     setIsSubmitted(true);
   };
+
+  const supportHref = `mailto:${supportEmail}?subject=${encodeURIComponent(
+    "Password reset request"
+  )}&body=${encodeURIComponent(`Please reset the password for my Raasta-AI account: ${email}`)}`;
 
   if (isSubmitted) {
     return (
@@ -32,23 +39,17 @@ export default function ForgotPassword() {
                 </svg>
               </div>
               
-              <h2 className="text-2xl font-bold text-neutral mb-4">Check Your Email</h2>
-              
+              <h2 className="text-2xl font-bold text-neutral mb-4">Contact support to reset</h2>
+
               <p className="text-neutral/70 mb-6">
-                We&apos;ve sent a password reset link to <span className="font-medium text-neutral">{email}</span>
-              </p>
-              
-              <p className="text-sm text-neutral/60 mb-8">
-                If you don&apos;t see it in your inbox, check your spam folder or try again with a different email address.
+                Automatic reset emails aren&apos;t available yet. Email our support team and we&apos;ll
+                reset the password for <span className="font-medium text-neutral">{email}</span>.
               </p>
 
               <div className="space-y-4">
-                <button 
-                  onClick={() => setIsSubmitted(false)}
-                  className="btn btn-outline w-full"
-                >
-                  Try Different Email
-                </button>
+                <a href={supportHref} className="btn btn-outline w-full">
+                  Email {supportEmail}
+                </a>
                 
                 <Link href="/signin" className="btn btn-primary w-full">
                   Back to Sign In
@@ -78,17 +79,19 @@ export default function ForgotPassword() {
             </h2>
             
             <p className="text-neutral/70 text-center mb-6">
-              No worries! Enter your email address and we&apos;ll send you a link to reset your password.
+              Enter the email address you signed up with and we&apos;ll help you get back in.
             </p>
 
             <form onSubmit={handleSubmit} className="space-y-6">
               {/* Email Field */}
               <div className="form-control">
-                <label className="label">
+                <label className="label" htmlFor="forgot-email">
                   <span className="label-text font-medium text-neutral">Email Address</span>
                 </label>
                 <input
+                  id="forgot-email"
                   type="email"
+                  autoComplete="email"
                   placeholder="Enter your email address"
                   className="input input-bordered w-full focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 border-base-300"
                   value={email}
@@ -100,9 +103,9 @@ export default function ForgotPassword() {
               {/* Reset Button */}
               <button
                 type="submit"
-                className="btn btn-primary w-full text-white font-medium hover:scale-105 transition-transform"
+                className="btn btn-primary w-full text-white font-medium"
               >
-                Send Reset Link
+                Continue
               </button>
             </form>
 
@@ -125,9 +128,9 @@ export default function ForgotPassword() {
         <div className="text-center mt-8 text-neutral/50 text-sm">
           <p>
             Need more help?{" "}
-            <Link href="/contact" className="link link-primary">
+            <a href={`mailto:${supportEmail}`} className="link link-primary">
               Contact Support
-            </Link>
+            </a>
           </p>
         </div>
       </div>

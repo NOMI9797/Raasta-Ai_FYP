@@ -124,7 +124,26 @@ export default function Sidebar({ collapsed, onToggle, activeSection = "" }) {
     setOpenGroups((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
+  // Collapsed groups have nowhere to show their children: expand the sidebar and open the group
+  const handleGroupClick = (key) => {
+    if (collapsed) {
+      setOpenGroups((prev) => ({ ...prev, [key]: true }));
+      onToggle?.();
+      return;
+    }
+    toggleGroup(key);
+  };
+
+  // On phones the expanded sidebar floats over the page: close it after navigating
+  const closeOnMobile = () => {
+    if (!collapsed && window.matchMedia("(max-width: 767px)").matches) onToggle?.();
+  };
+
   return (
+    <>
+    {!collapsed && (
+      <div className="fixed inset-0 bg-black/30 z-40 md:hidden" onClick={onToggle} aria-hidden="true" />
+    )}
     <div
       className={`bg-base-200 border-r border-base-300 transition-all duration-300 flex flex-col fixed left-0 top-0 h-screen z-50 ${
         collapsed ? "w-16" : "w-64"
@@ -156,7 +175,7 @@ export default function Sidebar({ collapsed, onToggle, activeSection = "" }) {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 p-2 overflow-y-auto min-h-0">
+      <nav className="flex-1 p-2 overflow-y-auto min-h-0" aria-label="Main">
         <div className="space-y-1">
           {visibleItems.map((item) => {
             const Icon = item.icon;
@@ -168,7 +187,10 @@ export default function Sidebar({ collapsed, onToggle, activeSection = "" }) {
               return (
                 <div key={item.key}>
                   <button
-                    onClick={() => (collapsed ? null : toggleGroup(item.key))}
+                    onClick={() => handleGroupClick(item.key)}
+                    aria-expanded={groupOpen}
+                    aria-label={collapsed ? item.label : undefined}
+                    title={collapsed ? item.label : undefined}
                     className={`btn btn-ghost w-full justify-start gap-3 h-12 ${
                       anyChildActive
                         ? "bg-primary/10 text-primary hover:bg-primary/15"
@@ -196,6 +218,8 @@ export default function Sidebar({ collapsed, onToggle, activeSection = "" }) {
                           <Link
                             key={child.key}
                             href={child.href}
+                            aria-current={active ? "page" : undefined}
+                            onClick={closeOnMobile}
                             className={`btn btn-ghost w-full justify-start gap-3 h-10 px-3 ${
                               active
                                 ? "bg-primary/10 text-primary hover:bg-primary/15"
@@ -220,6 +244,10 @@ export default function Sidebar({ collapsed, onToggle, activeSection = "" }) {
               <Link
                 key={item.key}
                 href={item.href}
+                aria-label={collapsed ? item.label : undefined}
+                aria-current={active ? "page" : undefined}
+                title={collapsed ? item.label : undefined}
+                onClick={closeOnMobile}
                 className={`btn btn-ghost w-full justify-start gap-3 h-12 ${
                   active
                     ? "bg-primary/10 text-primary hover:bg-primary/15"
@@ -254,5 +282,6 @@ export default function Sidebar({ collapsed, onToggle, activeSection = "" }) {
         )}
       </div>
     </div>
+    </>
   );
 }

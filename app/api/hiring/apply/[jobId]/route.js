@@ -6,6 +6,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { CANDIDATE_STATUS } from "@/libs/hiring/statuses";
 import { getHiringConfig } from "@/libs/hiring/config";
 import { enqueue } from "@/libs/hiring/queue";
+import { notify, NOTIFICATION_TYPES } from "@/libs/notifications";
 import { putObject, deleteObject } from "@/libs/hiring/storage";
 import {
   RESUME_TYPES,
@@ -15,6 +16,7 @@ import {
 } from "@/libs/hiring/resume-text";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const duplicateResponse = () =>
   NextResponse.json({ error: "You have already applied for this position" }, { status: 409 });
@@ -27,6 +29,10 @@ function sameApplicant(jobId, email) {
 export async function POST(request, { params }) {
   try {
     const { jobId } = params;
+    // A malformed link is just an unknown job, not a server error
+    if (!UUID_PATTERN.test(jobId)) {
+      return NextResponse.json({ error: "Job not found" }, { status: 404 });
+    }
 
     const [job] = await db
       .select()
@@ -141,6 +147,14 @@ export async function POST(request, { params }) {
         console.error("Failed to queue screening:", error?.message);
       }
     }
+
+    await notify({
+      userId: job.userId,
+      type: NOTIFICATION_TYPES.NEW_APPLICATION,
+      title: `New application for ${job.title}`,
+      body: `${name} applied${hasResume ? " with a resume" : ""}.`,
+      link: `/dashboard/recruiter/jobs/${job.id}/candidates`,
+    });
 
     return NextResponse.json({
       success: true,

@@ -367,6 +367,20 @@ export const agentSteps = pgTable('agent_steps', {
   completedAt: timestamp('completed_at'),
 });
 
+// Notifications — in-app alerts shown in the top bar bell
+export const notifications = pgTable('notifications', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  type: varchar('type', { length: 40 }).notNull(), // see libs/notifications.js NOTIFICATION_TYPES
+  title: text('title').notNull(),
+  body: text('body'),
+  link: text('link'),                               // in-app path to open, e.g. /dashboard/recruiter/jobs/<id>/candidates
+  readAt: timestamp('read_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (t) => [
+  index('notifications_user_created_idx').on(t.userId, t.createdAt),
+]);
+
 // Database initialization function
 export async function initializeDatabase() {
   const { migrate } = await import('drizzle-orm/postgres-js/migrator');

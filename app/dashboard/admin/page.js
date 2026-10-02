@@ -5,12 +5,13 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import Sidebar from "@/components/layout/Sidebar";
+import { useSidebar } from "@/components/layout/SidebarContext";
 import TopBar from "@/components/layout/TopBar";
 
 export default function AdminPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } = useSidebar();
   const [users, setUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [error, setError] = useState("");
@@ -26,16 +27,6 @@ export default function AdminPage() {
       router.replace("/dashboard");
     }
   }, [session, status, router]);
-
-  if (status === "loading") {
-    return (
-      <div className="min-h-screen bg-base-100 flex items-center justify-center">
-        <div className="loading loading-spinner loading-lg text-primary"></div>
-      </div>
-    );
-  }
-
-  if (!session || session.user?.role !== "admin") return null;
 
   useEffect(() => {
     if (!session || session.user?.role !== "admin") return;
@@ -102,11 +93,21 @@ export default function AdminPage() {
     }
   };
 
+  if (status === "loading") {
+    return (
+      <div className="min-h-screen bg-base-100 flex items-center justify-center">
+        <div className="loading loading-spinner loading-lg text-primary"></div>
+      </div>
+    );
+  }
+
+  if (!session || session.user?.role !== "admin") return null;
+
   return (
     <div className="h-screen bg-base-100 flex overflow-hidden">
       <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} activeSection="admin" />
-      <div className={`flex-1 transition-all duration-300 ${sidebarCollapsed ? "ml-16" : "ml-64"} flex flex-col h-full overflow-hidden`}>
-        <TopBar />
+      <div className={`flex-1 min-w-0 transition-all duration-300 ${sidebarCollapsed ? "ml-16" : "ml-16 md:ml-64"} flex flex-col h-full overflow-hidden`}>
+        <TopBar title="Admin" />
         <main className="flex-1 p-6 overflow-auto space-y-6">
           <div className="flex items-center justify-between">
             <div>

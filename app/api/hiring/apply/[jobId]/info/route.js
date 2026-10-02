@@ -3,10 +3,15 @@ import { db } from "@/libs/db";
 import { jobs } from "@/libs/schema";
 import { eq } from "drizzle-orm";
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // GET /api/hiring/apply/[jobId]/info — public: return safe job details for the apply form
 export async function GET(request, { params }) {
   try {
     const { jobId } = params;
+    if (!UUID_PATTERN.test(jobId)) {
+      return NextResponse.json({ error: "Job not found" }, { status: 404 });
+    }
 
     const [job] = await db
       .select({

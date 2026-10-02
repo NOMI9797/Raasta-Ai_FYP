@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import toast, { Toaster } from "react-hot-toast";
+import toast from "react-hot-toast";
+import DashboardShell from "@/components/layout/DashboardShell";
 import {
   ArrowLeft, Loader2, Sparkles, Plus, GripVertical, Pencil, Trash2, ChevronDown,
   AlertTriangle, RefreshCw, MessageCircleQuestion, EyeOff,
@@ -306,8 +307,7 @@ export default function InterviewQuestionsPage({ params }) {
   }
 
   return (
-    <div className="min-h-screen bg-base-100">
-      <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
+    <DashboardShell title="Interview questions" activeSection="recruiter-jobs">
       <div className="max-w-4xl mx-auto px-4 py-6 space-y-5">
         <div className="flex items-center gap-3">
           <button className="btn btn-ghost btn-sm" onClick={() => router.push(`/dashboard/recruiter/jobs/${jobId}/candidates`)}>
@@ -394,6 +394,6 @@ export default function InterviewQuestionsPage({ params }) {
       </div>
 
       {modal && <QuestionModal initial={modal} onClose={() => setModal(null)} onSave={save} saving={saving} />}
-    </div>
+    </DashboardShell>
   );
 }

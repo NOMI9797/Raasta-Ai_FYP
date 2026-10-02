@@ -12,7 +12,7 @@ import { getRedisClient, closeRedisConnection } from "../libs/redis";
 import { STREAM, DEAD, GROUP, enqueue, moveDueDelayed, parseStreamEntry } from "../libs/hiring/queue";
 import { screenCandidate } from "../libs/hiring/fit-scorer";
 import { applyShortlist } from "../libs/hiring/shortlist";
-import { queueAfterShortlist } from "../libs/hiring/shortlist-hooks";
+import { queueAfterShortlist, notifyScreeningComplete } from "../libs/hiring/shortlist-hooks";
 import { acquireQuestionLock, ensureJobQuestions, personaliseCandidate } from "../libs/interview/question-bank";
 
 const WORKER_ID = process.env.WORKER_ID || `${os.hostname()}-${process.pid}`;
@@ -60,7 +60,9 @@ export const handlers = {
   "shortlist-job": {
     timeoutMs: 60 * 1000,
     async run({ jobId }) {
-      return applyShortlist(jobId, { triggeredBy: "system", onShortlisted: queueAfterShortlist });
+      const result = await applyShortlist(jobId, { triggeredBy: "system", onShortlisted: queueAfterShortlist });
+      await notifyScreeningComplete(result);
+      return result;
     },
   },
 

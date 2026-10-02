@@ -1,3 +1,4 @@
+/* global globalThis */
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
@@ -5,10 +6,22 @@ import * as schema from './schema';
 
 // Create the connection
 const connectionString = process.env.DATABASE_URL!;
-// Managed Postgres needs SSL; set DATABASE_SSL=false for a local database
-const client = postgres(connectionString, {
-  ssl: process.env.DATABASE_SSL === 'false' ? false : 'require',
-});
+
+// Next.js dev compiles each route (and every hot reload) into its own module
+// instance, so a module-level client would open a new pool each time and
+// exhaust Postgres's connection limit. Reuse one client per process.
+const globalForDb = globalThis as unknown as { pgClient?: ReturnType<typeof postgres> };
+
+const client =
+  globalForDb.pgClient ??
+  postgres(connectionString, {
+    // Managed Postgres needs SSL; set DATABASE_SSL=false for a local database
+    ssl: process.env.DATABASE_SSL === 'false' ? false : 'require',
+    max: 10,
+    idle_timeout: 20, // seconds; release idle connections instead of holding them forever
+  });
+
+if (process.env.NODE_ENV !== 'production') globalForDb.pgClient = client;
 
 // Create the database instance
 export const db = drizzle(client, { schema });

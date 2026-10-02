@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import Sidebar from "@/components/layout/Sidebar";
+import { useSidebar } from "@/components/layout/SidebarContext";
 import TopBar from "@/components/layout/TopBar";
 import WorkflowLayout from "./components/WorkflowLayout";
 import AudienceTab from "./components/AudienceTab";
@@ -18,7 +19,7 @@ import { useCampaigns } from "../campaigns/hooks/useCampaigns";
 export default function WorkflowPage() {
   const { data: session, status } = useSession();
   const searchParams = useSearchParams();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } = useSidebar();
   
   // Get campaign data from URL parameters
   const campaignId = searchParams.get('campaignId');
@@ -81,8 +82,8 @@ export default function WorkflowPage() {
       />
 
       {/* Main Content */}
-      <div className={`flex-1 transition-all duration-300 ${
-        sidebarCollapsed ? "ml-16" : "ml-64"
+      <div className={`flex-1 min-w-0 transition-all duration-300 ${
+        sidebarCollapsed ? "ml-16" : "ml-16 md:ml-64"
       } flex flex-col min-h-screen overflow-y-auto`}>
         {/* Top Bar */}
         <div className="flex-shrink-0">
