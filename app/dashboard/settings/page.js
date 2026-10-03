@@ -1,176 +1,502 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSession } from "next-auth/react";
+import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { Settings as SettingsIcon, User, Shield, Plug } from "lucide-react";
 import Link from "next/link";
-import Sidebar from "@/components/layout/Sidebar";
-import { useSidebar } from "@/components/layout/SidebarContext";
-import TopBar from "@/components/layout/TopBar";
+import { useQueryClient } from "@tanstack/react-query";
+import toast from "react-hot-toast";
+import {
+  User,
+  Layers,
+  Lock,
+  Palette,
+  Bell,
+  Plug,
+  LogOut,
+  Briefcase,
+  TrendingUp,
+  Sun,
+  Moon,
+  Check,
+  Eye,
+  EyeOff,
+} from "lucide-react";
+import DashboardShell from "@/components/layout/DashboardShell";
+import { DARK_THEME, LIGHT_THEME, getTheme, onThemeChange, setTheme } from "@/components/layout/theme";
 
 const MODES = [
-  { id: "recruiter", label: "Recruiter" },
-  { id: "sales", label: "Sales" },
+  {
+    id: "recruiter",
+    label: "Recruiter",
+    icon: Briefcase,
+    description: "Jobs, AI screening, candidates and the hiring pipeline.",
+  },
+  {
+    id: "sales",
+    label: "Sales",
+    icon: TrendingUp,
+    description: "Campaigns, leads, LinkedIn outreach and the lead scraper.",
+  },
 ];
 
-export default function SettingsPage() {
-  const { data: session, status, update } = useSession();
-  const router = useRouter();
-  const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } = useSidebar();
-  const [modes, setModes] = useState([]);
+const THEMES = [
+  { id: LIGHT_THEME, label: "Light", icon: Sun },
+  { id: DARK_THEME, label: "Dark", icon: Moon },
+];
+
+function Section({ icon: Icon, title, description, children }) {
+  return (
+    <section className="card bg-base-100 border border-base-300">
+      <div className="card-body gap-4">
+        <div>
+          <h2 className="card-title text-base flex items-center gap-2">
+            <Icon className="h-4 w-4 text-primary" /> {title}
+          </h2>
+          {description && <p className="text-sm text-base-content/60 mt-1">{description}</p>}
+        </div>
+        {children}
+      </div>
+    </section>
+  );
+}
+
+async function sendJson(url, method, body) {
+  const res = await fetch(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Something went wrong");
+  return data;
+}
+
+function ProfileSection({ session, update }) {
+  const savedName = session.user?.name || "";
+  const [name, setName] = useState(savedName);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState("");
+  const isAdmin = session.user?.role === "admin";
+  const dirty = name.trim() !== savedName;
 
-  useEffect(() => {
-    if (status === "loading") return;
-    if (!session) {
-      router.push("/");
-      return;
-    }
-    const current = Array.isArray(session.user?.modes) ? session.user.modes : [];
-    setModes(current);
-  }, [session, status, router]);
+  useEffect(() => setName(savedName), [savedName]);
 
-  const toggleMode = (id) => {
-    setModes((prev) => (prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id]));
-  };
-
-  const save = async () => {
-    if (saving) return;
-    if (modes.length === 0) {
-      setMessage("Select at least one mode.");
+  const save = async (e) => {
+    e.preventDefault();
+    if (!name.trim()) {
+      toast.error("Name is required");
       return;
     }
     setSaving(true);
-    setMessage("");
     try {
-      const res = await fetch("/api/user/modes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ modes }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || "Failed");
+      await sendJson("/api/user/profile", "PATCH", { name });
       await update();
-      setMessage("Saved.");
-    } catch (e) {
-      setMessage(e.message || "Failed to save");
+      toast.success("Profile updated");
+    } catch (err) {
+      toast.error(err.message);
     } finally {
       setSaving(false);
     }
   };
 
-  if (status === "loading") {
-    return (
-      <div className="min-h-screen bg-base-100 flex items-center justify-center">
-        <div className="loading loading-spinner loading-lg text-primary" />
-      </div>
-    );
-  }
-  if (!session) return null;
+  return (
+    <Section icon={User} title="Profile" description="How you appear across Raasta-AI.">
+      <form onSubmit={save} className="space-y-4">
+        <div className="flex items-center gap-4">
+          <div className="w-14 h-14 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xl font-bold shrink-0">
+            {(savedName || session.user?.email || "?").charAt(0).toUpperCase()}
+          </div>
+          <div className="min-w-0">
+            <p className="font-semibold truncate">{savedName || "—"}</p>
+            <p className="text-sm text-base-content/60 truncate">{session.user?.email}</p>
+            <span className={`badge badge-sm mt-1 ${isAdmin ? "badge-warning" : "badge-ghost"}`}>
+              {isAdmin ? "Admin" : "Member"}
+            </span>
+          </div>
+        </div>
 
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="form-control">
+            <label className="label" htmlFor="settings-name">
+              <span className="label-text font-medium">Full name</span>
+            </label>
+            <input
+              id="settings-name"
+              className="input input-bordered input-sm w-full"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              maxLength={100}
+              autoComplete="name"
+            />
+          </div>
+          <div className="form-control">
+            <label className="label" htmlFor="settings-email">
+              <span className="label-text font-medium">Email</span>
+            </label>
+            <input
+              id="settings-email"
+              className="input input-bordered input-sm w-full"
+              value={session.user?.email || ""}
+              disabled
+              aria-describedby="settings-email-hint"
+            />
+            <label className="label">
+              <span id="settings-email-hint" className="label-text-alt text-base-content/60">
+                Contact support to change your sign-in email.
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2">
+          {dirty && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setName(savedName)}>
+              Cancel
+            </button>
+          )}
+          <button type="submit" className="btn btn-primary btn-sm" disabled={!dirty || saving}>
+            {saving && <span className="loading loading-spinner loading-xs" />}
+            Save profile
+          </button>
+        </div>
+      </form>
+    </Section>
+  );
+}
+
+function WorkspacesSection({ session, update }) {
+  const savedModes = Array.isArray(session.user?.modes) ? session.user.modes : [];
+  const savedKey = [...savedModes].sort().join(",");
+  const [modes, setModes] = useState(savedModes);
+  const [saving, setSaving] = useState(false);
   const isAdmin = session.user?.role === "admin";
+  const dirty = [...modes].sort().join(",") !== savedKey;
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => setModes(savedModes), [savedKey]);
+
+  const toggle = (id) =>
+    setModes((prev) => (prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id]));
+
+  const save = async () => {
+    if (modes.length === 0) {
+      toast.error("Keep at least one workspace enabled");
+      return;
+    }
+    setSaving(true);
+    try {
+      await sendJson("/api/user/modes", "POST", { modes });
+      await update();
+      toast.success("Workspaces updated");
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-base-100 flex">
-      <Sidebar
-        collapsed={sidebarCollapsed}
-        onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
-        activeSection="settings"
+    <Section
+      icon={Layers}
+      title="Workspaces"
+      description="Choose which parts of Raasta-AI appear in your sidebar."
+    >
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {MODES.map(({ id, label, icon: Icon, description }) => {
+          const active = modes.includes(id);
+          return (
+            <button
+              key={id}
+              type="button"
+              role="switch"
+              aria-checked={active}
+              onClick={() => toggle(id)}
+              className={`p-4 rounded-xl border-2 text-left transition-all flex gap-3 ${
+                active ? "border-primary bg-primary/5" : "border-base-300 hover:border-base-content/30"
+              }`}
+            >
+              <span className={`p-2 rounded-lg h-fit ${active ? "bg-primary text-primary-content" : "bg-base-200"}`}>
+                <Icon className="h-4 w-4" />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="flex items-center justify-between gap-2">
+                  <span className="font-semibold">{label}</span>
+                  <input
+                    type="checkbox"
+                    className="toggle toggle-primary toggle-sm pointer-events-none"
+                    checked={active}
+                    readOnly
+                    tabIndex={-1}
+                    aria-hidden="true"
+                  />
+                </span>
+                <span className="block text-xs text-base-content/60 mt-1">{description}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {isAdmin && (
+        <p className="text-xs text-base-content/60">
+          As an admin you can open every workspace; these switches only control your sidebar.
+        </p>
+      )}
+      <div className="flex justify-end gap-2">
+        {dirty && (
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setModes(savedModes)}>
+            Cancel
+          </button>
+        )}
+        <button className="btn btn-primary btn-sm" onClick={save} disabled={!dirty || saving}>
+          {saving && <span className="loading loading-spinner loading-xs" />}
+          Save workspaces
+        </button>
+      </div>
+    </Section>
+  );
+}
+
+function PasswordField({ id, label, value, onChange, autoComplete, show, hint }) {
+  return (
+    <div className="form-control">
+      <label className="label" htmlFor={id}>
+        <span className="label-text font-medium">{label}</span>
+      </label>
+      <input
+        id={id}
+        type={show ? "text" : "password"}
+        className="input input-bordered input-sm w-full"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        autoComplete={autoComplete}
+        aria-describedby={hint ? `${id}-hint` : undefined}
       />
-      <div className={`flex-1 min-w-0 transition-all duration-300 ${sidebarCollapsed ? "ml-16" : "ml-16 md:ml-64"} flex flex-col`}>
-        <TopBar title="Settings" />
-        <main className="flex-1 p-6 space-y-6 max-w-3xl">
+      {hint && (
+        <label className="label">
+          <span id={`${id}-hint`} className="label-text-alt text-base-content/60">{hint}</span>
+        </label>
+      )}
+    </div>
+  );
+}
+
+function SecuritySection({ session, update }) {
+  const hasPassword = session.user?.hasPassword !== false;
+  const empty = { current: "", next: "", confirm: "" };
+  const [form, setForm] = useState(empty);
+  const [show, setShow] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const set = (field) => (value) => setForm((f) => ({ ...f, [field]: value }));
+
+  const save = async (e) => {
+    e.preventDefault();
+    if (form.next.length < 8) {
+      toast.error("New password must be at least 8 characters long");
+      return;
+    }
+    if (form.next !== form.confirm) {
+      toast.error("New passwords don't match");
+      return;
+    }
+    setSaving(true);
+    try {
+      await sendJson("/api/user/password", "POST", {
+        currentPassword: form.current,
+        newPassword: form.next,
+      });
+      setForm(empty);
+      await update();
+      toast.success(hasPassword ? "Password changed" : "Password set");
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Section
+      icon={Lock}
+      title={hasPassword ? "Change password" : "Set a password"}
+      description={
+        hasPassword
+          ? "Use at least 8 characters. You'll stay signed in on this device."
+          : "You signed up with Google. Add a password to also sign in with your email."
+      }
+    >
+      <form onSubmit={save} className="space-y-2">
+        {hasPassword && (
+          <PasswordField
+            id="settings-current-password"
+            label="Current password"
+            value={form.current}
+            onChange={set("current")}
+            autoComplete="current-password"
+            show={show}
+          />
+        )}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <PasswordField
+            id="settings-new-password"
+            label="New password"
+            value={form.next}
+            onChange={set("next")}
+            autoComplete="new-password"
+            show={show}
+            hint="At least 8 characters"
+          />
+          <PasswordField
+            id="settings-confirm-password"
+            label="Confirm new password"
+            value={form.confirm}
+            onChange={set("confirm")}
+            autoComplete="new-password"
+            show={show}
+          />
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+          <button type="button" className="btn btn-ghost btn-sm gap-1" onClick={() => setShow((s) => !s)}>
+            {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            {show ? "Hide passwords" : "Show passwords"}
+          </button>
+          <button
+            type="submit"
+            className="btn btn-primary btn-sm"
+            disabled={saving || !form.next || !form.confirm || (hasPassword && !form.current)}
+          >
+            {saving && <span className="loading loading-spinner loading-xs" />}
+            {hasPassword ? "Change password" : "Set password"}
+          </button>
+        </div>
+      </form>
+    </Section>
+  );
+}
+
+function AppearanceSection() {
+  const [theme, setThemeState] = useState(LIGHT_THEME);
+
+  useEffect(() => {
+    setThemeState(getTheme());
+    return onThemeChange(setThemeState);
+  }, []);
+
+  return (
+    <Section icon={Palette} title="Appearance" description="Saved on this device.">
+      <div className="grid grid-cols-2 gap-3 max-w-sm" role="radiogroup" aria-label="Theme">
+        {THEMES.map(({ id, label, icon: Icon }) => {
+          const active = theme === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              onClick={() => setTheme(id)}
+              className={`p-3 rounded-xl border-2 flex items-center gap-2 transition-all ${
+                active ? "border-primary bg-primary/5" : "border-base-300 hover:border-base-content/30"
+              }`}
+            >
+              <Icon className="h-4 w-4" />
+              <span className="font-medium flex-1 text-left">{label}</span>
+              {active && <Check className="h-4 w-4 text-primary" />}
+            </button>
+          );
+        })}
+      </div>
+    </Section>
+  );
+}
+
+function NotificationsSection() {
+  const queryClient = useQueryClient();
+  const [clearing, setClearing] = useState(false);
+
+  const markAllRead = async () => {
+    setClearing(true);
+    try {
+      const { updated } = await sendJson("/api/notifications", "PATCH", {});
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      toast.success(updated ? `Marked ${updated} notification${updated === 1 ? "" : "s"} as read` : "You're all caught up");
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  return (
+    <Section
+      icon={Bell}
+      title="Notifications"
+      description="In-app alerts in the bell at the top of every page."
+    >
+      <ul className="text-sm space-y-1.5 text-base-content/80">
+        <li>• Someone applies to one of your jobs</li>
+        <li>• AI screening finishes for a job</li>
+        <li>• An agent run finishes, fails or needs your approval</li>
+      </ul>
+      <div className="flex justify-end">
+        <button className="btn btn-outline btn-sm" onClick={markAllRead} disabled={clearing}>
+          {clearing && <span className="loading loading-spinner loading-xs" />}
+          Mark all as read
+        </button>
+      </div>
+    </Section>
+  );
+}
+
+export default function SettingsPage() {
+  const { data: session, status, update } = useSession();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (status === "loading") return;
+    if (!session) router.push("/signin");
+  }, [session, status, router]);
+
+  return (
+    <DashboardShell title="Settings" activeSection="settings">
+      {status === "loading" || !session ? (
+        <div className="flex items-center justify-center py-24">
+          <span className="loading loading-spinner loading-lg text-primary" />
+        </div>
+      ) : (
+        <div className="p-6 space-y-6 max-w-3xl">
           <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <SettingsIcon className="h-6 w-6" /> Settings
-            </h1>
+            <h1 className="text-2xl font-bold">Settings</h1>
             <p className="text-sm text-base-content/70 mt-1">
-              Manage your profile, modes and connected platforms.
+              Manage your profile, workspaces, security and preferences.
             </p>
           </div>
 
-          <section className="card bg-base-100 border border-base-300">
-            <div className="card-body">
-              <h2 className="card-title text-base flex items-center gap-2">
-                <User className="h-4 w-4" /> Profile
-              </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm mt-2">
-                <div>
-                  <div className="text-base-content/60 text-xs">Name</div>
-                  <div className="font-medium">{session.user?.name || "—"}</div>
-                </div>
-                <div>
-                  <div className="text-base-content/60 text-xs">Email</div>
-                  <div className="font-medium">{session.user?.email || "—"}</div>
-                </div>
-                <div>
-                  <div className="text-base-content/60 text-xs">Role</div>
-                  <div className="font-medium capitalize">{session.user?.role || "—"}</div>
-                </div>
-              </div>
-            </div>
-          </section>
+          <ProfileSection session={session} update={update} />
+          <WorkspacesSection session={session} update={update} />
+          <SecuritySection session={session} update={update} />
+          <AppearanceSection />
+          <NotificationsSection />
 
-          <section className="card bg-base-100 border border-base-300">
-            <div className="card-body">
-              <h2 className="card-title text-base flex items-center gap-2">
-                <Shield className="h-4 w-4" /> Modes
-              </h2>
-              <p className="text-xs text-base-content/60">
-                Enable the workspaces you need. You can switch any time.
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-                {MODES.map((m) => {
-                  const active = modes.includes(m.id);
-                  return (
-                    <button
-                      key={m.id}
-                      onClick={() => toggleMode(m.id)}
-                      className={`p-4 rounded-xl border-2 text-left transition-all ${
-                        active ? "border-primary bg-primary/5" : "border-base-300 hover:border-base-content/30"
-                      }`}
-                    >
-                      <div className="font-semibold">{m.label}</div>
-                      <div className="text-xs text-base-content/60 mt-1">
-                        {active ? "Enabled" : "Disabled"}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-              {isAdmin && (
-                <p className="text-xs text-warning mt-3">
-                  Admin accounts have access to all modes by default.
-                </p>
-              )}
-              <div className="flex items-center gap-3 mt-4">
-                <button className="btn btn-primary btn-sm" onClick={save} disabled={saving}>
-                  {saving ? <span className="loading loading-spinner loading-xs" /> : "Save changes"}
-                </button>
-                {message && <span className="text-xs text-base-content/70">{message}</span>}
-              </div>
+          <Section
+            icon={Plug}
+            title="Connected platforms"
+            description="Connect or disconnect your LinkedIn and Rozee.pk accounts."
+          >
+            <div>
+              <Link href="/dashboard/platforms" className="btn btn-outline btn-sm">
+                Manage platforms
+              </Link>
             </div>
-          </section>
+          </Section>
 
-          <section className="card bg-base-100 border border-base-300">
-            <div className="card-body">
-              <h2 className="card-title text-base flex items-center gap-2">
-                <Plug className="h-4 w-4" /> Platforms
-              </h2>
-              <p className="text-xs text-base-content/60">
-                Connect or disconnect LinkedIn, Rozee.pk or Indeed accounts.
-              </p>
-              <div className="mt-3">
-                <Link href="/dashboard/platforms" className="btn btn-outline btn-sm">
-                  Manage platforms
-                </Link>
-              </div>
+          <Section icon={LogOut} title="Session" description={`Signed in as ${session.user?.email}.`}>
+            <div>
+              <button className="btn btn-outline btn-error btn-sm gap-2" onClick={() => signOut({ callbackUrl: "/" })}>
+                <LogOut className="h-4 w-4" /> Sign out
+              </button>
             </div>
-          </section>
-        </main>
-      </div>
-    </div>
+          </Section>
+        </div>
+      )}
+    </DashboardShell>
   );
 }

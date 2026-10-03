@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
 import NotificationBell from "./NotificationBell";
+import { DARK_THEME, LIGHT_THEME, applyTheme, getTheme, onThemeChange, setTheme as saveTheme } from "./theme";
 import {
   Moon,
   Sun,
@@ -14,23 +15,19 @@ import {
 
 export default function TopBar({ title = "Campaigns", showStatus = false }) {
   const { data: session } = useSession();
-  const [theme, setTheme] = useState("reachly");
+  const [theme, setTheme] = useState(LIGHT_THEME);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
   useEffect(() => {
-    // Get theme from localStorage or use our custom theme
-    const savedTheme = localStorage.getItem("theme");
-    const currentTheme = savedTheme || "reachly";
-    
+    const currentTheme = getTheme();
     setTheme(currentTheme);
-    document.documentElement.setAttribute("data-theme", currentTheme);
+    applyTheme(currentTheme);
+    // Stay in sync when the theme is changed in Settings
+    return onThemeChange(setTheme);
   }, []);
 
   const toggleTheme = () => {
-    const newTheme = theme === "reachly" ? "reachly-dark" : "reachly";
-    setTheme(newTheme);
-    localStorage.setItem("theme", newTheme);
-    document.documentElement.setAttribute("data-theme", newTheme);
+    saveTheme(theme === DARK_THEME ? LIGHT_THEME : DARK_THEME);
   };
 
   const handleLogout = () => {
@@ -63,7 +60,7 @@ export default function TopBar({ title = "Campaigns", showStatus = false }) {
           className="btn btn-ghost btn-sm btn-circle"
           aria-label="Toggle theme"
         >
-          {theme === "reachly" ? (
+          {theme !== DARK_THEME ? (
             <Moon className="h-4 w-4" />
           ) : (
             <Sun className="h-4 w-4" />

@@ -71,11 +71,14 @@ export const authOptions = {
     jwt: async ({ token }) => {
       if (token.sub) {
         const result = await db
-          .select({ role: users.role, modes: users.modes })
+          .select({ role: users.role, modes: users.modes, name: users.name, hasPassword: sql`${users.password} is not null` })
           .from(users)
           .where(eq(users.id, token.sub));
         token.role = result[0]?.role ?? "sales_operator";
         token.modes = Array.isArray(result[0]?.modes) ? result[0].modes : [];
+        // Re-read so a name changed in Settings shows up without signing in again
+        if (result[0]?.name) token.name = result[0].name;
+        token.hasPassword = Boolean(result[0]?.hasPassword);
       }
       return token;
     },
@@ -84,6 +87,8 @@ export const authOptions = {
         session.user.id = token.sub;
         session.user.role = token.role ?? "sales_operator";
         session.user.modes = Array.isArray(token.modes) ? token.modes : [];
+        session.user.name = token.name ?? session.user.name;
+        session.user.hasPassword = Boolean(token.hasPassword);
       }
       return session;
     },
