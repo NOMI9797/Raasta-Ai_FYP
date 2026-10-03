@@ -251,7 +251,8 @@ async function processJob(job) {
     log("info", { type: job.type, id: job.id, attempt: job.attempt, ms: Date.now() - started, ok: true });
   } catch (error) {
     const message = error?.message || String(error);
-    if (job.attempt < MAX_ATTEMPTS) {
+    // Errors that say they can't succeed on retry (e.g. inviting a rejected candidate) fail straight away
+    if (job.attempt < MAX_ATTEMPTS && error?.retryable !== false) {
       const delayMs = retryDelayMs(job.attempt, error);
       await enqueue(job.type, job.payload, { delayMs, attempt: job.attempt + 1 }, redis);
       log("warn", { type: job.type, id: job.id, attempt: job.attempt, ms: Date.now() - started, ok: false, error: message, retryInMs: delayMs });

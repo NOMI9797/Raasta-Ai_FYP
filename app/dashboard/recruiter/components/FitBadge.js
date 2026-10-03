@@ -2,13 +2,18 @@
 
 import { Loader2, AlertTriangle } from "lucide-react";
 
-// Stage-1 screening state for a candidate: "scored" | "queued" | "failed" | "none"
-export function fitState(candidate) {
+// A screening takes well under a minute; still queued after this means no worker is picking it up
+export const SCREENING_STALLED_MS = 5 * 60 * 1000;
+
+// Stage-1 screening state for a candidate: "scored" | "queued" | "stalled" | "failed" | "none"
+export function fitState(candidate, now = Date.now()) {
   const analysis = candidate.fitAnalysis || {};
   const screenedAt = candidate.screenedAt ? new Date(candidate.screenedAt) : null;
   const newerThanScore = (at) => at && (!screenedAt || new Date(at) > screenedAt);
   if (analysis.error && newerThanScore(analysis.failedAt)) return "failed";
-  if (newerThanScore(analysis.queuedAt)) return "queued";
+  if (newerThanScore(analysis.queuedAt)) {
+    return now - new Date(analysis.queuedAt).getTime() > SCREENING_STALLED_MS ? "stalled" : "queued";
+  }
   if (candidate.fitScore != null) return "scored";
   return "none";
 }
@@ -26,6 +31,13 @@ export default function FitBadge({ candidate, size = "badge-sm" }) {
     return (
       <span className={`badge ${size} badge-ghost gap-1`} title="AI screening is queued">
         <Loader2 className="h-3 w-3 animate-spin" /> Screening
+      </span>
+    );
+  }
+  if (state === "stalled") {
+    return (
+      <span className={`badge ${size} badge-warning badge-outline gap-1`} title="Screening hasn't started – is the hiring worker running?">
+        <AlertTriangle className="h-3 w-3" /> Delayed
       </span>
     );
   }

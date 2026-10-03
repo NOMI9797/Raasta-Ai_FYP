@@ -122,8 +122,8 @@ export default function JobCandidatesPage({ params }) {
     fetchCandidates();
   }, [fetchCandidates]);
 
-  // While any screening is queued, refresh so scores appear without a reload
-  const anyQueued = candidateList.some((c) => fitState(c) === "queued");
+  // While any screening is queued (or delayed), refresh so scores appear without a reload
+  const anyQueued = candidateList.some((c) => ["queued", "stalled"].includes(fitState(c)));
   useEffect(() => {
     if (!anyQueued) return undefined;
     const timer = setInterval(fetchCandidates, POLL_MS);

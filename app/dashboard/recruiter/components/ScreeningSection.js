@@ -74,6 +74,16 @@ export default function ScreeningSection({ candidate, onScreen, screening }) {
         </div>
       )}
 
+      {state === "stalled" && (
+        <div className="alert alert-warning py-2 text-sm">
+          <AlertTriangle className="h-4 w-4" />
+          <span>
+            Screening was queued a while ago but hasn&apos;t started. Make sure the hiring worker is running
+            (<code>npm run worker:hiring</code>); it will pick up the queued job, or retry with the button above.
+          </span>
+        </div>
+      )}
+
       {analysis.manualReview && (
         <div className="alert alert-warning py-2 text-sm">
           <AlertTriangle className="h-4 w-4" />
@@ -82,7 +92,7 @@ export default function ScreeningSection({ candidate, onScreen, screening }) {
       )}
 
       {!hasResult ? (
-        state !== "failed" && (
+        !["failed", "stalled"].includes(state) && (
           <p className="text-sm text-base-content/50">
             {state === "queued" ? "Screening is queued and will appear here shortly." : "Not screened yet."}
           </p>
