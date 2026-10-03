@@ -24,11 +24,12 @@ if (!process.env.MAILGUN_API_KEY && process.env.NODE_ENV === "development") {
  * @param {string} text - The plain text content of the email.
  * @param {string} html - The HTML content of the email.
  * @param {string} replyTo - The email address to set as the "Reply-To" address.
+ * @param {string} [from] - Sender; defaults to config.mailgun.fromAdmin.
  * @returns {Promise} A Promise that resolves when the email is sent.
  */
-export const sendEmail = async ({ to, subject, text, html, replyTo }) => {
+export const sendEmail = async ({ to, subject, text, html, replyTo, from }) => {
   const data = {
-    from: config.mailgun.fromAdmin,
+    from: from || config.mailgun.fromAdmin,
     to: [to],
     subject,
     text,

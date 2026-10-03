@@ -341,7 +341,12 @@ export class InterviewSession {
       this.deps.send("interview_complete", { reason: reason === "time_up" ? "time_up" : reason === "finished" ? "finished" : "ended_by_system" });
     }
     this.publish({ type: "status", status: "completed", reason });
-    await this.deps.enqueue("analyse-interview", { interviewId: this.interview.id });
+    try {
+      await this.deps.enqueue("analyse-interview", { interviewId: this.interview.id });
+    } catch (error) {
+      // The interview is already saved; a queue outage must not break the ending (analysis can be re-queued)
+      this.deps.log("error", { msg: "analysis not queued", interviewId: this.interview.id, error: error?.message });
+    }
     this.deps.log("info", { msg: "interview completed", interviewId: this.interview.id, reason, answers: stats?.totalAnswers });
     this.deps.onEnded?.({ status: "completed", reason, stats });
     return { status: "completed", stats };

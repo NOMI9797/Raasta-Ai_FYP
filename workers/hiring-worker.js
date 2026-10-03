@@ -14,6 +14,7 @@ import { screenCandidate } from "../libs/hiring/fit-scorer";
 import { applyShortlist } from "../libs/hiring/shortlist";
 import { queueAfterShortlist, notifyScreeningComplete } from "../libs/hiring/shortlist-hooks";
 import { acquireQuestionLock, ensureJobQuestions, personaliseCandidate } from "../libs/interview/question-bank";
+import { abandonStaleSessions, expireStaleInvites, findDueReminders, sendInvite, sendReminder } from "../libs/hiring/invitations";
 
 const WORKER_ID = process.env.WORKER_ID || `${os.hostname()}-${process.pid}`;
 const CONCURRENCY = Math.max(1, Number(process.env.HIRING_WORKER_CONCURRENCY) || 3);
@@ -25,6 +26,8 @@ const RECLAIM_IDLE_MS = 5 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 15 * 60 * 1000;
 const DEFAULT_TIMEOUT_MS = 60 * 1000;
 const SHORTLIST_DEBOUNCE_MS = 30 * 1000;
+const QUESTION_WAIT_MS = 30 * 1000;   // send-invite waits for ensure-questions
+const QUESTION_WAIT_ATTEMPTS = 10;
 
 function log(level, fields) {
   const line = JSON.stringify({ service: "hiring-worker", level, worker: WORKER_ID, at: new Date().toISOString(), ...fields });
@@ -86,10 +89,48 @@ export const handlers = {
       return personaliseCandidate(candidateId);
     },
   },
+
+  // Interview invite. Idempotent: does nothing if an invite is already active (unless resend).
+  // If the job's questions aren't ready yet, wait for ensure-questions instead of failing.
+  "send-invite": {
+    timeoutMs: 30 * 1000,
+    async run({ candidateId, resend = false, waits = 0 }) {
+      try {
+        return await sendInvite(candidateId, { resend });
+      } catch (error) {
+        if (error?.code === "questions_missing" && waits < QUESTION_WAIT_ATTEMPTS) {
+          await enqueue("send-invite", { candidateId, resend, waits: waits + 1 }, { delayMs: QUESTION_WAIT_MS }, redis);
+          return { candidateId, waitingForQuestions: true };
+        }
+        throw error;
+      }
+    },
+  },
+
+  "send-reminder": {
+    timeoutMs: 30 * 1000,
+    async run({ interviewId }) {
+      return sendReminder(interviewId);
+    },
+  },
 };
 
-// Periodic maintenance (expire invites, reminders, abandoned sessions) — added in later phases
-const sweeps = [];
+// Periodic maintenance, every SWEEP_INTERVAL_MS. Each sweep is independent: one failing never stops the others.
+const sweeps = [
+  ["expire invites", async () => {
+    const expired = await expireStaleInvites();
+    if (expired) log("info", { msg: "invites expired", count: expired });
+  }],
+  ["queue reminders", async () => {
+    const due = await findDueReminders();
+    for (const interviewId of due) await enqueue("send-reminder", { interviewId }, {}, redis);
+    if (due.length) log("info", { msg: "reminders queued", count: due.length });
+  }],
+  ["close stale sessions", async () => {
+    const result = await abandonStaleSessions({ enqueueJob: (type, payload) => enqueue(type, payload, {}, redis) });
+    if (result.completed || result.abandoned) log("info", { msg: "stale interviews closed", ...result });
+  }],
+];
 
 // ─── Infrastructure ───
 const redis = getRedisClient(); // shared: XADD, XACK, locks
@@ -243,9 +284,13 @@ async function main() {
 
   every(DELAYED_INTERVAL_MS, "move delayed jobs", () => moveDueDelayed(redis));
   every(RECLAIM_INTERVAL_MS, "reclaim stale jobs", reclaimStale);
-  every(SWEEP_INTERVAL_MS, "sweep", async () => {
-    for (const sweep of sweeps) await sweep();
-  });
+  const runSweeps = async () => {
+    for (const [name, sweep] of sweeps) {
+      await sweep().catch((error) => log("error", { msg: `sweep "${name}" failed`, error: error.message }));
+    }
+  };
+  every(SWEEP_INTERVAL_MS, "sweep", runSweeps);
+  runSweeps(); // once at start-up, so a restarted worker catches up immediately
 
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));

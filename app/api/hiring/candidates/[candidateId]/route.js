@@ -3,7 +3,9 @@ import { db } from "@/libs/db";
 import { candidates, jobs } from "@/libs/schema";
 import { eq, and } from "drizzle-orm";
 import { withAuth } from "@/libs/auth-middleware";
-import { ALL_STATUSES, STATUS_META, canTransition } from "@/libs/hiring/statuses";
+import { ALL_STATUSES, CANDIDATE_STATUS, STATUS_META, canTransition } from "@/libs/hiring/statuses";
+import { getHiringConfig } from "@/libs/hiring/config";
+import { queueAfterShortlist } from "@/libs/hiring/shortlist-hooks";
 
 // PATCH /api/hiring/candidates/[candidateId] — update candidate status
 export const PATCH = withAuth(async (request, { params, user }) => {
@@ -59,6 +61,11 @@ export const PATCH = withAuth(async (request, { params, user }) => {
       .set(updateData)
       .where(eq(candidates.id, candidateId))
       .returning();
+
+    // A manual shortlist gets the same follow-up as an automatic one (questions, auto-invite)
+    if (status === CANDIDATE_STATUS.SHORTLISTED && candidate.status !== CANDIDATE_STATUS.SHORTLISTED) {
+      await queueAfterShortlist([candidateId], { job, config: getHiringConfig(job) });
+    }
 
     return NextResponse.json({ success: true, candidate: updated });
   } catch (error) {

@@ -212,6 +212,8 @@ export class SessionManager {
       maxMinutes: Math.round(session.config.maxMs / 60000),
       interviewerName: this.interviewerName,
       jobTitle: session.job.title,
+      // For the room's countdown; time spent disconnected is not counted
+      remainingSec: Math.max(0, Math.round(session.remainingMs() / 1000)),
     });
   }
 

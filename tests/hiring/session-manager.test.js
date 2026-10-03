@@ -75,7 +75,7 @@ test("attach: session_ready with the job and question count; a second socket is 
   const { manager } = setup();
   const ws = new FakeSocket();
   await manager.attach(ws, CLAIMS);
-  assert.deepEqual(ws.json("session_ready")[0], { type: "session_ready", interviewId: "iv1", resume: false, totalQuestions: 2, maxMinutes: 25, interviewerName: "Raasta AI Interviewer", jobTitle: "SRE" });
+  assert.deepEqual(ws.json("session_ready")[0], { type: "session_ready", interviewId: "iv1", resume: false, totalQuestions: 2, maxMinutes: 25, interviewerName: "Raasta AI Interviewer", jobTitle: "SRE", remainingSec: 1500 });
   const dup = new FakeSocket();
   await manager.attach(dup, CLAIMS);
   assert.equal(dup.closedWith.code, CLOSE_CODES.DUPLICATE_SESSION);

@@ -77,7 +77,19 @@ async function getTicket(args) {
     return { ticket: await signTicket({ interviewId: ctx.interview.id, candidateId: ctx.interview.candidateId }), wsUrl: args.engine };
   }
   if (!args.token) throw new Error("Pass an interview token or --interview <id>");
-  const res = await fetch(`${args.app}/api/interview/${encodeURIComponent(args.token)}/session`, { method: "POST" });
+  const base = `${args.app}/api/interview/${encodeURIComponent(args.token)}`;
+  // Same path as the interview room: open the link, give consent, then ask for a ticket
+  if (!args.consented) {
+    const opened = await fetch(base);
+    if (!opened.ok) {
+      const body = await opened.json().catch(() => ({}));
+      throw new Error(`Interview link rejected (${opened.status}): ${body.error || body.code || "unknown"}`);
+    }
+    const consent = await fetch(`${base}/consent`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accepted: true }) });
+    if (!consent.ok) throw new Error(`Consent failed (${consent.status})`);
+    args.consented = true;
+  }
+  const res = await fetch(`${base}/session`, { method: "POST" });
   const body = await res.json().catch(() => ({}));
   if (!res.ok || !body.ticket) throw new Error(`Session request failed (${res.status}): ${body.error || "no ticket"}`);
   return { ticket: body.ticket, wsUrl: body.wsUrl || args.engine };

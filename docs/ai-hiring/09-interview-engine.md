@@ -52,7 +52,7 @@ Text frames are JSON `{ type, ...payload }`. Binary frames are **only** candidat
 
 | type | payload |
 |---|---|
-| `session_ready` | `{ interviewId, resume, totalQuestions, maxMinutes, interviewerName, jobTitle }` |
+| `session_ready` | `{ interviewId, resume, totalQuestions, maxMinutes, interviewerName, jobTitle, remainingSec }` (`remainingSec` drives the room's countdown; time spent disconnected isn't counted) |
 | `ai_speaking` | `{ turnId, kind: 'greeting'|'question'|'follow_up'|'closing'|'system', text, audio: base64|null, mime: 'audio/wav' }` (if `audio` is null, the client uses `speechSynthesis`) |
 | `question` | `{ index, total, text, kind }` (progress UI; follow-ups keep the same index) |
 | `listening` | `{ silenceMs }` (show "Listening…") |

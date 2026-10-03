@@ -1,5 +1,5 @@
 // Follow-up work queued for newly shortlisted candidates (docs/ai-hiring/06-stage1-screening.md §3).
-// Relative imports only. Phase 6 adds send-invite here.
+// Relative imports only.
 import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { jobs } from "../schema";
@@ -7,8 +7,10 @@ import { enqueue } from "./queue";
 import { notify, NOTIFICATION_TYPES } from "../notifications";
 
 /**
- * Use as applyShortlist's onShortlisted. Queues ensure-questions for the job (idempotent) and,
- * if enabled, personalise-questions per candidate. Never throws: the shortlist is already saved.
+ * Use as applyShortlist's onShortlisted (and after a manual move to shortlisted). Queues
+ * ensure-questions for the job (idempotent), personalise-questions per candidate if enabled,
+ * and send-invite per candidate when autoInvite is on (send-invite waits for the questions).
+ * Never throws: the shortlist is already saved.
  */
 export async function queueAfterShortlist(candidateIds, { job, config }, { enqueueJob = enqueue } = {}) {
   try {
@@ -16,6 +18,11 @@ export async function queueAfterShortlist(candidateIds, { job, config }, { enque
     if (config.personalisedQuestions > 0) {
       for (const candidateId of candidateIds) {
         await enqueueJob("personalise-questions", { candidateId });
+      }
+    }
+    if (config.autoInvite) {
+      for (const candidateId of candidateIds) {
+        await enqueueJob("send-invite", { candidateId });
       }
     }
   } catch (error) {

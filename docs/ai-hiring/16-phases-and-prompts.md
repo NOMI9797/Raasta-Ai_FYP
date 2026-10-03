@@ -174,11 +174,11 @@ Plan first (include the state machine you'll implement), wait for "go".
 **Docs:** 10, 08
 
 **Tasks**
-- [ ] Public APIs under `app/api/interview/[token]/` with rate limits.
-- [ ] `app/interview/layout.js`, `app/interview/[token]/page.js` + components (welcome, consent, device check, interview, completed, error states).
-- [ ] `public/worklets/pcm16-downsampler.js`; recorder + upload queue; WS client with reconnect.
-- [ ] `libs/hiring/invitations.js`, `libs/hiring/emails.js`; worker handlers `send-invite`, `send-reminder`; sweep job.
-- [ ] Recruiter APIs: invite / resend / extend / cancel.
+- [x] Public APIs under `app/api/interview/[token]/` with rate limits.
+- [x] `app/interview/layout.js`, `app/interview/[token]/page.js` + components (welcome, consent, device check, interview, completed, error states).
+- [x] `public/worklets/pcm16-downsampler.js`; recorder + upload queue; WS client with reconnect.
+- [x] `libs/hiring/invitations.js`, `libs/hiring/emails.js`; worker handlers `send-invite`, `send-reminder`; sweep job.
+- [x] Recruiter APIs: invite / resend / extend / cancel.
 
 **Acceptance:** 08 + 10 acceptance lists, including one full interview end-to-end in Chrome.
 
@@ -254,7 +254,7 @@ Read CLAUDE.md, docs/ai-hiring/15-env-deployment.md and 17-testing.md. Implement
 | 3 | ☑ | 2026-10-02 | `feat(hiring): phase 3 – interview question bank` | Verified on local Postgres + Redis + worker with a stub LLM: shortlist → ensure-questions builds an 8-question bank (warm-up, technical, role, behavioral; invalid question dropped); personalise-questions only for candidates with screening gaps; append/replace/reorder/edit/soft and hard delete; editing a question leaves an existing interview snapshot unchanged. Real-model check (8 valid questions, ≥ 3 keywords each) still needs a Groq key. |
 | 4 | ☑ | 2026-10-02 | `feat(hiring): phase 4 – AI engine` | 34 pytest tests pass. Real: storage, /media/concat (MediaRecorder chunks and separate files), voice metrics on the fixture, gaze with the real MediaPipe model on a real face, face router with a stand-in classifier. TTS and speech emotion tested with stand-in models only: huggingface.co and download.pytorch.org were blocked in the dev container, so the `/tts` → playable WAV acceptance must be run on a machine that can reach HuggingFace. |
 | 5 | ☑ | 2026-10-02 | `feat(hiring): phase 5 – interview engine` | 116 unit tests pass (all 11 session-engine scenarios from 17, plus analyzer, scorer, follow-up, STT adapters and session manager). End-to-end on local Postgres + Redis + engine + ai-engine (TTS 503 → `audio:null`, browser speech) with espeak-ng fixture WAVs, a stub LLM and a scripted transcriber (the speech-model hosts are blocked in the dev container): 3-question interview completes (12 turns, 5 scored responses, weighted score, candidate `interview_completed`, `analyse-interview` queued); `answer_done` → next question in < 50 ms with the stub LLM; drop mid-answer → reconnect resumes the same question, with the time away excluded; talking during processing merges into the answer and never produces two questions. Found and fixed during e2e: the silence window now also counts voice activity, because Whisper finals lag behind speech. Real Groq latency (target ≤ 4 s) and Deepgram still need a run with keys. `analyse-interview` has no worker handler until Phase 8. |
-| 6 | ☐ | | | |
+| 6 | ☑ | 2026-10-03 | `feat(hiring): phase 6 – interview room and invitations` | 134 unit tests pass. End-to-end on Windows (local Postgres test DB, Redis in WSL, Next.js, worker, engine, stub LLM, dev outbox) — 56/56 checks: manual shortlist → auto-invite email in 0.5 s (exactly one); public API codes (404 unknown/replaced, 410 expired/cancelled, 409 completed, 403 before consent, 429 after 10 session calls); full interview through the token link (scripted candidate, 5 answers, analyse-interview queued); upload parts stored and assemble-recording queued; resend invalidates the old link; cancel; expiry on access + extend; reminder rotates the token; expire/abandon sweeps; drop mid-answer → new ticket → same question; no token in any server log. Browser (Playwright Chromium, fake mic/camera) — 17/17: welcome → consent → device check → greeting → Start → Q1, audio and video parts uploaded, refresh resumes the same question without overwriting parts, mic audio reaches the engine. AudioWorklets never load in browsers started from the dev shell on this machine, so the room now falls back to a ScriptProcessor path after 5 s (same 16 kHz output). The real-voice Chrome/Edge acceptance (speech → captions, echo cancellation with speakers) still needs a run with GROQ_API_KEY or DEEPGRAM_API_KEY on a desktop. `assemble-recording` / `analyse-interview` handlers come in Phase 7. |
 | 7 | ☐ | | | |
 | 8 | ☐ | | | |
 | 9 | ☐ | | | |

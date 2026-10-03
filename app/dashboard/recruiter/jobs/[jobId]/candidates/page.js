@@ -38,6 +38,7 @@ import DashboardShell from "@/components/layout/DashboardShell";
 import { CANDIDATE_STATUS, KANBAN_STAGES, MANUAL_TRANSITIONS, STATUS_META } from "@/libs/hiring/statuses";
 import FitBadge, { fitState } from "../../../components/FitBadge";
 import ScreeningSection from "../../../components/ScreeningSection";
+import InterviewInviteSection from "../../../components/InterviewInviteSection";
 import JobHiringSettings from "../../../components/JobHiringSettings";
 
 // Statuses where the row offers a "Screen" action (docs/ai-hiring/12-recruiter-ui.md §3)
@@ -573,6 +574,8 @@ export default function JobCandidatesPage({ params }) {
                         onScreen={handleScreen}
                         screening={screeningIds.has(c.id)}
                       />
+
+                      <InterviewInviteSection candidate={c} onChanged={fetchCandidates} />
 
                       {c.coverNote && (
                         <div className="p-4">

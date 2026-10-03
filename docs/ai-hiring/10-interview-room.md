@@ -68,6 +68,14 @@ getUserMedia stream
 - All controls work by keyboard; captions are always visible.
 - Keep mobile out of scope, but show a friendly message on narrow screens: "Please use a computer for the best experience."
 
+## Implementation notes (Phase 6)
+- Files: `app/interview/layout.js`, `app/interview/[token]/page.js`, `components/` (InterviewApp, StatusScreen, WelcomeStep, DeviceCheck, InterviewRoom, InterviewerOrb, CompletedStep) and `lib/` (audio, pcm, recorders, upload-queue, interview-socket); token lookup and rate limits in `libs/interview/public-access.js`.
+- **Start button:** during the greeting the room shows "I'm ready, start", which sends `begin`, so a candidate is never stuck if their "yes" isn't recognised.
+- **Mic fallback:** if the AudioWorklet doesn't load within 5 s (unavailable, or hangs on some locked-down machines), the room uses a `ScriptProcessorNode` with the same downsampling (`lib/pcm.js`). Both send 40 ms PCM16 frames at 16 kHz.
+- **Recording parts after a reload:** `GET /api/interview/[token]` returns `nextRecordingPart: { audio, video }` (from the parts already stored), so a refreshed page continues the numbering instead of overwriting earlier parts. Each recorder keeps one part back so its last part can be uploaded with `final=true`. Parts may arrive for up to 2 hours after the interview ends.
+- The countdown uses `remainingSec` from `session_ready`. `beforeunload` warns while the interview or the uploads are still running.
+- An unknown or replaced link and a cancelled one show the same "no longer valid" screen (404 vs 410). After a resend the old interview row is cancelled (410); after a reminder the token is rotated on the same row, so the old link is unknown (404).
+
 ## Acceptance
 - A full interview works in Chrome and Edge on Windows and macOS with headphones and with built-in speakers (echo cancellation means the AI voice isn't transcribed as the candidate).
 - Refreshing mid-interview resumes at the same question.
