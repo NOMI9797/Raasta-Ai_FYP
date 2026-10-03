@@ -48,7 +48,7 @@ const THEMES = [
 function Section({ icon: Icon, title, description, children }) {
   return (
     <section className="card bg-base-100 border border-base-300">
-      <div className="card-body gap-4">
+      <div className="card-body p-5 gap-4">
         <div>
           <h2 className="card-title text-base flex items-center gap-2">
             <Icon className="h-4 w-4 text-primary" /> {title}
@@ -103,7 +103,7 @@ function ProfileSection({ session, update }) {
     <Section icon={User} title="Profile" description="How you appear across Raasta-AI.">
       <form onSubmit={save} className="space-y-4">
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xl font-bold shrink-0">
+          <div className="w-12 h-12 rounded-full bg-primary/10 text-primary flex items-center justify-center text-lg font-bold shrink-0">
             {(savedName || session.user?.email || "?").charAt(0).toUpperCase()}
           </div>
           <div className="min-w-0">
@@ -115,9 +115,9 @@ function ProfileSection({ session, update }) {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-x-4 gap-y-2 items-start">
           <div className="form-control">
-            <label className="label" htmlFor="settings-name">
+            <label className="label pt-0" htmlFor="settings-name">
               <span className="label-text font-medium">Full name</span>
             </label>
             <input
@@ -130,7 +130,7 @@ function ProfileSection({ session, update }) {
             />
           </div>
           <div className="form-control">
-            <label className="label" htmlFor="settings-email">
+            <label className="label pt-0" htmlFor="settings-email">
               <span className="label-text font-medium">Email</span>
             </label>
             <input
@@ -146,18 +146,18 @@ function ProfileSection({ session, update }) {
               </span>
             </label>
           </div>
-        </div>
-
-        <div className="flex justify-end gap-2">
-          {dirty && (
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setName(savedName)}>
-              Cancel
+          {/* Aligned with the inputs (below their labels) on desktop */}
+          <div className="flex justify-end gap-2 md:pt-9">
+            {dirty && (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setName(savedName)}>
+                Cancel
+              </button>
+            )}
+            <button type="submit" className="btn btn-primary btn-sm" disabled={!dirty || saving}>
+              {saving && <span className="loading loading-spinner loading-xs" />}
+              Save profile
             </button>
-          )}
-          <button type="submit" className="btn btn-primary btn-sm" disabled={!dirty || saving}>
-            {saving && <span className="loading loading-spinner loading-xs" />}
-            Save profile
-          </button>
+          </div>
         </div>
       </form>
     </Section>
@@ -259,7 +259,7 @@ function WorkspacesSection({ session, update }) {
 function PasswordField({ id, label, value, onChange, autoComplete, show, hint }) {
   return (
     <div className="form-control">
-      <label className="label" htmlFor={id}>
+      <label className="label pt-0" htmlFor={id}>
         <span className="label-text font-medium">{label}</span>
       </label>
       <input
@@ -325,17 +325,17 @@ function SecuritySection({ session, update }) {
       }
     >
       <form onSubmit={save} className="space-y-2">
-        {hasPassword && (
-          <PasswordField
-            id="settings-current-password"
-            label="Current password"
-            value={form.current}
-            onChange={set("current")}
-            autoComplete="current-password"
-            show={show}
-          />
-        )}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className={`grid grid-cols-1 sm:grid-cols-2 ${hasPassword ? "lg:grid-cols-3" : ""} gap-x-4 items-start`}>
+          {hasPassword && (
+            <PasswordField
+              id="settings-current-password"
+              label="Current password"
+              value={form.current}
+              onChange={set("current")}
+              autoComplete="current-password"
+              show={show}
+            />
+          )}
           <PasswordField
             id="settings-new-password"
             label="New password"
@@ -383,7 +383,7 @@ function AppearanceSection() {
 
   return (
     <Section icon={Palette} title="Appearance" description="Saved on this device.">
-      <div className="grid grid-cols-2 gap-3 max-w-sm" role="radiogroup" aria-label="Theme">
+      <div className="grid grid-cols-2 gap-3" role="radiogroup" aria-label="Theme">
         {THEMES.map(({ id, label, icon: Icon }) => {
           const active = theme === id;
           return (
@@ -462,7 +462,7 @@ export default function SettingsPage() {
           <span className="loading loading-spinner loading-lg text-primary" />
         </div>
       ) : (
-        <div className="p-6 space-y-6 max-w-3xl">
+        <div className="p-6 space-y-6 max-w-7xl mx-auto">
           <div>
             <h1 className="text-2xl font-bold">Settings</h1>
             <p className="text-sm text-base-content/70 mt-1">
@@ -470,31 +470,39 @@ export default function SettingsPage() {
             </p>
           </div>
 
-          <ProfileSection session={session} update={update} />
-          <WorkspacesSection session={session} update={update} />
-          <SecuritySection session={session} update={update} />
-          <AppearanceSection />
-          <NotificationsSection />
-
-          <Section
-            icon={Plug}
-            title="Connected platforms"
-            description="Connect or disconnect your LinkedIn and Rozee.pk accounts."
-          >
-            <div>
-              <Link href="/dashboard/platforms" className="btn btn-outline btn-sm">
-                Manage platforms
-              </Link>
+          {/* Account settings on the left, preferences on the right on wide screens */}
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
+            <div className="xl:col-span-2 space-y-6">
+              <ProfileSection session={session} update={update} />
+              <WorkspacesSection session={session} update={update} />
+              <SecuritySection session={session} update={update} />
             </div>
-          </Section>
 
-          <Section icon={LogOut} title="Session" description={`Signed in as ${session.user?.email}.`}>
-            <div>
-              <button className="btn btn-outline btn-error btn-sm gap-2" onClick={() => signOut({ callbackUrl: "/" })}>
-                <LogOut className="h-4 w-4" /> Sign out
-              </button>
+            <div className="space-y-6">
+              <AppearanceSection />
+              <NotificationsSection />
+
+              <Section
+                icon={Plug}
+                title="Connected platforms"
+                description="Connect or disconnect your LinkedIn and Rozee.pk accounts."
+              >
+                <div>
+                  <Link href="/dashboard/platforms" className="btn btn-outline btn-sm">
+                    Manage platforms
+                  </Link>
+                </div>
+              </Section>
+
+              <Section icon={LogOut} title="Session" description={`Signed in as ${session.user?.email}.`}>
+                <div>
+                  <button className="btn btn-outline btn-error btn-sm gap-2" onClick={() => signOut({ callbackUrl: "/" })}>
+                    <LogOut className="h-4 w-4" /> Sign out
+                  </button>
+                </div>
+              </Section>
             </div>
-          </Section>
+          </div>
         </div>
       )}
     </DashboardShell>
