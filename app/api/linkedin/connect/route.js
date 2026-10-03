@@ -57,6 +57,23 @@ const LINKEDIN_PATTERNS = {
   ]
 };
 
+// Login form selectors. LinkedIn's current login page uses React-generated ids
+// (e.g. "_R_77vv..._") and renders a hidden duplicate form, so match on stable
+// attributes and only visible elements. Legacy ids are kept for A/B variants.
+const LOGIN_SELECTORS = {
+  email: [
+    '#username:visible',
+    'input[name="session_key"]:visible',
+    'input[autocomplete~="username"]:visible',
+    'input[type="email"]:visible',
+  ].join(', '),
+  password: [
+    '#password:visible',
+    'input[name="session_password"]:visible',
+    'input[type="password"]:visible',
+  ].join(', '),
+};
+
 // Helper function to check if URL matches any pattern
 function urlMatchesPatterns(url, patterns) {
   return patterns.some(pattern => url.includes(pattern));
@@ -114,14 +131,14 @@ async function connectLinkedInViaBrowser(sessionId, email, password) {
     // ── Step 2: Fill credentials ──
     console.log('🔐 Attempting automated login...');
     
-    const emailField = page.locator('#username');
-    await emailField.waitFor({ state: 'visible', timeout: 10000 });
+    const emailField = page.locator(LOGIN_SELECTORS.email).first();
+    await emailField.waitFor({ state: 'visible', timeout: 15000 });
     await emailField.click();
     await humanLikeDelay(page, 500, 1000);
     await emailField.fill(email);
     await humanLikeDelay(page, 500, 1000);
 
-    const passwordField = page.locator('#password');
+    const passwordField = page.locator(LOGIN_SELECTORS.password).first();
     await passwordField.waitFor({ state: 'visible', timeout: 10000 });
     await passwordField.click();
     await humanLikeDelay(page, 500, 1000);
@@ -130,7 +147,11 @@ async function connectLinkedInViaBrowser(sessionId, email, password) {
     screenshots.push(await captureScreenshot(page, 'Credentials filled'));
 
     // ── Step 3: Submit form ──
-    const signInButton = page.locator('button[type="submit"]');
+    // New login page renders "Sign in" as type="button", legacy page used type="submit"
+    const signInButton = page
+      .locator('button[type="submit"]:visible')
+      .or(page.getByRole('button', { name: 'Sign in', exact: true }))
+      .first();
     await signInButton.waitFor({ state: 'visible', timeout: 10000 });
     await signInButton.click();
     
