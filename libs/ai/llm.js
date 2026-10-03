@@ -4,8 +4,8 @@ import OpenAI, { APIError, toFile } from "openai";
 
 const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
 
-export const DEFAULT_MODEL = "llama-3.3-70b-versatile";
-export const DEFAULT_FAST_MODEL = "llama-3.1-8b-instant";
+export const DEFAULT_MODEL = "openai/gpt-oss-120b";
+export const DEFAULT_FAST_MODEL = "openai/gpt-oss-20b";
 export const DEFAULT_TRANSCRIBE_MODEL = "whisper-large-v3-turbo";
 
 // Read at call time so processes that load env files late still pick them up

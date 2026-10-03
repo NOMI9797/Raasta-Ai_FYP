@@ -4,6 +4,7 @@ import { jobs } from "@/libs/schema";
 import { eq, and } from "drizzle-orm";
 import { withAuth } from "@/libs/auth-middleware";
 import OpenAI from "openai";
+import { getFastModel } from "@/libs/ai/llm";
 
 const groq = new OpenAI({
   apiKey: process.env.GROQ_API_KEY || "",
@@ -61,7 +62,7 @@ Details:
 ${salaryPart}${applyLine}`;
 
     const completion = await groq.chat.completions.create({
-      model: "llama-3.1-8b-instant",
+      model: getFastModel(),
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },

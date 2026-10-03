@@ -10,8 +10,8 @@ Add these to `.env.local` (dev) and the deployment environment. Also create `.en
 | `DATABASE_SSL` | all Node | `true` | `false` for local Postgres (see 03 quirk 3) |
 | `REDIS_URL` | web, engine, worker | `redis://localhost:6379` | existing |
 | `GROQ_API_KEY` | web, engine, worker | existing | LLM + Whisper fallback |
-| `LLM_MODEL` | `libs/ai/llm.js` | `llama-3.3-70b-versatile` | main model |
-| `LLM_FAST_MODEL` | `libs/ai/llm.js` | `llama-3.1-8b-instant` | analyzer pre-checks (optional) |
+| `LLM_MODEL` | `libs/ai/llm.js` | `openai/gpt-oss-120b` | main model (Groq retired the Llama 3.x models) |
+| `LLM_FAST_MODEL` | `libs/ai/llm.js` | `openai/gpt-oss-20b` | analyzer pre-checks, job-post drafts (optional) |
 | `LLM_BASE_URL` | `libs/ai/llm.js` | `https://api.groq.com/openai/v1` | optional; any OpenAI-compatible endpoint (also used for a local stub in tests) |
 | `NEXT_PUBLIC_APP_URL` | web, worker | `http://localhost:8085` | used in email links |
 | `EMAIL_TIMEZONE` | web, worker | `UTC` | IANA timezone for the invite expiry shown in emails, e.g. `Asia/Karachi` |
