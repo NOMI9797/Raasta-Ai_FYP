@@ -3,12 +3,15 @@ import { signTicket } from "@/libs/interview/tokens";
 import { INTERVIEW_STATUS } from "@/libs/hiring/statuses";
 import { ok, fail, handleError } from "../../_lib/respond";
 
+// Full engine socket URL ending in /ws. NEXT_PUBLIC_INTERVIEW_WS_URL may be given with or without /ws.
 function wsUrl(request) {
-  const configured = process.env.NEXT_PUBLIC_INTERVIEW_WS_URL;
-  if (configured) return configured.replace(/\/$/, "");
-  // Same host, engine port (local development)
-  const url = new URL(request.url);
-  return `${url.protocol === "https:" ? "wss" : "ws"}://${url.hostname}:${process.env.INTERVIEW_ENGINE_PORT || 8090}`;
+  let base = process.env.NEXT_PUBLIC_INTERVIEW_WS_URL;
+  if (!base) {
+    // Same host, engine port (local development)
+    const url = new URL(request.url);
+    base = `${url.protocol === "https:" ? "wss" : "ws"}://${url.hostname}:${process.env.INTERVIEW_ENGINE_PORT || 8090}`;
+  }
+  return `${base.replace(/\/+$/, "").replace(/\/ws$/, "")}/ws`;
 }
 
 // POST /api/interview/[token]/session — short-lived WebSocket ticket (10 min). Requires consent.

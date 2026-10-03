@@ -63,7 +63,8 @@ export class InterviewSocket {
     }
     if (this.closedByUs) return;
 
-    const ws = new WebSocket(`${wsUrl.replace(/\/$/, "")}/ws?ticket=${encodeURIComponent(ticket)}`);
+    // wsUrl from the session route is the full socket URL, already ending in /ws
+    const ws = new WebSocket(`${wsUrl}?ticket=${encodeURIComponent(ticket)}`);
     ws.binaryType = "arraybuffer";
     this.ws = ws;
 

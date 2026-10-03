@@ -15,7 +15,7 @@ All under `app/api/interview/[token]/`. Each one hashes the token, loads the int
 |---|---|
 | `GET /api/interview/[token]` | `{ status, candidateFirstName, jobTitle, companyName, maxMinutes, questionCount, expiresAt, recordVideo, canResume }`. Sets `opened_at` (and interview `opened`) on first call |
 | `POST /api/interview/[token]/consent` | Body `{ accepted: true }` → `consent_at` |
-| `POST /api/interview/[token]/session` | Requires consent. Returns `{ wsUrl: NEXT_PUBLIC_INTERVIEW_WS_URL, ticket }` (JWT, 10 min). Rate limit: 10/hour/token |
+| `POST /api/interview/[token]/session` | Requires consent. Returns `{ wsUrl: NEXT_PUBLIC_INTERVIEW_WS_URL, ticket }` (JWT, 10 min). Rate limit: 60/hour/token (a page load uses up to 6: connect + 5 reconnects) |
 | `POST /api/interview/[token]/upload` | `multipart/form-data`: `kind` (`audio`|`video`), `part` (int), `final` (bool), `file` (Blob). Stores `recordings/{interviewId}/{kind}/{part:05}.webm`; the first part sets `recording_status=uploading`; on `final` the route enqueues `assemble-recording`, which concatenates the parts (see 11) and sets `recording_status=complete`. Max 10 MB per part |
 | `POST /api/interview/[token]/event` | Fallback for integrity events if the WebSocket is down |
 

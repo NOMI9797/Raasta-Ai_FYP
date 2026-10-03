@@ -16,7 +16,7 @@ const TOKEN_PATTERN = /^[A-Za-z0-9_-]{20,100}$/;
 export const ROUTE_LIMITS = {
   get: { limit: 120, windowSec: 3600 },
   consent: { limit: 20, windowSec: 3600 },
-  session: { limit: 10, windowSec: 3600 },
+  session: { limit: 60, windowSec: 3600 }, // each page load can use up to 6 (connect + 5 reconnects)
   upload: { limit: 900, windowSec: 3600 },
   event: { limit: 300, windowSec: 3600 },
 };
