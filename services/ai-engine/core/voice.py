@@ -4,6 +4,7 @@ Pause detection and jitter/shimmer are ported from the earlier interview server,
 fixes: filler words are counted as whole words (the original substring count treated "also"
 as "so"), and the silence threshold also considers the speech level (see detect_pauses).
 """
+import functools
 import re
 
 import numpy as np
@@ -32,6 +33,30 @@ _FILLER_PATTERNS = {
 }
 
 
+@functools.lru_cache(maxsize=1)
+def librosa_available() -> bool:
+    """librosa needs numba's compiled extensions, which Windows Smart App Control can block.
+    Pitch-based metrics (jitter) need librosa; everything else here works without it."""
+    try:
+        import librosa
+
+        librosa.feature.rms(y=np.zeros(2048, dtype=np.float32))
+        return True
+    except Exception:
+        return False
+
+
+def frame_rms(y: np.ndarray, frame_length: int, hop_length: int) -> np.ndarray:
+    """Per-frame RMS, same framing as librosa.feature.rms (centred, zero-padded)."""
+    if frame_length <= 0 or hop_length <= 0:
+        raise ValueError("frame_length and hop_length must be positive")
+    padded = np.pad(np.asarray(y, dtype=np.float64), (frame_length // 2, frame_length // 2))
+    if len(padded) < frame_length:
+        return np.zeros(0)
+    frames = np.lib.stride_tricks.sliding_window_view(padded, frame_length)[::hop_length]
+    return np.sqrt(np.mean(frames ** 2, axis=1))
+
+
 def detect_pauses(y: np.ndarray, sr: int, min_pause: float = MIN_PAUSE_SEC) -> dict:
     """RMS-energy pause detection (25 ms frames, 10 ms hop).
 
@@ -40,8 +65,6 @@ def detect_pauses(y: np.ndarray, sr: int, min_pause: float = MIN_PAUSE_SEC) -> d
     split into fragments and long pauses missed. The threshold is now the higher of that and
     SILENCE_FRACTION of the loud-speech level (about -20 dB).
     """
-    import librosa
-
     duration = len(y) / sr if sr else 0
     empty = {"pauseCount": 0, "pauseDurations": [], "totalSilenceSec": 0.0, "pauseRatio": 0.0,
              "averagePauseSec": 0.0, "longestPauseSec": 0.0, "longPauses": 0}
@@ -50,7 +73,7 @@ def detect_pauses(y: np.ndarray, sr: int, min_pause: float = MIN_PAUSE_SEC) -> d
 
     frame_length = int(0.025 * sr)
     hop_length = int(0.01 * sr)
-    rms = librosa.feature.rms(y=y, frame_length=frame_length, hop_length=hop_length)[0]
+    rms = frame_rms(y, frame_length, hop_length)
     threshold = max(np.percentile(rms, 10), SILENCE_FRACTION * np.percentile(rms, 90))
     is_silence = rms < threshold
 
@@ -81,12 +104,13 @@ def detect_pauses(y: np.ndarray, sr: int, min_pause: float = MIN_PAUSE_SEC) -> d
 
 
 def voice_quality(y: np.ndarray, sr: int) -> dict:
-    """Jitter (pitch-period variation) and shimmer (amplitude variation), in percent."""
+    """Jitter (pitch-period variation) and shimmer (amplitude variation), in percent.
+    Both null when librosa can't load (they don't feed any score)."""
+    none = {"jitter": None, "shimmer": None, "pitchMean": None, "pitchStd": None}
+    if len(y) < sr * 0.1 or not librosa_available():
+        return none
     import librosa
 
-    none = {"jitter": None, "shimmer": None, "pitchMean": None, "pitchStd": None}
-    if len(y) < sr * 0.1:
-        return none
     f0, _, _ = librosa.pyin(y, fmin=librosa.note_to_hz("C2"), fmax=librosa.note_to_hz("C7"), sr=sr)
     voiced = f0[~np.isnan(f0)]
     if len(voiced) < 2:
@@ -94,7 +118,7 @@ def voice_quality(y: np.ndarray, sr: int) -> dict:
     periods = 1.0 / voiced
     jitter = float(np.std(periods) / np.mean(periods) * 100)
 
-    rms = librosa.feature.rms(y=y, frame_length=int(0.025 * sr), hop_length=int(0.01 * sr))[0]
+    rms = frame_rms(y, int(0.025 * sr), int(0.01 * sr))
     rms = rms[rms > 0]
     shimmer = float(np.std(rms) / np.mean(rms) * 100) if len(rms) >= 2 else None
     return {

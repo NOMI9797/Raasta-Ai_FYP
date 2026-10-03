@@ -6,6 +6,7 @@ import { withAuth } from "@/libs/auth-middleware";
 import { ALL_STATUSES, CANDIDATE_STATUS, STATUS_META, canTransition } from "@/libs/hiring/statuses";
 import { getHiringConfig } from "@/libs/hiring/config";
 import { queueAfterShortlist } from "@/libs/hiring/shortlist-hooks";
+import { DECISIONS, DecisionError, applyDecision } from "@/libs/hiring/decisions";
 
 // PATCH /api/hiring/candidates/[candidateId] — update candidate status
 export const PATCH = withAuth(async (request, { params, user }) => {
@@ -50,6 +51,17 @@ export const PATCH = withAuth(async (request, { params, user }) => {
         { error: `Cannot move a candidate from "${from}" to "${STATUS_META[status].label}"` },
         { status: 400 }
       );
+    }
+
+    // Final decisions record who decided (and may queue an outcome email)
+    if (status && status !== candidate.status && DECISIONS.includes(status)) {
+      try {
+        const decided = await applyDecision({ candidateId, decision: status, decidedBy: user.id });
+        return NextResponse.json({ success: true, candidate: decided });
+      } catch (error) {
+        if (error instanceof DecisionError) return NextResponse.json({ error: error.message }, { status: error.status });
+        throw error;
+      }
     }
 
     const updateData = {};

@@ -46,31 +46,56 @@ def _starts_with_header(path: Path) -> bool:
         return f.read(4) == EBML_MAGIC
 
 
+def group_into_streams(parts: list[Path]) -> list[list[Path]]:
+    """Split parts into recorder streams: a new stream starts at every part with a WebM header.
+
+    MediaRecorder timeslice chunks are byte fragments of one stream (only its first chunk has a
+    header). A page reload mid-interview starts a new recorder, so one interview can hold several
+    streams. Leading fragments without a header can't be decoded and are dropped.
+    """
+    streams: list[list[Path]] = []
+    for part in parts:
+        if _starts_with_header(part):
+            streams.append([part])
+        elif streams:
+            streams[-1].append(part)
+    return streams
+
+
 def concat_parts(parts: list[Path], out_path: Path) -> None:
     """Join recording parts into one file.
 
-    MediaRecorder timeslice chunks are byte fragments of one stream (only the first has a
-    header), so they are joined byte-wise. Separately recorded files (each with a header)
-    go through ffmpeg's concat demuxer, re-encoding if stream parameters differ. Either way
-    the result is remuxed so it gets proper duration and seek data.
+    Each recorder stream is joined byte-wise and remuxed (so it gets duration and seek data);
+    several streams (separate files, or a reload mid-interview) then go through ffmpeg's concat
+    demuxer, re-encoding if their stream parameters differ.
     """
     if not parts:
         raise MediaError("No parts to join")
+    streams = group_into_streams(parts)
+    if not streams:
+        raise MediaError("No part starts with a WebM header")
+    suffix = out_path.suffix or ".webm"
     with tempfile.TemporaryDirectory() as tmp:
-        joined = Path(tmp) / f"joined{out_path.suffix or '.webm'}"
-        standalone = len(parts) > 1 and all(_starts_with_header(p) for p in parts)
-        if not standalone:
-            with open(joined, "wb") as out:
-                for part in parts:
+        remuxed = []
+        for i, stream in enumerate(streams):
+            raw = Path(tmp) / f"stream{i}-raw{suffix}"
+            with open(raw, "wb") as out:
+                for part in stream:
                     with open(part, "rb") as src:
                         shutil.copyfileobj(src, out)
-        else:
-            listing = Path(tmp) / "parts.txt"
-            listing.write_text("".join(f"file '{p.resolve().as_posix()}'\n" for p in parts))
-            try:
-                _run(["ffmpeg", "-nostdin", "-y", "-f", "concat", "-safe", "0", "-i", str(listing), "-c", "copy", str(joined)])
-            except MediaError:
-                _run(["ffmpeg", "-nostdin", "-y", "-f", "concat", "-safe", "0", "-i", str(listing), str(joined)])
+            fixed = Path(tmp) / f"stream{i}{suffix}"
+            _run(["ffmpeg", "-nostdin", "-y", "-i", str(raw), "-c", "copy", str(fixed)])
+            remuxed.append(fixed)
+        if len(remuxed) == 1:
+            shutil.copyfile(remuxed[0], out_path)
+            return
+        listing = Path(tmp) / "parts.txt"
+        listing.write_text("".join(f"file '{p.resolve().as_posix()}'\n" for p in remuxed))
+        joined = Path(tmp) / f"joined{suffix}"
+        try:
+            _run(["ffmpeg", "-nostdin", "-y", "-f", "concat", "-safe", "0", "-i", str(listing), "-c", "copy", str(joined)])
+        except MediaError:
+            _run(["ffmpeg", "-nostdin", "-y", "-f", "concat", "-safe", "0", "-i", str(listing), str(joined)])
         _run(["ffmpeg", "-nostdin", "-y", "-i", str(joined), "-c", "copy", str(out_path)])
 
 

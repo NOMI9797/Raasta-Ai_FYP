@@ -37,6 +37,35 @@ def test_separate_files_are_concatenated(storage_dir, client):
     assert abs(res.json()["durationMs"] - 5000) < 300
 
 
+def test_reload_mid_interview_mixes_chunked_streams(storage_dir, client):
+    """A page reload starts a new recorder: chunks of stream 1, then chunks of stream 2."""
+    first = (RECORDING / "audio.webm").read_bytes()  # 14 s
+    parts_dir = storage_dir / "recordings" / "reload" / "audio"
+    parts_dir.mkdir(parents=True, exist_ok=True)
+    make_tone(parts_dir / "tmp-second.webm", 3, 400)
+    second = (parts_dir / "tmp-second.webm").read_bytes()
+    (parts_dir / "tmp-second.webm").unlink()
+    half = len(first) // 2
+    chunks = [first[:half], first[half:], second[: len(second) // 2], second[len(second) // 2:]]
+    for i, chunk in enumerate(chunks):
+        (parts_dir / f"{i:05d}.webm").write_bytes(chunk)
+
+    streams = media.group_into_streams(sorted(parts_dir.iterdir()))
+    assert [len(s) for s in streams] == [2, 2]
+
+    res = client.post("/media/concat", headers=AUTH, json={"prefix": "recordings/reload/audio/", "outKey": "recordings/reload/audio.webm"})
+    assert res.status_code == 200, res.text
+    assert abs(res.json()["durationMs"] - 17000) < 400
+
+
+def test_leading_fragment_without_header_is_dropped(tmp_path):
+    headerless = tmp_path / "00000.webm"
+    headerless.write_bytes(b"\x00\x01fragment")
+    whole = tmp_path / "00001.webm"
+    whole.write_bytes((RECORDING / "audio.webm").read_bytes())
+    assert media.group_into_streams([headerless, whole]) == [[whole]]
+
+
 def test_concat_validation(client):
     assert client.post("/media/concat", headers=AUTH, json={"prefix": "recordings/none/", "outKey": "recordings/none/a.webm"}).status_code == 404
     assert client.post("/media/concat", headers=AUTH, json={"prefix": "recordings/none", "outKey": "recordings/none/a.webm"}).status_code == 400

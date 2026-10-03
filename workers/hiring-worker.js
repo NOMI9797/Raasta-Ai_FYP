@@ -15,6 +15,9 @@ import { applyShortlist } from "../libs/hiring/shortlist";
 import { queueAfterShortlist, notifyScreeningComplete } from "../libs/hiring/shortlist-hooks";
 import { acquireQuestionLock, ensureJobQuestions, personaliseCandidate } from "../libs/interview/question-bank";
 import { abandonStaleSessions, expireStaleInvites, findDueReminders, sendInvite, sendReminder } from "../libs/hiring/invitations";
+import { analyseInterview, assembleRecording, markAnalysisFailed } from "../libs/interview/analysis";
+import { finalizeCandidate } from "../libs/hiring/finalize";
+import { sendOutcomeEmail } from "../libs/hiring/decisions";
 
 const WORKER_ID = process.env.WORKER_ID || `${os.hostname()}-${process.pid}`;
 const CONCURRENCY = Math.max(1, Number(process.env.HIRING_WORKER_CONCURRENCY) || 3);
@@ -28,6 +31,7 @@ const DEFAULT_TIMEOUT_MS = 60 * 1000;
 const SHORTLIST_DEBOUNCE_MS = 30 * 1000;
 const QUESTION_WAIT_MS = 30 * 1000;   // send-invite waits for ensure-questions
 const QUESTION_WAIT_ATTEMPTS = 10;
+const ANALYSIS_RETRY_MS = 30 * 1000;  // analyse-interview waits for the recording uploads
 
 function log(level, fields) {
   const line = JSON.stringify({ service: "hiring-worker", level, worker: WORKER_ID, at: new Date().toISOString(), ...fields });
@@ -111,6 +115,60 @@ export const handlers = {
     timeoutMs: 30 * 1000,
     async run({ interviewId }) {
       return sendReminder(interviewId);
+    },
+  },
+
+  // Stage 2: join the uploaded recording parts (queued when the room uploads its final part)
+  "assemble-recording": {
+    timeoutMs: 5 * 60 * 1000,
+    async run({ interviewId, kind = null }) {
+      return assembleRecording(interviewId, { kind });
+    },
+  },
+
+  // Stage 2: analyse the recording; waits (re-queues every 30 s) while uploads are finishing
+  "analyse-interview": {
+    timeoutMs: 15 * 60 * 1000,
+    async run({ interviewId, force = false }, { attempt }) {
+      // One analysis per interview at a time (e.g. a re-analyse while the first one is running)
+      const lockKey = `lock:analyse:${interviewId}`;
+      if (!(await redis.set(lockKey, WORKER_ID, "PX", 15 * 60 * 1000, "NX"))) {
+        await enqueue("analyse-interview", { interviewId, force }, { delayMs: ANALYSIS_RETRY_MS }, redis);
+        return { interviewId, busy: true };
+      }
+      let result;
+      try {
+        result = await analyseInterview(interviewId, { force });
+      } catch (error) {
+        // Last attempt: mark it failed so the recruiter sees it (and can re-analyse)
+        if (attempt >= MAX_ATTEMPTS) await markAnalysisFailed(interviewId, error.message);
+        throw error;
+      } finally {
+        if ((await redis.get(lockKey)) === WORKER_ID) await redis.del(lockKey);
+      }
+      if (result.waiting) {
+        await enqueue("analyse-interview", { interviewId, force }, { delayMs: ANALYSIS_RETRY_MS }, redis);
+        return { interviewId, waitingForRecording: true };
+      }
+      if (result.analysis && result.candidateId) {
+        await enqueue("finalize-candidate", { candidateId: result.candidateId, interviewId }, {}, redis);
+      }
+      return { interviewId, skipped: result.skipped, errors: result.analysis?.errors };
+    },
+  },
+
+  // Stage 2: final score, LLM summary, suggested decision (applied only with autoFinalize)
+  "finalize-candidate": {
+    timeoutMs: 90 * 1000,
+    async run({ candidateId, interviewId }) {
+      return finalizeCandidate({ candidateId, interviewId });
+    },
+  },
+
+  "send-outcome-email": {
+    timeoutMs: 30 * 1000,
+    async run({ candidateId }) {
+      return sendOutcomeEmail(candidateId);
     },
   },
 };

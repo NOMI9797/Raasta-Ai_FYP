@@ -94,6 +94,14 @@ Mount `/models` as a volume so the weights survive rebuilds.
 - CPU is fine for the demo (TTS takes about 0.5–2s per sentence on a modern CPU; analysis takes minutes per interview). A GPU speeds up everything.
 - Use one Uvicorn worker (the models are large). Run heavy analysis in a thread pool so `/tts` stays responsive, or run two containers: `ai-engine-tts` and `ai-engine-analysis` (same image, different `ENABLED_ROUTERS` env).
 
+## Phase 7 changes
+- `/media/concat` groups the parts into recorder streams. A new stream starts at every part with a WebM header, which happens when the candidate reloads the page mid-interview. Each stream is joined byte-wise and remuxed, and then the streams are concatenated. Leading fragments without a header are dropped.
+- Pause detection and shimmer use a numpy RMS (`frame_rms`, same framing as `librosa.feature.rms`). librosa is only needed for pitch (jitter). When librosa can't load, `jitter`/`shimmer` are `null` and everything else still works; neither feeds any score.
+
+## Running natively on Windows
+- **Smart App Control / Application Control** (on by default on new Windows 11 installs) can block compiled extensions in the venv. It blocked numba (used by librosa) and a DLL needed by the `kokoro` TTS. With the changes above, voice analysis still works; TTS returns 503 and the room uses the browser's voice. For TTS and jitter, run the ai-engine in Docker or WSL, or allow the files in Windows Security.
+- **Path length:** HuggingFace model files have long names. Keep `MODEL_CACHE_DIR` short (e.g. `services/ai-engine/.models`), otherwise loading fails with `WinError 206`.
+
 ## Acceptance
 - `curl -H "Authorization: Bearer $AI_ENGINE_TOKEN" -X POST localhost:8000/tts -d '{"text":"Hello"}' -o hello.wav` plays.
 - Each analyze endpoint returns valid JSON for the fixture recording in `tests/fixtures/interview/recording/`.

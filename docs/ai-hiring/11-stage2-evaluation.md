@@ -72,6 +72,21 @@ Rules for the prompt: base it only on the evidence given; don't mention protecte
 ## 4. Agent pipeline
 The recruiter pipeline's `final_evaluation` step lists finalised candidates. The `approve_final` checkpoint maps to the bulk-approve endpoint (see [13-workers-automation.md](13-workers-automation.md)).
 
+## Implementation notes (Phase 7)
+- Files:
+  - `libs/interview/analysis.js` (assemble, segments, integrity, analysis) and `analysis-client.js` (ai-engine HTTP)
+  - `libs/hiring/final-evaluator.js` (pure formulas, unit-tested), `finalize.js` (final evaluation), `decisions.js` (decisions, bulk approve, outcome email)
+  - `libs/ai/prompts/final.js`
+- **Assembly:** the room's final part of each kind queues `assemble-recording { interviewId, kind }`. The audio and video jobs run concurrently. Each writes only its own key, and `recording_status` is set in one SQL statement from the row's current keys (`complete` once audio, and video if any video parts exist, are joined).
+- **Waiting:** `analyse-interview` re-queues itself every 30 s until `recording_status = complete`. After 10 minutes it assembles whatever was uploaded and continues (`analysis.media` = `ok` | `partial` | `missing`). A Redis lock (`lock:analyse:{id}`) keeps a re-analyse from running alongside a first analysis.
+- **Segments:** candidate `interview_turns` give `{ id: "turn-{seq}", startMs: offsetMs, endMs: offsetMs + duration, text }`. The text lets `/analyze/voice` compute WPM and fillers without Whisper. Offsets count from the interview start, so they are approximate after a reconnect.
+- **Composure** counts `neutral`, `happy` and `calm` (the speech-emotion model's near-neutral class). **Fluency** without a transcript uses the pause part alone.
+- **Summary fallback:** if the LLM fails, a plain summary is built from the computed facts (`fallback: true`). The candidate's name is scrubbed from the LLM output.
+- **`final_analysis`** = `{ recommendation, summary, strengths, risks, suggestedNextSteps, suggestedDecision, breakdown { resume, interview, communication, weights, finalWeights, threshold }, communication { score, components, weights }, answered, totalQuestions, interviewId, computedAt, version, decision?, outcomeEmail? }`. `decision` records `{ decision, by, at, note }`. A re-analysis keeps `decision` and `outcomeEmail`.
+- **Decisions** go through `applyDecision`, from the decision API, bulk approve, `autoFinalize` and the existing status PATCH, so `decided_by` / `final_decided_at` are always set. A conditional update guards against concurrent decisions.
+- **Outcome emails** (`sendOutcomeEmails`) for `final_shortlisted`, `final_rejected` and `rejected` are idempotent (`final_analysis.outcomeEmail`).
+- The recruiter gets an in-app notification for every evaluation (suggested decision, or what `autoFinalize` applied).
+
 ## Acceptance
 - After a completed test interview with recording, `analysis`, `communication_score`, `final_score` and `final_analysis` are filled within 5 minutes.
 - With `autoFinalize=false`, the status stays `interview_completed` until the recruiter approves.
