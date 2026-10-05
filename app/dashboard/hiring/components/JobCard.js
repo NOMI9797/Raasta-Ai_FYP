@@ -5,15 +5,13 @@ import {
   MapPin,
   Clock,
   DollarSign,
-  Sparkles,
   Trash2,
-  Loader2,
-  Copy,
   Check,
   Users,
   Link2,
   Send,
   ExternalLink,
+  CheckCircle2,
   MessageCircleQuestion,
 } from "lucide-react";
 import { useState } from "react";
@@ -25,15 +23,22 @@ const STATUS_BADGES = {
   closed: "badge-error",
 };
 
-export default function JobCard({
-  job,
-  onDelete,
-  onGeneratePost,
-  isGenerating,
-  onPublishToRozee,
-  isPublishingRozee,
-}) {
-  const [copied, setCopied] = useState(false);
+// Where the job is posted. The publish panel (opened with Publish) does the work.
+function PlatformChip({ label, posted }) {
+  if (!posted) return <span className="badge badge-sm badge-ghost">{label}: not posted</span>;
+  return (
+    <span className="badge badge-sm badge-success gap-1">
+      <CheckCircle2 className="h-3 w-3" /> {label}
+      {posted.url && (
+        <a href={posted.url} target="_blank" rel="noopener noreferrer" aria-label={`Open the ${label} post`}>
+          <ExternalLink className="h-3 w-3" />
+        </a>
+      )}
+    </span>
+  );
+}
+
+export default function JobCard({ job, onDelete, onPublish }) {
   const [copiedLink, setCopiedLink] = useState(false);
   const router = useRouter();
 
@@ -42,13 +47,6 @@ export default function JobCard({
   const applyUrl = typeof window !== "undefined"
     ? `${window.location.origin}/apply/${job.id}`
     : `/apply/${job.id}`;
-
-  const handleCopy = () => {
-    if (!job.linkedinPost) return;
-    navigator.clipboard.writeText(job.linkedinPost);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
 
   const handleCopyLink = () => {
     navigator.clipboard.writeText(applyUrl);
@@ -158,95 +156,16 @@ export default function JobCard({
         </button>
       </div>
 
-      {/* AI Post section */}
-      <div className="border-t border-base-300 pt-3 space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-base-content/70">LinkedIn post</span>
-          <div className="flex items-center gap-1">
-            {job.linkedinPost && (
-              <button
-                className="btn btn-ghost btn-xs"
-                onClick={handleCopy}
-                title="Copy LinkedIn post"
-                aria-label="Copy LinkedIn post"
-              >
-                {copied ? (
-                  <Check className="h-3.5 w-3.5 text-success" />
-                ) : (
-                  <Copy className="h-3.5 w-3.5" />
-                )}
-              </button>
-            )}
-            <button
-              className="btn btn-primary btn-xs gap-1"
-              onClick={() => onGeneratePost(job.id)}
-              disabled={isGenerating}
-            >
-              {isGenerating ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating…
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-3.5 w-3.5" />
-                  {job.linkedinPost ? "Regenerate" : "Generate AI post"}
-                </>
-              )}
-            </button>
+      {/* Distribution: one post per platform, written for it */}
+      <div className="border-t border-base-300 pt-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <PlatformChip label="LinkedIn" posted={job.published?.linkedin} />
+            <PlatformChip label="Rozee.pk" posted={job.published?.rozee} />
           </div>
-        </div>
-
-        {job.linkedinPost && (
-          <div className="bg-base-100 rounded-lg p-3 text-sm whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto">
-            {job.linkedinPost}
-          </div>
-        )}
-      </div>
-
-      {/* Rozee.pk publish section */}
-      <div className="border-t border-base-300 pt-3 space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-base-content/70 flex items-center gap-2">
-            <span className="w-4 h-4 bg-emerald-600 rounded flex items-center justify-center">
-              <span className="text-white text-[8px] font-bold">RZ</span>
-            </span>
-            Rozee.pk
-            {job.rozeePublishedAt && (
-              <span className="badge badge-xs badge-success">Published</span>
-            )}
-          </span>
-          <div className="flex items-center gap-1">
-            {job.rozeePostUrl && (
-              <a
-                href={job.rozeePostUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn btn-ghost btn-xs gap-1"
-                title="Open Rozee posting"
-              >
-                <ExternalLink className="h-3.5 w-3.5" />
-              </a>
-            )}
-            {onPublishToRozee && (
-              <button
-                className="btn btn-success btn-xs gap-1"
-                onClick={() => onPublishToRozee(job.id)}
-                disabled={isPublishingRozee}
-                title={job.rozeePublishedAt ? "Re-publish to Rozee" : "Publish to Rozee"}
-              >
-                {isPublishingRozee ? (
-                  <>
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Publishing…
-                  </>
-                ) : (
-                  <>
-                    <Send className="h-3.5 w-3.5" />
-                    {job.rozeePublishedAt ? "Re-publish" : "Publish to Rozee"}
-                  </>
-                )}
-              </button>
-            )}
-          </div>
+          <button className="btn btn-primary btn-xs gap-1" onClick={() => onPublish(job)}>
+            <Send className="h-3.5 w-3.5" /> Publish
+          </button>
         </div>
       </div>
     </div>

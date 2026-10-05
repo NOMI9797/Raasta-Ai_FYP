@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useDialog } from "@/components/ui/DialogProvider";
 import {
   Plus,
   Trash2,
@@ -21,6 +22,7 @@ import { useRozeeAccounts } from "../hooks";
  * the /api/rozee/* tree via useRozeeAccounts.
  */
 export default function RozeeAccountsPanel() {
+  const { confirm } = useDialog();
   const {
     accounts,
     loading,
@@ -89,7 +91,13 @@ export default function RozeeAccountsPanel() {
   };
 
   const handleDelete = async (accountId) => {
-    if (!confirm("Disconnect this Rozee account?")) return;
+    const ok = await confirm({
+      title: "Disconnect this Rozee account?",
+      message: "The saved session is removed from Raasta-AI. You can connect the account again later.",
+      confirmText: "Disconnect",
+      tone: "danger",
+    });
+    if (!ok) return;
     try {
       await deleteAccount(accountId);
       showToast("Rozee account disconnected", "success");

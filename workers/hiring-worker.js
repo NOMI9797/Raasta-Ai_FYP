@@ -18,7 +18,13 @@ import { abandonStaleSessions, expireStaleInvites, findDueReminders, sendInvite,
 import { analyseInterview, assembleRecording, markAnalysisFailed } from "../libs/interview/analysis";
 import { finalizeCandidate } from "../libs/hiring/finalize";
 import { sendOutcomeEmail } from "../libs/hiring/decisions";
+import { advanceRun } from "../libs/agent/recruiter-agent";
+import { RUN_STATUS, isJobManagedByAgent, listActiveRecruiterRuns } from "../libs/agent/runs";
+import { AGENT_ADVANCE_JOB, requestAgentTick, requestAgentTickForJob } from "../libs/agent/triggers";
 
+// Set by the web server when it runs this worker for you: stop when that server is gone
+const PARENT_PID = Number(process.env.HIRING_WORKER_PARENT_PID) || 0;
+const PARENT_CHECK_MS = 5 * 1000;
 const WORKER_ID = process.env.WORKER_ID || `${os.hostname()}-${process.pid}`;
 const CONCURRENCY = Math.max(1, Number(process.env.HIRING_WORKER_CONCURRENCY) || 3);
 const MAX_ATTEMPTS = 3; // retries after the first failure before dead-lettering
@@ -29,9 +35,12 @@ const RECLAIM_IDLE_MS = 5 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 15 * 60 * 1000;
 const DEFAULT_TIMEOUT_MS = 60 * 1000;
 const SHORTLIST_DEBOUNCE_MS = 30 * 1000;
+const AGENT_SCREEN_DEBOUNCE_MS = 8 * 1000; // applicants screened close together share one agent tick, but nobody waits half a minute
 const QUESTION_WAIT_MS = 30 * 1000;   // send-invite waits for ensure-questions
 const QUESTION_WAIT_ATTEMPTS = 10;
 const ANALYSIS_RETRY_MS = 30 * 1000;  // analyse-interview waits for the recording uploads
+const AGENT_TICK_MS = 5 * 60 * 1000;   // one agent tick at a time per run
+const AGENT_BUSY_RETRY_MS = 5 * 1000;
 
 function log(level, fields) {
   const line = JSON.stringify({ service: "hiring-worker", level, worker: WORKER_ID, at: new Date().toISOString(), ...fields });
@@ -51,11 +60,13 @@ export const handlers = {
 
   // Stage 1: fit score one candidate, then schedule one shortlist run per job.
   // Many screenings finishing close together share a single shortlist-job (debounce lock).
+  // A job managed by the supervised agent is shortlisted by the agent instead.
   "screen-candidate": {
     timeoutMs: 60 * 1000,
     async run({ candidateId }) {
       const result = await screenCandidate(candidateId);
       if (result.skipped) return result;
+      if (await requestAgentTickForJob(result.jobId, { redis, delayMs: AGENT_SCREEN_DEBOUNCE_MS })) return { ...result, agent: true };
       const acquired = await redis.set(`lock:shortlist-pending:${result.jobId}`, WORKER_ID, "PX", SHORTLIST_DEBOUNCE_MS, "NX");
       if (acquired) {
         await enqueue("shortlist-job", { jobId: result.jobId }, { delayMs: SHORTLIST_DEBOUNCE_MS }, redis);
@@ -67,6 +78,10 @@ export const handlers = {
   "shortlist-job": {
     timeoutMs: 60 * 1000,
     async run({ jobId }) {
+      if (await isJobManagedByAgent(jobId)) {
+        await requestAgentTickForJob(jobId, { redis });
+        return { jobId, skipped: "managed by the recruiter agent" };
+      }
       const result = await applyShortlist(jobId, { triggeredBy: "system", onShortlisted: queueAfterShortlist });
       await notifyScreeningComplete(result);
       return result;
@@ -161,7 +176,27 @@ export const handlers = {
   "finalize-candidate": {
     timeoutMs: 90 * 1000,
     async run({ candidateId, interviewId }) {
-      return finalizeCandidate({ candidateId, interviewId });
+      const result = await finalizeCandidate({ candidateId, interviewId });
+      if (result.jobId) await requestAgentTickForJob(result.jobId, { redis });
+      return result;
+    },
+  },
+
+  // Supervised recruiter agent: one tick (libs/agent/recruiter-agent.js). One tick per run at a
+  // time; a tick that arrives while another is running is retried shortly after.
+  [AGENT_ADVANCE_JOB]: {
+    timeoutMs: AGENT_TICK_MS,
+    async run({ runId }) {
+      const lockKey = `lock:agent:${runId}`;
+      if (!(await redis.set(lockKey, WORKER_ID, "PX", AGENT_TICK_MS, "NX"))) {
+        await requestAgentTick(runId, { redis, delayMs: AGENT_BUSY_RETRY_MS });
+        return { runId, busy: true };
+      }
+      try {
+        return await advanceRun(runId);
+      } finally {
+        if ((await redis.get(lockKey)) === WORKER_ID) await redis.del(lockKey);
+      }
     },
   },
 
@@ -183,6 +218,12 @@ const sweeps = [
     const due = await findDueReminders();
     for (const interviewId of due) await enqueue("send-reminder", { interviewId }, {}, redis);
     if (due.length) log("info", { msg: "reminders queued", count: due.length });
+  }],
+  ["advance recruiter agents", async () => {
+    // Catches up on missed events and starts each day's invite allowance
+    const runs = (await listActiveRecruiterRuns()).filter((r) => r.status !== RUN_STATUS.PAUSED);
+    for (const run of runs) await requestAgentTick(run.id, { redis });
+    if (runs.length) log("info", { msg: "agent ticks queued", count: runs.length });
   }],
   ["close stale sessions", async () => {
     const result = await abandonStaleSessions({ enqueueJob: (type, payload) => enqueue(type, payload, {}, redis) });
@@ -343,6 +384,17 @@ async function main() {
 
   every(DELAYED_INTERVAL_MS, "move delayed jobs", () => moveDueDelayed(redis));
   every(RECLAIM_INTERVAL_MS, "reclaim stale jobs", reclaimStale);
+  if (PARENT_PID) {
+    every(PARENT_CHECK_MS, "web server check", async () => {
+      try {
+        process.kill(PARENT_PID, 0);
+      } catch (error) {
+        if (error.code !== "ESRCH") return;
+        log("info", { msg: "the web server that started this worker is gone" });
+        shutdown("parent exit");
+      }
+    });
+  }
   const runSweeps = async () => {
     for (const [name, sweep] of sweeps) {
       await sweep().catch((error) => log("error", { msg: `sweep "${name}" failed`, error: error.message }));

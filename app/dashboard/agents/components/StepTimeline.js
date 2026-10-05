@@ -8,6 +8,7 @@ import {
   XCircle,
   SkipForward,
   ShieldCheck,
+  Clock,
 } from "lucide-react";
 
 const STATUS_CONFIG = {
@@ -18,9 +19,10 @@ const STATUS_CONFIG = {
   completed: { icon: CheckCircle2, color: "text-success", bg: "bg-success/10" },
   skipped: { icon: SkipForward, color: "text-base-content/40", bg: "bg-base-300/20" },
   failed: { icon: XCircle, color: "text-error", bg: "bg-error/10" },
+  waiting: { icon: Clock, color: "text-info", bg: "bg-info/10" },
 };
 
-export default function StepTimeline({ steps, pipelineStepLabels }) {
+export default function StepTimeline({ steps, pipelineStepLabels, stepDetail }) {
   if (!steps?.length) return null;
 
   return (
@@ -45,7 +47,10 @@ export default function StepTimeline({ steps, pipelineStepLabels }) {
             </div>
             <div className="flex-1 min-w-0">
               <p className={`text-sm font-medium ${cfg.color}`}>{label}</p>
-              <p className="text-xs text-base-content/40 capitalize">{step.status.replace(/_/g, " ")}</p>
+              <p className="text-xs text-base-content/40">
+                <span className="capitalize">{step.status.replace(/_/g, " ")}</span>
+                {stepDetail?.(step) ? ` · ${stepDetail(step)}` : ""}
+              </p>
             </div>
           </div>
         );

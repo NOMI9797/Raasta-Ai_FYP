@@ -32,7 +32,8 @@ export async function GET(request, { params }) {
             .where(eq(agentRuns.id, runId))
             .limit(1);
 
-          if (!run) {
+          // Only the run's owner (or an admin) may watch it
+          if (!run || (run.userId !== session.user.id && session.user.role !== "admin")) {
             send({ type: "error", message: "Run not found" });
             controller.close();
             return;
@@ -55,11 +56,13 @@ export async function GET(request, { params }) {
               currentStep: run.currentStep,
               totalSteps: run.totalSteps,
               errorMessage: run.errorMessage,
+              results: run.results,
             },
             steps: steps.map((s) => ({
               stepKey: s.stepKey,
               stepIndex: s.stepIndex,
               status: s.status,
+              output: s.output,
             })),
           });
 

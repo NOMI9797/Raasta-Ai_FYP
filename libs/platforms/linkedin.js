@@ -67,7 +67,11 @@ async function publishJobWithPage(page, job) {
 async function publishJob(account, job) {
   const sessionCheck = await testSession(account, true);
   if (!sessionCheck.isValid) {
-    return { success: false, error: `Session invalid: ${sessionCheck.reason}` };
+    // A checkpoint is the platform asking a person to confirm something. Report it and stop; never push through.
+    if (["/checkpoint", "/challenge"].some((part) => (sessionCheck.currentUrl || "").includes(part))) {
+      return { success: false, code: "checkpoint", error: "LinkedIn is asking for a security check on this account. Open LinkedIn yourself to confirm it, then reconnect the account." };
+    }
+    return { success: false, code: "session_invalid", error: `Session invalid: ${sessionCheck.reason}` };
   }
   try {
     return await publishJobWithPage(sessionCheck.page, job);

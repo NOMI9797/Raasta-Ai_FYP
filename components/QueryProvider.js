@@ -1,8 +1,16 @@
 "use client";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
+import dynamic from "next/dynamic";
 import { useState } from "react";
+
+// The devtools panel is a 1.2 MB script that slows every screen in `npm run dev`, so it is opt-in:
+// set QUERY_DEVTOOLS=true in .env.local when you want it. next.config.js turns that into a build-time
+// constant, which keeps the panel (and its code) out of the page when it is off.
+const ReactQueryDevtools =
+  process.env.NEXT_PUBLIC_QUERY_DEVTOOLS === "true"
+    ? dynamic(() => import("@tanstack/react-query-devtools").then((mod) => mod.ReactQueryDevtools), { ssr: false })
+    : null;
 
 // Create a custom QueryProvider component
 const QueryProvider = ({ children }) => {
@@ -51,8 +59,8 @@ const QueryProvider = ({ children }) => {
   return (
     <QueryClientProvider client={queryClient}>
       {children}
-      {/* Show React Query DevTools in development */}
-      {process.env.NODE_ENV === "development" && (
+      {/* React Query DevTools, only when QUERY_DEVTOOLS=true */}
+      {ReactQueryDevtools && (
         <ReactQueryDevtools
           initialIsOpen={false}
           position="bottom-right"

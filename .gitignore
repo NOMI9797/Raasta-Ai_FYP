@@ -10,6 +10,9 @@
 
 # next.js
 /.next/
+/.next-*/
+# screenshots of the LinkedIn publisher debug mode (they show a real feed)
+/debug-recruiter-posts/
 /out/
 
 # production
@@ -49,3 +52,6 @@ public/sitemap-0.xml
 services/ai-engine/.venv/
 services/ai-engine/.models/
 __pycache__/
+
+# processes started from the web app (pid files and their output)
+/.runtime/

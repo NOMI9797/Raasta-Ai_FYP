@@ -1,9 +1,13 @@
 import { NextResponse } from 'next/server';
 import { withAuth } from '@/libs/auth-middleware';
 import { db } from '@/libs/db';
-import { jobs, rozeeAccounts } from '@/libs/schema';
+import { jobs } from '@/libs/schema';
 import { eq, and } from 'drizzle-orm';
-import { getAdapter } from '@/libs/platforms';
+import { publishToPlatform } from '@/libs/hiring/publishing';
+
+// Kept for older callers. Publishing now goes through libs/hiring/publishing.js (posting limits,
+// one attempt at a time, a record of every attempt); new code uses POST /api/hiring/jobs/[jobId]/publish.
+const REFUSAL_STATUS = { not_connected: 400, invalid_post: 400, closed: 400, in_progress: 409, daily_limit: 429, too_soon: 429, needs_login: 401 };
 
 export const POST = withAuth(async (request, { user, params }) => {
   try {
@@ -21,47 +25,13 @@ export const POST = withAuth(async (request, { user, params }) => {
       return NextResponse.json({ error: 'Job not found' }, { status: 404 });
     }
 
-    const [account] = await db
-      .select()
-      .from(rozeeAccounts)
-      .where(and(eq(rozeeAccounts.userId, user.id), eq(rozeeAccounts.isActive, true)))
-      .limit(1);
-    if (!account) {
-      return NextResponse.json(
-        { error: 'No active Rozee account. Connect and activate a Rozee account first.' },
-        { status: 400 }
-      );
+    const result = await publishToPlatform({ job, platform: 'rozee' });
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error, code: result.code }, { status: REFUSAL_STATUS[result.code] || 500 });
     }
-
-    const adapter = getAdapter('rozee');
-    const result = await adapter.publishJob(account, job);
-
-    if (!result?.success) {
-      const status = result?.error?.includes('Session invalid') ? 401 : 500;
-      return NextResponse.json(
-        { error: result?.error || 'Failed to publish to Rozee' },
-        { status }
-      );
-    }
-
-    await db
-      .update(jobs)
-      .set({
-        rozeeAccountId: account.id,
-        rozeePost: job.rozeePost || job.linkedinPost || null,
-        rozeePostUrl: result.postUrl,
-        rozeePublishedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(jobs.id, jobId));
-
-    return NextResponse.json({
-      success: true,
-      jobId,
-      rozeePostUrl: result.postUrl,
-    });
+    return NextResponse.json({ success: true, jobId, rozeePostUrl: result.postUrl });
   } catch (error) {
-    console.error('Rozee publish job error:', error);
-    return NextResponse.json({ error: error.message || 'Failed to publish job' }, { status: 500 });
+    console.error('Rozee publish job error:', error.message);
+    return NextResponse.json({ error: 'Failed to publish job' }, { status: 500 });
   }
 });

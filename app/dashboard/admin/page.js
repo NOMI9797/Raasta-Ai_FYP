@@ -7,6 +7,7 @@ import toast from "react-hot-toast";
 import Sidebar from "@/components/layout/Sidebar";
 import { useSidebar } from "@/components/layout/SidebarContext";
 import TopBar from "@/components/layout/TopBar";
+import HiringQueueCard from "./components/HiringQueueCard";
 
 export default function AdminPage() {
   const { data: session, status } = useSession();
@@ -232,6 +233,8 @@ export default function AdminPage() {
               )}
             </div>
           </section>
+
+          <HiringQueueCard />
         </main>
       </div>
     </div>

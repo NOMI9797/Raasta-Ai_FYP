@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useDialog } from "@/components/ui/DialogProvider";
 import {
   Plus,
   Users,
@@ -19,6 +20,7 @@ import EditCampaignModal from "./EditCampaignModal";
 import { useCampaigns } from "../hooks/useCampaigns";
 
 export default function CampaignsList({ onSelectCampaign }) {
+  const { confirm } = useDialog();
   const {
     campaigns,
     setCampaigns,
@@ -66,10 +68,13 @@ export default function CampaignsList({ onSelectCampaign }) {
   };
 
   const handleDeleteCampaign = async (campaignId, campaignName) => {
-    // Show confirmation dialog
-    const confirmed = window.confirm(
-      `Are you sure you want to delete "${campaignName}"?\n\nThis will permanently delete:\n• The campaign\n• All associated leads\n• All generated messages\n\nThis action cannot be undone.`
-    );
+    const confirmed = await confirm({
+      title: `Delete "${campaignName}"?`,
+      message: "This will permanently delete the campaign and everything that belongs to it. It cannot be undone.",
+      items: ["The campaign", "All associated leads", "All generated messages"],
+      confirmText: "Delete campaign",
+      tone: "danger",
+    });
     
     if (!confirmed) return;
 

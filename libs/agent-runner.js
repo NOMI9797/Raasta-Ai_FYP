@@ -296,13 +296,10 @@ export class AgentRunner {
 }
 
 /**
- * Helper to get the pipeline definition by type.
+ * Helper to get the pipeline definition by type. The recruiter agent is not a step pipeline:
+ * it is the supervised agent in libs/agent/ and runs in the hiring worker.
  */
 export async function getPipelineDefinition(pipelineType) {
-  if (pipelineType === "recruiter") {
-    const { recruiterPipeline } = await import("@/libs/agent-pipelines/recruiter");
-    return recruiterPipeline;
-  }
   if (pipelineType === "sales_operator") {
     const { salesOperatorPipeline } = await import("@/libs/agent-pipelines/sales-operator");
     return salesOperatorPipeline;

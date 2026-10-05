@@ -50,7 +50,7 @@ export default function FitBadge({ candidate, size = "badge-sm" }) {
   }
   if (state === "scored") {
     return (
-      <span className={`badge ${size} ${fitColor(candidate.fitScore)} font-semibold`} title="AI fit score (0–100)">
+      <span className={`badge ${size} ${fitColor(candidate.fitScore)} font-semibold whitespace-nowrap shrink-0`} title="AI fit score (0–100)">
         Fit {candidate.fitScore}
       </span>
     );

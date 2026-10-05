@@ -34,12 +34,17 @@ import {
   MessageCircleQuestion,
 } from "lucide-react";
 import toast from "react-hot-toast";
+import { useDialog } from "@/components/ui/DialogProvider";
+import GuidanceStrip from "@/components/system/GuidanceStrip";
 import DashboardShell from "@/components/layout/DashboardShell";
 import { CANDIDATE_STATUS, KANBAN_STAGES, MANUAL_TRANSITIONS, STATUS_META } from "@/libs/hiring/statuses";
 import FitBadge, { fitState } from "../../../components/FitBadge";
 import ScreeningSection from "../../../components/ScreeningSection";
 import InterviewInviteSection from "../../../components/InterviewInviteSection";
 import JobHiringSettings from "../../../components/JobHiringSettings";
+import ScoreBadge from "../../../components/ScoreBadge";
+import CandidateActions from "../../../components/CandidateActions";
+import { formatAgo, formatUntil } from "../../../components/format";
 
 // Statuses where the row offers a "Screen" action (docs/ai-hiring/12-recruiter-ui.md §3)
 const SCREENABLE = [CANDIDATE_STATUS.NEW, CANDIDATE_STATUS.SCREENED, CANDIDATE_STATUS.REVIEWED];
@@ -81,6 +86,7 @@ function SectionTitle({ icon, children }) {
 }
 
 export default function JobCandidatesPage({ params }) {
+  const { confirm } = useDialog();
   const { jobId } = params;
   useSession();
   const router = useRouter();
@@ -228,7 +234,13 @@ export default function JobCandidatesPage({ params }) {
   };
 
   const handleDelete = async (candidateId) => {
-    if (!confirm("Remove this candidate?")) return;
+    const ok = await confirm({
+      title: "Remove this candidate?",
+      message: "Their application, resume and any interview are deleted. This cannot be undone.",
+      confirmText: "Remove",
+      tone: "danger",
+    });
+    if (!ok) return;
     try {
       const res = await fetch(`/api/hiring/candidates/${candidateId}`, { method: "DELETE" });
       if (!res.ok) throw new Error();
@@ -302,6 +314,7 @@ export default function JobCandidatesPage({ params }) {
     <DashboardShell title="Candidates" activeSection="recruiter-jobs">
 
       <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+        <GuidanceStrip feature="screening" />
         <div className="flex items-center gap-3">
           <button
             className="btn btn-ghost btn-sm"
@@ -436,7 +449,7 @@ export default function JobCandidatesPage({ params }) {
                   className="bg-base-200 rounded-xl border border-base-300 overflow-hidden"
                 >
                   <div
-                    className="flex flex-wrap sm:flex-nowrap items-center gap-3 p-4 cursor-pointer hover:bg-base-300/40 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                    className="flex flex-wrap items-center gap-x-3 gap-y-2 p-4 cursor-pointer hover:bg-base-300/40 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                     role="button"
                     tabIndex={0}
                     aria-expanded={isExpanded}
@@ -454,7 +467,7 @@ export default function JobCandidatesPage({ params }) {
                       {displayName?.charAt(0)?.toUpperCase() || "?"}
                     </div>
 
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-[10rem]">
                       <p className="font-medium text-sm truncate">{displayName}</p>
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="text-xs text-base-content/60 truncate">{displayEmail}</p>
@@ -464,6 +477,11 @@ export default function JobCandidatesPage({ params }) {
                           </p>
                         )}
                       </div>
+                      {c.status === CANDIDATE_STATUS.INTERVIEW_INVITED && c.latestInterview && (
+                        <p className="text-[11px] text-base-content/50">
+                          Invited {formatAgo(c.latestInterview.invitedAt)} · {formatUntil(c.latestInterview.expiresAt)}
+                        </p>
+                      )}
                     </div>
 
                     {hasParsed && (
@@ -482,6 +500,8 @@ export default function JobCandidatesPage({ params }) {
                     )}
 
                     <FitBadge candidate={c} size="badge-xs" />
+                    <ScoreBadge label="Interview" score={c.latestInterview?.interviewScore} />
+                    <ScoreBadge label="Final" score={c.finalScore} />
 
                     <span className={`badge badge-xs ${badge.color}`}>{badge.label}</span>
 
@@ -496,6 +516,8 @@ export default function JobCandidatesPage({ params }) {
                         <span className="hidden md:inline">{c.fitScore != null ? "Re-screen" : "Screen"}</span>
                       </button>
                     )}
+
+                    <CandidateActions candidate={c} onStatusChange={handleStatusChange} onChanged={fetchCandidates} />
 
                     <select
                       className="select select-bordered select-xs w-36"

@@ -12,7 +12,12 @@ import {
   RotateCcw,
   StopCircle,
   RefreshCw,
+  Clock,
+  PlayCircle,
+  Gavel,
+  Link2,
 } from "lucide-react";
+import Link from "next/link";
 import StepTimeline from "./StepTimeline";
 import toast from "react-hot-toast";
 
@@ -23,15 +28,76 @@ const STATUS_BADGES = {
   completed: "badge-success",
   failed: "badge-error",
   cancelled: "badge-neutral",
+  waiting: "badge-info badge-outline",
+  paused: "badge-warning badge-outline",
 };
+
+const RUN_STATUS_LABELS = {
+  waiting: "working · waiting for events",
+  paused_at_checkpoint: "waiting for your approval",
+};
+
+// The hiring agent runs in the background, so the plain words matter: queued means it is about to start
+const RECRUITER_STATUS_LABELS = {
+  queued: "starting",
+  running: "working",
+  waiting: "waiting",
+  paused_at_checkpoint: "waiting for you",
+  paused: "paused",
+};
+const TONE_TEXT = { info: "text-base-content/70", warning: "text-warning", success: "text-success", error: "text-error" };
+
+const MODE_LABELS = { assisted: "Assisted", autopilot: "Autopilot", semi_auto: "Semi-Auto", full_auto: "Full-Auto" };
+
+// What the recruiter agent did, in plain words (agent_actions.action)
+const ACTION_LABELS = {
+  write_post: "Wrote job post",
+  publish_post: "Publish job post",
+  import_applicants: "Imported applicants",
+  screen: "Queued screening",
+  prepare_questions: "Prepared interview questions",
+  shortlist: "Shortlist",
+  hold_back: "Don't shortlist",
+  send_invites: "Interview invite",
+  final_decision: "Final decision",
+};
+const ACTION_STATUS_BADGES = {
+  executed: "badge-success",
+  approved: "badge-info",
+  pending: "badge-warning",
+  rejected: "badge-ghost",
+  failed: "badge-error",
+  superseded: "badge-ghost",
+};
+
+// Short progress note under a step, from its output
+function stepDetail(step) {
+  const o = step.output || {};
+  if (o.pendingApprovals) return `${o.pendingApprovals} waiting for your approval`;
+  if (o.waitingForDailyLimit) return `${o.waitingForDailyLimit} waiting for tomorrow's invite limit`;
+  if (step.stepKey === "screen_candidates" && o.pending) return `${o.pending} being screened`;
+  if (step.stepKey === "await_interviews" && (o.invited || o.inProgress)) return `${o.invited || 0} invited · ${o.inProgress || 0} in progress · ${o.completed || 0} done`;
+  if (o.note) return o.note;
+  if (o.error) return o.error;
+  return null;
+}
 
 const STEP_LABELS = {
   create_job: "Create Job Posting",
-  generate_post: "Generate AI LinkedIn Post",
-  approve_post: "Approve LinkedIn Post",
+  load_job: "Load job",
+  generate_post: "Write job post",
+  approve_post: "Approve job post",
+  post_to_linkedin: "Publish to LinkedIn",
+  publish_to_rozee: "Publish to Rozee.pk",
+  scrape_rozee_applicants: "Import Rozee applicants",
+  review_shortlist: "Shortlist",
+  prepare_questions: "Prepare interview questions",
+  send_interview_invites: "Send interview invites",
+  await_interviews: "Interviews",
+  final_decisions: "Final decisions",
   publish_job: "Publish Job",
   monitor_candidates: "Monitor Candidates",
-  screen_candidates: "AI Screen & Rank",
+  screen_candidates: "Screen applications",
   notify_shortlist: "Review Shortlist",
   create_campaign: "Create Campaign",
   add_leads: "Import Leads",
@@ -45,13 +111,19 @@ const STEP_LABELS = {
 
 export default function AgentRunCard({ run: initialRun, onRefresh }) {
   const [run, setRun] = useState(initialRun);
+  // The page refreshes its runs in the background; show what it found (status, what the agent is doing)
+  useEffect(() => {
+    setRun((prev) => ({ ...prev, ...initialRun }));
+  }, [initialRun]);
   const [steps, setSteps] = useState([]);
+  const [actions, setActions] = useState([]);
   const [expanded, setExpanded] = useState(false);
   const [loadingSteps, setLoadingSteps] = useState(false);
   const [regeneratingPost, setRegeneratingPost] = useState(false);
   const streamRef = useRef(null);
 
-  const isActive = ["queued", "running", "paused_at_checkpoint"].includes(run.status);
+  const isActive = ["queued", "running", "waiting", "paused_at_checkpoint", "paused"].includes(run.status);
+  const isRecruiter = run.pipelineType === "recruiter";
 
   useEffect(() => {
     if (!isActive || !expanded) return;
@@ -88,6 +160,7 @@ export default function AgentRunCard({ run: initialRun, onRefresh }) {
       if (data.success) {
         setRun(data.run);
         setSteps(data.steps);
+        setActions(data.actions || []);
       }
     } catch (err) {
       console.error(err);
@@ -116,6 +189,27 @@ export default function AgentRunCard({ run: initialRun, onRefresh }) {
     }
   };
 
+  const handlePause = async (paused) => {
+    try {
+      const res = await fetch(`/api/agents/runs/${run.id}/${paused ? "pause" : "resume"}`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setRun((prev) => ({ ...prev, status: data.run.status }));
+      toast.success(paused ? "Agent paused" : "Agent resumed");
+    } catch (err) {
+      toast.error(err.message || "Network error");
+    }
+  };
+
+  const copyApplyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}${run.activity.applyPath}`);
+      toast.success("Apply link copied");
+    } catch {
+      toast.error("Could not copy the link");
+    }
+  };
+
   const handleCancel = async () => {
     try {
       const res = await fetch(`/api/agents/runs/${run.id}/cancel`, { method: "POST" });
@@ -130,7 +224,7 @@ export default function AgentRunCard({ run: initialRun, onRefresh }) {
   };
 
   const pipelineLabel = run.pipelineType === "recruiter" ? "Recruiter" : "Sales Operator";
-  const modeLabel = run.mode === "full_auto" ? "Full-Auto" : "Semi-Auto";
+  const modeLabel = MODE_LABELS[run.mode] || run.mode;
 
   const isRecruiterApprovePostCheckpoint =
     run.pipelineType === "recruiter" &&
@@ -147,9 +241,11 @@ export default function AgentRunCard({ run: initialRun, onRefresh }) {
     run.results?.generate_messages ||
     steps.find((s) => s.stepKey === "generate_messages")?.output;
 
+  // The recruiter agent keeps the post in its step output
   const generatedPost =
     run.results?.generate_post?.linkedinPost ||
     run.results?.load_job?.existingPost ||
+    steps.find((s) => s.stepKey === "generate_post")?.output?.linkedinPost ||
     "";
 
   const generatedJobId =
@@ -202,8 +298,10 @@ export default function AgentRunCard({ run: initialRun, onRefresh }) {
         <div className="flex items-center gap-3">
           {run.status === "running" ? (
             <Loader2 size={18} className="text-info animate-spin" />
-          ) : run.status === "paused_at_checkpoint" ? (
+          ) : run.status === "paused_at_checkpoint" || run.status === "paused" ? (
             <Pause size={18} className="text-warning" />
+          ) : run.status === "waiting" ? (
+            <Clock size={18} className="text-info" />
           ) : run.status === "completed" ? (
             <CheckCircle2 size={18} className="text-success" />
           ) : run.status === "failed" ? (
@@ -217,6 +315,12 @@ export default function AgentRunCard({ run: initialRun, onRefresh }) {
             <p className="text-xs text-base-content/50">
               {modeLabel} &middot; {new Date(run.createdAt).toLocaleString()}
             </p>
+            {isRecruiter && run.activity && isActive && (
+              <p className={`text-xs mt-0.5 ${TONE_TEXT[run.activity.tone] || TONE_TEXT.info}`}>
+                <span className="font-medium">{run.activity.headline}.</span>{" "}
+                <span className="text-base-content/60">{run.activity.detail}</span>
+              </p>
+            )}
           </div>
         </div>
 
@@ -226,8 +330,11 @@ export default function AgentRunCard({ run: initialRun, onRefresh }) {
               {STEP_LABELS[run.currentStep] || run.currentStep}
             </span>
           )}
+          {isRecruiter && isActive && run.activity?.needsYou > 0 && (
+            <span className="badge badge-warning badge-sm">{run.activity.needsYou} waiting for you</span>
+          )}
           <span className={`badge badge-sm ${STATUS_BADGES[run.status] || "badge-ghost"}`}>
-            {run.status.replace(/_/g, " ")}
+            {(isRecruiter && RECRUITER_STATUS_LABELS[run.status]) || RUN_STATUS_LABELS[run.status] || run.status.replace(/_/g, " ")}
           </span>
           {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
         </div>
@@ -241,7 +348,27 @@ export default function AgentRunCard({ run: initialRun, onRefresh }) {
             </div>
           ) : (
             <>
-              <StepTimeline steps={steps} pipelineStepLabels={STEP_LABELS} />
+              <StepTimeline steps={steps} pipelineStepLabels={STEP_LABELS} stepDetail={isRecruiter ? stepDetail : undefined} />
+
+              {isRecruiter && actions.length > 0 && (
+                <details className="mt-4">
+                  <summary className="text-sm font-semibold cursor-pointer">Activity ({actions.length})</summary>
+                  <p className="text-xs text-base-content/50 mt-1">Everything the agent did or asked, and who approved it.</p>
+                  <ul className="mt-2 space-y-1 max-h-72 overflow-auto">
+                    {actions.map((a) => (
+                      <li key={a.id} className="text-xs flex flex-wrap items-center gap-2 py-1 border-b border-base-300/60">
+                        <span className={`badge badge-xs ${ACTION_STATUS_BADGES[a.status] || "badge-ghost"}`}>{a.status}</span>
+                        <span className="font-medium">{ACTION_LABELS[a.action] || a.action}</span>
+                        <span className="text-base-content/70 flex-1 min-w-0">{a.summary}</span>
+                        <span className="text-base-content/50">
+                          {a.decidedBy === "agent" ? "by the agent" : a.decidedBy ? "approved by you" : "waiting"}
+                          {a.decisionNote ? ` · "${a.decisionNote}"` : ""}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
 
               {isRecruiterApprovePostCheckpoint && generatedPost && (
                 <div className="mt-4 p-4 rounded-xl bg-base-200 border border-base-300 space-y-3">
@@ -305,15 +432,41 @@ export default function AgentRunCard({ run: initialRun, onRefresh }) {
                 </div>
               )}
 
-              <div className="flex gap-2 mt-4">
+              <div className="flex flex-wrap gap-2 mt-4">
                 {run.status === "paused_at_checkpoint" && (
                   <button className="btn btn-primary btn-sm" onClick={handleApprove}>
                     <CheckCircle2 size={14} /> Approve & Continue
                   </button>
                 )}
+                {/* Decisions is only offered when the agent is actually waiting for the person */}
+                {isRecruiter && isActive && run.activity?.needsYou > 0 && (
+                  <Link href="/dashboard/recruiter/decisions" className="btn btn-primary btn-sm">
+                    <Gavel size={14} /> Review {run.activity.needsYou} request{run.activity.needsYou === 1 ? "" : "s"}
+                  </Link>
+                )}
+                {isRecruiter && isActive && run.activity?.stuck && (
+                  <Link href="/dashboard/recruiter/setup" className="btn btn-outline btn-warning btn-sm">
+                    Open the setup guide
+                  </Link>
+                )}
+                {isRecruiter && isActive && run.activity?.counts?.total === 0 && run.activity.applyPath && (
+                  <button className="btn btn-outline btn-sm" onClick={copyApplyLink}>
+                    <Link2 size={14} /> Copy the apply link
+                  </button>
+                )}
+                {isRecruiter && isActive && run.status !== "paused" && (
+                  <button className="btn btn-ghost btn-sm" onClick={() => handlePause(true)}>
+                    <Pause size={14} /> Pause
+                  </button>
+                )}
+                {isRecruiter && run.status === "paused" && (
+                  <button className="btn btn-primary btn-sm" onClick={() => handlePause(false)}>
+                    <PlayCircle size={14} /> Resume
+                  </button>
+                )}
                 {isActive && (
                   <button className="btn btn-outline btn-error btn-sm" onClick={handleCancel}>
-                    <StopCircle size={14} /> Cancel
+                    <StopCircle size={14} /> {isRecruiter ? "Stop agent" : "Cancel"}
                   </button>
                 )}
                 <button className="btn btn-ghost btn-sm" onClick={fetchSteps}>

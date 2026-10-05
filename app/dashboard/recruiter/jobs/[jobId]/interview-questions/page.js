@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
+import { useDialog } from "@/components/ui/DialogProvider";
 import DashboardShell from "@/components/layout/DashboardShell";
 import {
   ArrowLeft, Loader2, Sparkles, Plus, GripVertical, Pencil, Trash2, ChevronDown,
@@ -147,6 +148,7 @@ function QuestionModal({ initial, onClose, onSave, saving }) {
 }
 
 export default function InterviewQuestionsPage({ params }) {
+  const { confirm } = useDialog();
   const { jobId } = params;
   const router = useRouter();
   const [job, setJob] = useState(null);
@@ -190,7 +192,15 @@ export default function InterviewQuestionsPage({ params }) {
   const missingAnswers = active.filter((q) => !q.idealAnswer?.trim()).length;
 
   const generate = async (mode) => {
-    if (mode === "replace" && !confirm("Replace all AI questions? Manual questions are kept.")) return;
+    if (mode === "replace") {
+      const ok = await confirm({
+        title: "Replace all AI questions?",
+        message: "The AI questions are regenerated from scratch. Questions you wrote yourself are kept.",
+        confirmText: "Replace",
+        tone: "warning",
+      });
+      if (!ok) return;
+    }
     setGenerating(mode);
     try {
       const res = await fetch(`/api/hiring/jobs/${jobId}/interview-questions/generate`, {
@@ -230,7 +240,8 @@ export default function InterviewQuestionsPage({ params }) {
   };
 
   const remove = async (question) => {
-    if (!confirm("Delete this question?")) return;
+    const ok = await confirm({ title: "Delete this question?", message: "Candidates won't be asked it in future interviews.", confirmText: "Delete", tone: "danger" });
+    if (!ok) return;
     try {
       const res = await fetch(`/api/hiring/interview-questions/${question.id}`, { method: "DELETE" });
       const data = await res.json();

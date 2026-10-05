@@ -272,6 +272,24 @@ Constraints are named the way Drizzle names them (`<table>_<column>_<ref>_id_fk`
 
 Apply: `psql "$DATABASE_URL" -f drizzle/0009_ai_hiring.sql`. Verify with `npm run db:studio`.
 
+## 7b. Migration `drizzle/0011_supervised_agent.sql` (Phase 8)
+
+- `agent_runs`: `job_id` (the job a recruiter agent manages, FK `jobs`, `ON DELETE set null`), `config` (json snapshot at launch); index `(job_id, status)`.
+- New table `agent_actions`: the supervised agent's approval inbox and audit trail — `agent_run_id`, `user_id`, `job_id`, `candidate_id`, `action`, `route` (`auto | ask | human`), `status` (`pending | approved | rejected | executed | failed | superseded`), `blocking`, `summary`, `payload`, `evidence`, `escalations`, `result`, `dedupe_key`, `decided_by`, `decided_at`, `decision_note`, `executed_at`. Indexes on `(agent_run_id, created_at)`, `(user_id, status)`, `(dedupe_key)`.
+- Recruiter rows in `agent_configs` / `agent_runs`: mode `semi_auto` → `assisted`, `full_auto` → `autopilot`.
+
+Idempotent (`IF NOT EXISTS`); apply it the same way as `0009`.
+
+## 7c. Migration `drizzle/0012_job_publications.sql` (publishing)
+
+New table `job_publications`: one row per attempt to put a job post on a platform — `job_id`, `user_id`, `platform` (`linkedin | rozee`), `account_id`, `mode` (`auto | handoff`), `status` (`publishing | published | failed | needs_login | handed_off`), `initiated_by` (`user | agent`), `content`, `post_url`, `error`, timestamps. It is the audit trail, the counter behind the posting limits, and (partial unique index `job_publications_one_inflight` on `(job_id, platform) WHERE status = 'publishing'`) the guard against two posts of the same job at once. See 19.
+
+Idempotent (`IF NOT EXISTS`); apply it the same way as `0009`.
+
+## 7d. Migration `drizzle/0013_hiring_indexes.sql` (speed)
+
+Indexes only, no data changes: `jobs (user_id, created_at)`, `candidates (job_id, status)` and `(user_id, applied_at)`, `agent_runs (user_id, created_at)`, `agent_steps (agent_run_id, step_index)`. Postgres does not index foreign keys by itself, and these are the columns the pipeline, the job counts, the candidate lists and the worker filter on. Idempotent (`IF NOT EXISTS`); defined in `libs/schema.js` and `libs/schema.ts` too. See 21.
+
 ## 8. `libs/hiring/statuses.js`
 
 ```js

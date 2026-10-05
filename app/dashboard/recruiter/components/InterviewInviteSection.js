@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { CalendarPlus, Loader2, Mail, MailWarning, RotateCcw, Send, Video, XCircle } from "lucide-react";
-import { CANDIDATE_STATUS, INTERVIEW_STATUS } from "@/libs/hiring/statuses";
+import { CANDIDATE_STATUS, INTERVIEW_STATUS, INTERVIEW_STATUS_META } from "@/libs/hiring/statuses";
+import { formatAgo as ago, formatUntil as until } from "./format";
 
 const SHOWN_FOR = [
   CANDIDATE_STATUS.SHORTLISTED,
@@ -13,29 +14,6 @@ const SHOWN_FOR = [
   CANDIDATE_STATUS.INTERVIEW_COMPLETED,
 ];
 
-const INTERVIEW_LABELS = {
-  [INTERVIEW_STATUS.INVITED]: "Invited",
-  [INTERVIEW_STATUS.OPENED]: "Link opened",
-  [INTERVIEW_STATUS.IN_PROGRESS]: "In progress",
-  [INTERVIEW_STATUS.COMPLETED]: "Completed",
-  [INTERVIEW_STATUS.ABANDONED]: "Abandoned",
-  [INTERVIEW_STATUS.EXPIRED]: "Expired",
-  [INTERVIEW_STATUS.FAILED]: "Failed",
-  [INTERVIEW_STATUS.CANCELLED]: "Cancelled",
-};
-
-function ago(date) {
-  const minutes = Math.round((Date.now() - new Date(date)) / 60000);
-  if (minutes < 60) return `${Math.max(1, minutes)}m ago`;
-  const hours = Math.round(minutes / 60);
-  return hours < 48 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`;
-}
-
-function until(date) {
-  const hours = Math.round((new Date(date) - Date.now()) / 3600000);
-  if (hours <= 0) return "expired";
-  return hours < 48 ? `expires in ${hours}h` : `expires in ${Math.round(hours / 24)}d`;
-}
 
 /**
  * Interview invite status and actions for one candidate (docs/ai-hiring/12-recruiter-ui.md §3):
@@ -99,7 +77,7 @@ export default function InterviewInviteSection({ candidate, onChanged }) {
       <p className="flex items-center gap-1.5 text-xs font-semibold text-base-content/60 uppercase tracking-wider">
         <Video className="h-3.5 w-3.5" /> AI Interview
         {interview && (
-          <span className="badge badge-xs badge-outline normal-case tracking-normal ml-1">{INTERVIEW_LABELS[interview.status] || interview.status}</span>
+          <span className="badge badge-xs badge-outline normal-case tracking-normal ml-1">{INTERVIEW_STATUS_META[interview.status]?.label || interview.status}</span>
         )}
       </p>
 

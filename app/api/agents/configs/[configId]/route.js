@@ -3,6 +3,8 @@ import { db } from "@/libs/db";
 import { agentConfigs } from "@/libs/schema";
 import { eq, and } from "drizzle-orm";
 import { withAuth } from "@/libs/auth-middleware";
+import { normaliseAgentConfig } from "@/libs/agent/config-validation";
+import { RunError } from "@/libs/agent/launch";
 
 export const GET = withAuth(async (request, { user, params }) => {
   try {
@@ -43,10 +45,18 @@ export const PATCH = withAuth(async (request, { user, params }) => {
       return NextResponse.json({ error: "Config not found" }, { status: 404 });
     }
 
+    let normalised;
+    try {
+      normalised = normaliseAgentConfig(existing.pipelineType, { mode: body.mode, config: body.config });
+    } catch (error) {
+      if (error instanceof RunError) return NextResponse.json({ error: error.message }, { status: error.status });
+      throw error;
+    }
+
     const updates = {};
     if (body.name !== undefined) updates.name = body.name;
-    if (body.mode !== undefined) updates.mode = body.mode;
-    if (body.config !== undefined) updates.config = body.config;
+    if (normalised.mode !== undefined) updates.mode = normalised.mode;
+    if (normalised.config !== undefined) updates.config = normalised.config;
     if (body.isActive !== undefined) updates.isActive = body.isActive;
     updates.updatedAt = new Date();
 

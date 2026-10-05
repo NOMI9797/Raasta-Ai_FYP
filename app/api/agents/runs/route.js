@@ -1,23 +1,32 @@
 import { NextResponse } from "next/server";
 import { db } from "@/libs/db";
 import { agentRuns, agentConfigs } from "@/libs/schema";
-import { eq, desc } from "drizzle-orm";
+import { and, eq, desc } from "drizzle-orm";
 import { withAuth } from "@/libs/auth-middleware";
 import { AgentRunner, getPipelineDefinition } from "@/libs/agent-runner";
+import { RECRUITER_PIPELINE } from "@/libs/agent/runs";
+import { getRunActivity } from "@/libs/agent/run-summary";
+import { RECRUITER_STEPS } from "@/libs/agent/recruiter-agent";
+import { RunError, startRecruiterRun } from "@/libs/agent/launch";
 
 export const GET = withAuth(async (request, { user }) => {
   try {
-    const isAdmin = user.role === "admin";
-    const runs = isAdmin
-      ? await db.select().from(agentRuns).orderBy(desc(agentRuns.createdAt)).limit(50)
-      : await db
-          .select()
-          .from(agentRuns)
-          .where(eq(agentRuns.userId, user.id))
-          .orderBy(desc(agentRuns.createdAt))
-          .limit(50);
+    // ?pipeline=recruiter | sales_operator lists one kind of run
+    const pipeline = new URL(request.url).searchParams.get("pipeline");
+    const filters = [];
+    if (user.role !== "admin") filters.push(eq(agentRuns.userId, user.id));
+    if (["recruiter", "sales_operator"].includes(pipeline)) filters.push(eq(agentRuns.pipelineType, pipeline));
+    const runs = await db
+      .select()
+      .from(agentRuns)
+      .where(filters.length ? and(...filters) : undefined)
+      .orderBy(desc(agentRuns.createdAt))
+      .limit(50);
 
-    return NextResponse.json({ success: true, runs });
+    // Hiring agent runs come with a plain-words activity line: what it is doing and whether it needs the person
+    const stepLabels = Object.fromEntries(RECRUITER_STEPS.map((s) => [s.key, s.label]));
+    const activity = await getRunActivity(runs.filter((r) => r.pipelineType === RECRUITER_PIPELINE), { stepLabels });
+    return NextResponse.json({ success: true, runs: runs.map((r) => (activity.has(r.id) ? { ...r, activity: activity.get(r.id) } : r)) });
   } catch (error) {
     console.error("List agent runs error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
@@ -52,6 +61,17 @@ export const POST = withAuth(async (request, { user }) => {
 
     if (!finalPipelineType) {
       return NextResponse.json({ error: "pipelineType is required" }, { status: 400 });
+    }
+
+    // The recruiter agent is the supervised agent: it runs in the hiring worker, not in this request
+    if (finalPipelineType === RECRUITER_PIPELINE) {
+      try {
+        const run = await startRecruiterRun({ user, agentConfigId: agentConfigId || null, mode: finalMode, config: finalConfig });
+        return NextResponse.json({ success: true, run }, { status: 201 });
+      } catch (error) {
+        if (error instanceof RunError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+        throw error;
+      }
     }
 
     // Validate pipeline exists

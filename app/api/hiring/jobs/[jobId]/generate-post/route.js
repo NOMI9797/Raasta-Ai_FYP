@@ -3,95 +3,68 @@ import { db } from "@/libs/db";
 import { jobs } from "@/libs/schema";
 import { eq, and } from "drizzle-orm";
 import { withAuth } from "@/libs/auth-middleware";
-import OpenAI from "openai";
-import { getFastModel } from "@/libs/ai/llm";
+import { LlmError } from "@/libs/ai/llm";
+import { POST_PLATFORMS, generatePlatformPost, getPlatformSpec, jobApplyUrl } from "@/libs/hiring/platform-content";
 
-const groq = new OpenAI({
-  apiKey: process.env.GROQ_API_KEY || "",
-  baseURL: "https://api.groq.com/openai/v1",
-});
+function ownerFilter(jobId, user) {
+  return user.role === "admin" ? eq(jobs.id, jobId) : and(eq(jobs.id, jobId), eq(jobs.userId, user.id));
+}
 
-// POST /api/hiring/jobs/[jobId]/generate-post
+function describeError(error) {
+  if (error instanceof LlmError && error.code === "rate_limit") return "The AI is busy right now. Try again in a minute.";
+  return error?.message || "Failed to generate the post";
+}
+
+// POST /api/hiring/jobs/[jobId]/generate-post  { platform?: "linkedin" | "rozee" | "all", tone? }
+// Writes a post fitted to each platform (format, length, hashtags, emojis) and saves it on the job.
 export const POST = withAuth(async (request, { params, user }) => {
   try {
     const { jobId } = params;
     const body = await request.json().catch(() => ({}));
-    const tone = body.tone || "professional";
-
-    const whereClause =
-      user.role === "admin"
-        ? eq(jobs.id, jobId)
-        : and(eq(jobs.id, jobId), eq(jobs.userId, user.id));
-
-    const [job] = await db.select().from(jobs).where(whereClause).limit(1);
-
-    if (!job) {
-      return NextResponse.json({ error: "Job not found" }, { status: 404 });
+    const tone = typeof body.tone === "string" ? body.tone : "professional";
+    const platforms = body.platform === "all" ? [...POST_PLATFORMS] : [body.platform || "linkedin"];
+    const unknown = platforms.filter((p) => !POST_PLATFORMS.includes(p));
+    if (unknown.length) {
+      return NextResponse.json({ error: `Unknown platform "${unknown[0]}". Use ${POST_PLATFORMS.join(", ")} or all.` }, { status: 400 });
     }
 
-    const skills = (job.requiredSkills || []).join(", ") || "not specified";
-    const stack = (job.techStack || []).join(", ") || "not specified";
-    const salaryPart =
-      job.salaryMin || job.salaryMax
-        ? `Salary range: ${job.salaryCurrency || "USD"} ${job.salaryMin || "?"} – ${job.salaryMax || "?"}`
-        : "";
+    const [job] = await db.select().from(jobs).where(ownerFilter(jobId, user)).limit(1);
+    if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
 
-    const applyUrl = body.applyUrl || "";
+    // The apply link is built here, never taken from the browser, so a post can't be made to point elsewhere
+    const applyUrl = jobApplyUrl(job.id, new URL(request.url).origin);
+    const settled = await Promise.allSettled(platforms.map((platform) => generatePlatformPost({ job, platform, tone, applyUrl })));
 
-    const systemPrompt = `You are an expert recruiter copywriter who creates engaging LinkedIn job posts.
-Write in a ${tone} tone. The post should:
-- Grab attention in the first line
-- Highlight what makes this role exciting
-- List key skills/stack concisely
-- Include practical details (location, type, salary if provided)
-- End with a clear call-to-action that directs applicants to the apply link (if provided)
-- Use relevant emojis sparingly
-- Be 150–250 words
-Return ONLY the LinkedIn post text, nothing else.`;
-
-    const applyLine = applyUrl ? `\n- Apply link: ${applyUrl}` : "";
-
-    const userPrompt = `Create a LinkedIn job post for: "${job.title}"
-
-Details:
-- Required skills: ${skills}
-- Tech stack: ${stack}
-- Experience: ${job.experienceRange || "not specified"}
-- Location: ${job.location || "not specified"} (${job.locationType || "not specified"})
-- Employment type: ${job.employmentType || "full-time"}
-${salaryPart}${applyLine}`;
-
-    const completion = await groq.chat.completions.create({
-      model: getFastModel(),
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      temperature: 0.8,
-      max_tokens: 600,
+    const posts = {};
+    const errors = {};
+    const patch = { updatedAt: new Date() };
+    settled.forEach((outcome, i) => {
+      const platform = platforms[i];
+      if (outcome.status === "fulfilled") {
+        posts[platform] = outcome.value;
+        patch[getPlatformSpec(platform).field] = outcome.value.text;
+      } else {
+        errors[platform] = describeError(outcome.reason);
+      }
     });
 
-    const linkedinPost = completion.choices[0]?.message?.content?.trim() || "";
-
-    if (!linkedinPost) {
-      return NextResponse.json(
-        { error: "AI returned empty response" },
-        { status: 500 }
-      );
+    if (Object.keys(posts).length === 0) {
+      const first = Object.values(errors)[0];
+      const busy = settled.some((o) => o.status === "rejected" && o.reason instanceof LlmError && o.reason.code === "rate_limit");
+      return NextResponse.json({ error: first, errors }, { status: busy ? 429 : 502 });
     }
 
-    const [updated] = await db
-      .update(jobs)
-      .set({ linkedinPost, updatedAt: new Date() })
-      .where(whereClause)
-      .returning();
-
-    return NextResponse.json({ success: true, linkedinPost, job: updated });
+    const [updated] = await db.update(jobs).set(patch).where(ownerFilter(jobId, user)).returning();
+    return NextResponse.json({
+      success: true,
+      posts,
+      errors,
+      linkedinPost: posts.linkedin?.text,
+      rozeePost: posts.rozee?.text,
+      job: updated,
+    });
   } catch (error) {
-    console.error("Generate post error:", error);
-    return NextResponse.json(
-      { error: error.message || "Failed to generate post" },
-      { status: 500 }
-    );
+    console.error("Generate post error:", error.message);
+    return NextResponse.json({ error: describeError(error) }, { status: 500 });
   }
 }, { requireUser: true });

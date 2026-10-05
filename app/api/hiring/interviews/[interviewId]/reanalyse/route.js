@@ -18,7 +18,7 @@ export const POST = withAuth(async (request, { params, user }) => {
   try {
     const { interviewId } = params;
     const [interview] = await db
-      .select({ id: interviews.id, jobId: interviews.jobId, status: interviews.status, analysisStatus: interviews.analysisStatus })
+      .select({ id: interviews.id, jobId: interviews.jobId, status: interviews.status, analysisStatus: interviews.analysisStatus, recordingStatus: interviews.recordingStatus })
       .from(interviews)
       .where(eq(interviews.id, interviewId))
       .limit(1);
@@ -27,6 +27,10 @@ export const POST = withAuth(async (request, { params, user }) => {
     if (!job) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     if (interview.status !== INTERVIEW_STATUS.COMPLETED) {
       return NextResponse.json({ error: "Only completed interviews can be analysed" }, { status: 409 });
+    }
+
+    if (interview.recordingStatus === "deleted") {
+      return NextResponse.json({ error: "The recording was deleted, so this interview can't be analysed again" }, { status: 409 });
     }
 
     // Mark pending before queueing, so a fast worker's "processing" is never overwritten

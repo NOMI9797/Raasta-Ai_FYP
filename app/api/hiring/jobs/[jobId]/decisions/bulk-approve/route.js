@@ -24,6 +24,7 @@ export const POST = withAuth(async (request, { params, user }) => {
       applied: result.applied.length,
       decisions: result.applied,
       needsReview: result.needsReview,
+      escalated: result.escalated,
       failed: result.failed,
     });
   } catch (error) {

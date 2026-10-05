@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Plus, Minus, Maximize2, Save, Target, Undo2, Trash2, Play, Pause, X, AlertCircle } from "lucide-react";
 import ReactFlow, { Background, Controls, MiniMap, addEdge, useEdgesState, useNodesState, MarkerType, BaseEdge, getBezierPath, Handle, Position, EdgeLabelRenderer } from "reactflow";
 import "reactflow/dist/style.css";
+import { useDialog } from "@/components/ui/DialogProvider";
 
 const edgeStyle = { stroke: "#3b475e", strokeWidth: 5 };
 
@@ -96,6 +97,7 @@ const nodeTypes = { default: DarkNode };
 const edgeTypes = { delay: DelayEdge };
 
 export default function SendInviteCanvas({ campaignName, campaignId }) {
+  const { confirm } = useDialog();
   const router = useRouter();
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
@@ -630,9 +632,13 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
   const handleCancelWorkflow = async () => {
     if (!currentJobId) return;
     
-    const confirmCancel = window.confirm(
-      'Are you sure? This will permanently cancel the workflow and you cannot resume it.'
-    );
+    const confirmCancel = await confirm({
+      title: "Cancel this workflow?",
+      message: "This will permanently cancel the workflow and you cannot resume it.",
+      confirmText: "Cancel workflow",
+      cancelText: "Keep running",
+      tone: "danger",
+    });
     
     if (!confirmCancel) return;
     

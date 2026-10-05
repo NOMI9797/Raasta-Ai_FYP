@@ -8,6 +8,7 @@ import { CANDIDATE_STATUS, canTransition } from "./statuses";
 import { getHiringConfig } from "./config";
 import { enqueue } from "./queue";
 import { deliverEmail, outcomeEmail } from "./emails";
+import { finalEscalations } from "../agent/policy";
 
 export const DECISIONS = [
   CANDIDATE_STATUS.FINAL_SHORTLISTED,
@@ -86,17 +87,24 @@ export async function applyDecision({ candidateId, decision, decidedBy, note = n
 
 /**
  * Apply every pending suggestion for a job (interview_completed with a final_* suggestion).
- * needs_review candidates are left for the recruiter. Returns { applied, needsReview, failed }.
+ * needs_review candidates and escalated ones (score close to the threshold) are left for the
+ * recruiter to decide one by one. Returns { applied, needsReview, escalated, failed }.
  */
 export async function bulkApprove(jobId, decidedBy, deps) {
   const d = defaults(deps);
+  const [job] = await d.database.select().from(jobs).where(eq(jobs.id, jobId)).limit(1);
+  const config = getHiringConfig(job);
   const pending = await d.database.select().from(candidates)
     .where(and(eq(candidates.jobId, jobId), eq(candidates.status, CANDIDATE_STATUS.INTERVIEW_COMPLETED)));
-  const result = { applied: [], needsReview: 0, failed: 0 };
+  const result = { applied: [], needsReview: 0, escalated: 0, failed: 0 };
   for (const candidate of pending) {
     const suggestion = candidate.finalAnalysis?.suggestedDecision;
     if (suggestion !== CANDIDATE_STATUS.FINAL_SHORTLISTED && suggestion !== CANDIDATE_STATUS.FINAL_REJECTED) {
       if (candidate.finalAnalysis) result.needsReview += 1;
+      continue;
+    }
+    if (finalEscalations(candidate, config).length) {
+      result.escalated += 1;
       continue;
     }
     try {

@@ -1,3 +1,4 @@
+/* global globalThis */
 // Hiring job queue on Redis Streams (docs/ai-hiring/13-workers-automation.md).
 // Relative imports only — used by Next.js routes and by workers/hiring-worker.js.
 import crypto from "crypto";
@@ -20,12 +21,26 @@ function streamFields({ type, payload, attempt }) {
   ];
 }
 
+function wakeWorker(type) {
+  const hook = globalThis.__raastaEnqueueHook;
+  if (typeof hook !== "function") return;
+  try {
+    hook(type);
+  } catch {
+    /* waking the worker is best effort */
+  }
+}
+
 /**
  * Queue a job. With delayMs > 0 it waits in a sorted set until the worker moves it into the stream.
  * Returns { id } for immediate jobs or { delayed: true, runAt } for delayed ones.
  */
 export async function enqueue(type, payload, { delayMs = 0, attempt = 0 } = {}, redis = getRedisClient()) {
   if (!type) throw new Error("enqueue needs a job type");
+
+  // The web server registers a hook (libs/system/worker-host.js) so that queuing work also makes sure a worker is
+  // running to do it. Nothing registers one inside the worker itself. It never delays or fails the queueing.
+  wakeWorker(type);
 
   if (delayMs > 0) {
     const runAt = Date.now() + delayMs;

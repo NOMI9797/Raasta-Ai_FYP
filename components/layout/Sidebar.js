@@ -4,6 +4,7 @@ import React, { useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { useSystemStatus } from "@/components/system/useSystem";
 import {
   Home,
   Briefcase,
@@ -22,6 +23,9 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
+  Gavel,
+  Video,
+  Activity,
 } from "lucide-react";
 
 const NAV = [
@@ -40,6 +44,10 @@ const NAV = [
       { key: "recruiter-jobs", label: "Jobs", href: "/dashboard/recruiter/jobs", icon: Briefcase },
       { key: "recruiter-candidates", label: "Candidates", href: "/dashboard/recruiter/candidates", icon: Users },
       { key: "recruiter-pipeline", label: "Pipeline", href: "/dashboard/recruiter/pipeline", icon: LayoutGrid },
+      { key: "recruiter-interviews", label: "Interviews", href: "/dashboard/recruiter/interviews", icon: Video },
+      { key: "recruiter-decisions", label: "Decisions", href: "/dashboard/recruiter/decisions", icon: Gavel },
+      { key: "recruiter-agent", label: "Hiring agent", href: "/dashboard/recruiter/agent", icon: Bot },
+      { key: "recruiter-setup", label: "Setup guide", href: "/dashboard/recruiter/setup", icon: Activity },
     ],
   },
   {
@@ -62,9 +70,10 @@ const NAV = [
   },
   {
     key: "agents",
-    label: "Agents",
+    label: "Sales Agents",
     href: "/dashboard/agents",
     icon: Bot,
+    requireMode: "sales",
   },
   {
     key: "analytics",
@@ -101,6 +110,12 @@ export default function Sidebar({ collapsed, onToggle, activeSection = "" }) {
   const role = session?.user?.role ?? "sales_operator";
   const modes = Array.isArray(session?.user?.modes) ? session.user.modes : [];
   const isAdmin = role === "admin";
+
+  // A coloured dot on Recruiter and Setup guide when a hiring program is off or Redis / the database is down
+  const showHiring = isAdmin || modes.includes("recruiter");
+  const system = useSystemStatus({ enabled: showHiring, interval: 20000 });
+  const systemOverall = system.data?.status?.overall;
+  const systemDot = systemOverall === "blocked" ? "bg-error" : systemOverall === "degraded" ? "bg-warning" : null;
 
   const visibleItems = useMemo(() => {
     return NAV.filter((item) => {
@@ -203,6 +218,7 @@ export default function Sidebar({ collapsed, onToggle, activeSection = "" }) {
                         <span className={`truncate font-medium flex-1 text-left ${anyChildActive ? "text-primary" : ""}`}>
                           {item.label}
                         </span>
+                        {item.key === "recruiter" && systemDot && <span className={`h-2 w-2 rounded-full ${systemDot}`} role="img" aria-label="A hiring program needs attention" />}
                         <ChevronDown
                           className={`h-4 w-4 transition-transform ${groupOpen ? "rotate-180" : ""}`}
                         />
@@ -230,6 +246,7 @@ export default function Sidebar({ collapsed, onToggle, activeSection = "" }) {
                             <span className={`truncate text-sm ${active ? "text-primary font-medium" : ""}`}>
                               {child.label}
                             </span>
+                            {child.key === "recruiter-setup" && systemDot && <span className={`ml-auto h-2 w-2 rounded-full ${systemDot}`} role="img" aria-label="Needs attention" />}
                           </Link>
                         );
                       })}

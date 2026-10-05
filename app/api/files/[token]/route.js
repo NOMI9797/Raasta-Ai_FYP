@@ -1,6 +1,6 @@
 import { Readable } from "stream";
 import { NextResponse } from "next/server";
-import { verifySignedToken, getObjectStream, contentDisposition } from "@/libs/hiring/storage";
+import { verifySignedToken, getObjectStream, contentDisposition, parseRange } from "@/libs/hiring/storage";
 
 export const dynamic = "force-dynamic";
 
@@ -20,16 +20,33 @@ export async function GET(request, { params }) {
   }
 
   try {
-    const { stream, contentType, size } = await getObjectStream(key);
+    let object = await getObjectStream(key);
+    // Recordings are played in <video>/<audio>, which seek with Range requests
+    const requested = parseRange(request.headers.get("range"), object.size);
+    if (requested === "unsatisfiable") {
+      object.stream?.destroy?.();
+      return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${object.size}` } });
+    }
+    if (requested) {
+      object.stream?.destroy?.();
+      object = await getObjectStream(key, { range: requested });
+    }
+    const { stream, contentType, size, range } = object;
     const headers = {
       "Content-Type": contentType,
       "Cache-Control": "private, no-store",
       "X-Content-Type-Options": "nosniff",
+      "Accept-Ranges": "bytes",
       "Content-Disposition": contentDisposition(filename || key.split("/").pop()),
     };
-    if (size != null) headers["Content-Length"] = String(size);
+    if (range) {
+      headers["Content-Range"] = `bytes ${range.start}-${range.end}/${size}`;
+      headers["Content-Length"] = String(range.end - range.start + 1);
+    } else if (size != null) {
+      headers["Content-Length"] = String(size);
+    }
     const body = typeof stream?.pipe === "function" ? Readable.toWeb(stream) : stream;
-    return new Response(body, { headers });
+    return new Response(body, { status: range ? 206 : 200, headers });
   } catch (error) {
     if (error?.code === "not_found") {
       return NextResponse.json({ error: "File not found" }, { status: 404 });

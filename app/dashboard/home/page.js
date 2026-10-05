@@ -118,8 +118,11 @@ export default function HomePage() {
             />
             <QuickCard
               title="Agents"
-              description="Run recruiter and sales automation pipelines end-to-end."
-              links={[{ href: "/dashboard/agents", label: "Open Agents" }]}
+              description="Let an agent do the routine work, and ask you before anything important."
+              links={[
+                ...(showRecruiter ? [{ href: "/dashboard/recruiter/agent", label: "Hiring agent" }] : []),
+                ...(showSales ? [{ href: "/dashboard/agents", label: "Sales agents" }] : []),
+              ]}
               icon={Bot}
             />
           </div>

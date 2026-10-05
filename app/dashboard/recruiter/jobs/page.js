@@ -3,17 +3,22 @@
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
 import toast from "react-hot-toast";
-import { Plus, Briefcase, Bot, Loader2 } from "lucide-react";
+import { Plus, Briefcase, Bot } from "lucide-react";
+import { useDialog } from "@/components/ui/DialogProvider";
+import GuidanceStrip from "@/components/system/GuidanceStrip";
 import Sidebar from "@/components/layout/Sidebar";
 import { useSidebar } from "@/components/layout/SidebarContext";
 import TopBar from "@/components/layout/TopBar";
 import CreateJobModal from "@/app/dashboard/hiring/components/CreateJobModal";
 import JobCard from "@/app/dashboard/hiring/components/JobCard";
+import PublishPanel from "../components/PublishPanel";
 
 export default function RecruiterJobsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const { confirm } = useDialog();
   const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } = useSidebar();
 
   const [jobs, setJobs] = useState([]);
@@ -22,9 +27,7 @@ export default function RecruiterJobsPage() {
   // Bumped after each create so the modal remounts with an empty form
   const [createFormKey, setCreateFormKey] = useState(0);
   const [creating, setCreating] = useState(false);
-  const [generatingId, setGeneratingId] = useState(null);
-  const [launchingAgent, setLaunchingAgent] = useState(false);
-  const [publishingRozeeId, setPublishingRozeeId] = useState(null);
+  const [publishJob, setPublishJob] = useState(null); // job whose publish panel is open
 
   useEffect(() => {
     if (status === "loading") return;
@@ -39,9 +42,9 @@ export default function RecruiterJobsPage() {
     }
   }, [session, status, router]);
 
-  const fetchJobs = useCallback(async () => {
+  const fetchJobs = useCallback(async ({ quiet = false } = {}) => {
     try {
-      setLoading(true);
+      if (!quiet) setLoading(true);
       const res = await fetch("/api/hiring/jobs");
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error);
@@ -80,13 +83,13 @@ export default function RecruiterJobsPage() {
 
   const handleDelete = async (jobId) => {
     const job = jobs.find((j) => j.id === jobId);
-    if (
-      !confirm(
-        `Delete "${job?.title || "this job"}"?\n\nThis also deletes all of its candidates, interviews and interview questions. This cannot be undone.`
-      )
-    ) {
-      return;
-    }
+    const ok = await confirm({
+      title: `Delete "${job?.title || "this job"}"?`,
+      message: "This also deletes all of its candidates, interviews and interview questions. It cannot be undone.",
+      confirmText: "Delete job",
+      tone: "danger",
+    });
+    if (!ok) return;
     try {
       const res = await fetch(`/api/hiring/jobs/${jobId}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Delete failed");
@@ -94,83 +97,6 @@ export default function RecruiterJobsPage() {
       toast.success("Job deleted");
     } catch {
       toast.error("Failed to delete job");
-    }
-  };
-
-  const handleGeneratePost = async (jobId) => {
-    try {
-      setGeneratingId(jobId);
-      const applyUrl = `${window.location.origin}/apply/${jobId}`;
-      const res = await fetch(`/api/hiring/jobs/${jobId}/generate-post`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tone: "professional", applyUrl }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      setJobs((prev) =>
-        prev.map((j) => (j.id === jobId ? { ...j, linkedinPost: data.linkedinPost } : j))
-      );
-      toast.success("LinkedIn post generated");
-    } catch (err) {
-      toast.error(err.message || "Failed to generate post");
-    } finally {
-      setGeneratingId(null);
-    }
-  };
-
-  const handlePublishToRozee = async (jobId) => {
-    const job = jobs.find((j) => j.id === jobId);
-    const verb = job?.rozeePublishedAt ? "Re-publish" : "Publish";
-    if (!confirm(`${verb} "${job?.title || "this job"}" to Rozee.pk? It will be visible publicly.`)) return;
-    try {
-      setPublishingRozeeId(jobId);
-      const res = await fetch(`/api/rozee/jobs/${jobId}/publish`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to publish to Rozee");
-      setJobs((prev) =>
-        prev.map((j) =>
-          j.id === jobId
-            ? {
-                ...j,
-                rozeePost: data.rozeePost ?? j.rozeePost,
-                rozeePostUrl: data.rozeePostUrl ?? j.rozeePostUrl,
-                rozeePublishedAt: data.rozeePublishedAt ?? new Date().toISOString(),
-              }
-            : j
-        )
-      );
-      toast.success("Job published to Rozee.pk");
-    } catch (err) {
-      toast.error(err.message || "Failed to publish to Rozee");
-    } finally {
-      setPublishingRozeeId(null);
-    }
-  };
-
-  const handleLaunchRecruiterAgent = async () => {
-    setLaunchingAgent(true);
-    try {
-      const res = await fetch("/api/agents/runs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pipelineType: "recruiter", mode: "semi_auto", config: {} }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        toast.success("Recruiter agent launched! Check the Agents page for status.");
-        router.push("/dashboard/agents");
-      } else {
-        toast.error(data.error || "Failed to launch agent");
-      }
-    } catch {
-      toast.error("Network error");
-    } finally {
-      setLaunchingAgent(false);
     }
   };
 
@@ -201,22 +127,19 @@ export default function RecruiterJobsPage() {
       >
         <TopBar title="Jobs" />
         <main className="flex-1 p-6 overflow-auto space-y-6">
+          <GuidanceStrip feature="screening" showNext />
+
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h1 className="text-2xl font-bold text-base-content">Jobs</h1>
               <p className="text-sm text-base-content/70 mt-1">
-                Create jobs and generate AI-powered posts for LinkedIn and Rozee.pk.
+                Create jobs, then publish a post written for each platform to LinkedIn and Rozee.pk.
               </p>
             </div>
             <div className="flex gap-2">
-              <button
-                className="btn btn-outline btn-sm gap-1"
-                onClick={handleLaunchRecruiterAgent}
-                disabled={launchingAgent}
-              >
-                {launchingAgent ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}
-                Run Agent
-              </button>
+              <Link href="/dashboard/recruiter/agent" className="btn btn-outline btn-sm gap-1">
+                <Bot className="h-4 w-4" /> Hiring agent
+              </Link>
               <button className="btn btn-primary btn-sm gap-1" onClick={() => setShowCreate(true)}>
                 <Plus className="h-4 w-4" /> New job
               </button>
@@ -264,16 +187,22 @@ export default function RecruiterJobsPage() {
                   key={job.id}
                   job={job}
                   onDelete={handleDelete}
-                  onGeneratePost={handleGeneratePost}
-                  isGenerating={generatingId === job.id}
-                  onPublishToRozee={handlePublishToRozee}
-                  isPublishingRozee={publishingRozeeId === job.id}
+                  onPublish={setPublishJob}
                 />
               ))}
             </div>
           )}
         </main>
       </div>
+
+      {publishJob && (
+        <PublishPanel
+          key={publishJob.id}
+          job={publishJob}
+          onClose={() => setPublishJob(null)}
+          onChanged={() => fetchJobs({ quiet: true })}
+        />
+      )}
 
       <CreateJobModal
         key={createFormKey}

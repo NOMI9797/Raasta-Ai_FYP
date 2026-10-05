@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 8085",
+    "serve": "node scripts/serve.js",
     "build": "next build",
     "postbuild": "next-sitemap",
     "postinstall": "npx playwright install chromium --with-deps || true",

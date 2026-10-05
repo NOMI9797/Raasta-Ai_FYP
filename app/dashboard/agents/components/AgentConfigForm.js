@@ -1,104 +1,49 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useSession } from "next-auth/react";
-import { X, Bot, Briefcase, Users, Loader2 } from "lucide-react";
+import { X, Bot, Loader2 } from "lucide-react";
 
-const ALL_PIPELINE_OPTIONS = [
-  { value: "recruiter", label: "Recruiter", icon: Users, description: "Job posting, candidate screening & shortlisting", roles: ["recruiter", "admin"] },
-  { value: "sales_operator", label: "Sales Operator", icon: Briefcase, description: "Campaign outreach, invites & messaging", roles: ["sales_operator", "admin"] },
-];
-
+// Sales agent: runs a campaign (find leads, send invites, follow up). The hiring agent is separate:
+// see app/dashboard/recruiter/agent.
 export default function AgentConfigForm({ onClose, onCreated, editConfig }) {
-  const { data: session } = useSession();
-  const userRole = session?.user?.role || "sales_operator";
-
-  const pipelineOptions = ALL_PIPELINE_OPTIONS.filter((opt) => opt.roles.includes(userRole));
-
   const [name, setName] = useState(editConfig?.name || "");
-  // For recruiter/sales_operator roles, auto-select their single option
-  const defaultPipeline = editConfig?.pipelineType ||
-    (pipelineOptions.length === 1 ? pipelineOptions[0].value : "");
-  const [pipelineType, setPipelineType] = useState(defaultPipeline);
-  const [mode, setMode] = useState(editConfig?.mode || "semi_auto");
+  const [mode, setMode] = useState(editConfig?.mode === "full_auto" ? "full_auto" : "semi_auto");
+  const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  // Sales-operator specific config
   const [campaignId, setCampaignId] = useState(editConfig?.config?.campaignId || "");
   const [accountId, setAccountId] = useState(editConfig?.config?.accountId || "");
   const [dailyInviteLimit, setDailyInviteLimit] = useState(editConfig?.config?.dailyInviteLimit || 10);
   const [waitMinutes, setWaitMinutes] = useState(editConfig?.config?.waitMinutes || 30);
 
-  // Recruiter specific config
-  const [jobId, setJobId] = useState(editConfig?.config?.jobId || "");
-  const [postTone, setPostTone] = useState(editConfig?.config?.postTone || "professional");
-  const [recruiterAccountId, setRecruiterAccountId] = useState(editConfig?.config?.accountId || "");
-
   // Data for dropdowns
   const [campaignsList, setCampaignsList] = useState([]);
   const [accountsList, setAccountsList] = useState([]);
-  const [jobsList, setJobsList] = useState([]);
-  const [loadingData, setLoadingData] = useState(false);
+  const [loadingData, setLoadingData] = useState(true);
 
   useEffect(() => {
-    if (pipelineType === "sales_operator" || pipelineType === "recruiter") {
-      setLoadingData(true);
-      const fetches = [fetch("/api/linkedin/accounts").then((r) => r.json())];
-      if (pipelineType === "sales_operator") {
-        fetches.push(fetch("/api/campaigns").then((r) => r.json()));
-      }
-      if (pipelineType === "recruiter") {
-        fetches.push(fetch("/api/hiring/jobs").then((r) => r.json()));
-      }
-      Promise.all(fetches)
-        .then(([accData, extraData]) => {
-          if (accData.accounts) setAccountsList(accData.accounts);
-          else if (Array.isArray(accData)) setAccountsList(accData);
-          if (extraData) {
-            if (pipelineType === "sales_operator") {
-              if (extraData.campaigns) setCampaignsList(extraData.campaigns);
-              else if (Array.isArray(extraData)) setCampaignsList(extraData);
-            }
-            if (pipelineType === "recruiter") {
-              if (extraData.jobs) setJobsList(extraData.jobs);
-              else if (Array.isArray(extraData)) setJobsList(extraData);
-            }
-          }
-        })
-        .catch((err) => console.error("Failed to load dropdown data:", err))
-        .finally(() => setLoadingData(false));
-    }
-  }, [pipelineType]);
-
-  const buildConfig = () => {
-    if (pipelineType === "sales_operator") {
-      return {
-        campaignId,
-        accountId,
-        dailyInviteLimit: Number(dailyInviteLimit) || 10,
-        waitMinutes: Number(waitMinutes) || 30,
-      };
-    }
-    if (pipelineType === "recruiter") {
-      return {
-        jobId,
-        accountId: recruiterAccountId || null,
-        postTone,
-      };
-    }
-    return {};
-  };
+    Promise.all([
+      fetch("/api/linkedin/accounts").then((r) => r.json()),
+      fetch("/api/campaigns").then((r) => r.json()),
+    ])
+      .then(([accData, campaignData]) => {
+        if (accData.accounts) setAccountsList(accData.accounts);
+        else if (Array.isArray(accData)) setAccountsList(accData);
+        if (campaignData.campaigns) setCampaignsList(campaignData.campaigns);
+        else if (Array.isArray(campaignData)) setCampaignsList(campaignData);
+      })
+      .catch((err) => console.error("Failed to load dropdown data:", err))
+      .finally(() => setLoadingData(false));
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!name.trim() || !pipelineType) return;
-    if (pipelineType === "sales_operator" && (!campaignId || !accountId)) return;
+    if (!name.trim() || !campaignId || !accountId) return;
     setSaving(true);
+    setError(null);
 
     try {
-      const url = editConfig
-        ? `/api/agents/configs/${editConfig.id}`
-        : "/api/agents/configs";
+      const url = editConfig ? `/api/agents/configs/${editConfig.id}` : "/api/agents/configs";
       const method = editConfig ? "PATCH" : "POST";
 
       const res = await fetch(url, {
@@ -106,9 +51,14 @@ export default function AgentConfigForm({ onClose, onCreated, editConfig }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name,
-          pipelineType,
+          pipelineType: "sales_operator",
           mode,
-          config: buildConfig(),
+          config: {
+            campaignId,
+            accountId,
+            dailyInviteLimit: Number(dailyInviteLimit) || 10,
+            waitMinutes: Number(waitMinutes) || 30,
+          },
         }),
       });
 
@@ -116,21 +66,17 @@ export default function AgentConfigForm({ onClose, onCreated, editConfig }) {
       if (data.success) {
         onCreated(data.config);
         onClose();
+      } else {
+        setError(data.error || "Could not save the agent");
       }
     } catch (err) {
-      console.error("Save config error:", err);
+      setError(err.message || "Could not save the agent");
     } finally {
       setSaving(false);
     }
   };
 
-  const isSalesOp = pipelineType === "sales_operator";
-  const isRecruiter = pipelineType === "recruiter";
-  const canSubmit =
-    name.trim() &&
-    pipelineType &&
-    (!isSalesOp || (campaignId && accountId)) &&
-    (!isRecruiter || jobId);
+  const canSubmit = name.trim() && campaignId && accountId;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 overflow-y-auto py-8">
@@ -143,7 +89,7 @@ export default function AgentConfigForm({ onClose, onCreated, editConfig }) {
           <div className="p-2 rounded-xl bg-primary/10">
             <Bot size={22} className="text-primary" />
           </div>
-          <h2 className="text-xl font-bold">{editConfig ? "Edit Agent" : "New Agent Config"}</h2>
+          <h2 className="text-xl font-bold">{editConfig ? "Edit Sales Agent" : "New Sales Agent"}</h2>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">
@@ -159,188 +105,92 @@ export default function AgentConfigForm({ onClose, onCreated, editConfig }) {
             />
           </div>
 
-          {!editConfig && pipelineOptions.length > 1 && (
-            <div>
-              <label className="text-sm font-medium mb-2 block">Pipeline Type</label>
-              <div className="grid grid-cols-2 gap-3">
-                {pipelineOptions.map((opt) => {
-                  const Icon = opt.icon;
-                  return (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      className={`p-4 rounded-xl border-2 text-left transition-all ${
-                        pipelineType === opt.value
-                          ? "border-primary bg-primary/5"
-                          : "border-base-300 hover:border-primary/40"
-                      }`}
-                      onClick={() => setPipelineType(opt.value)}
-                    >
-                      <Icon size={20} className={pipelineType === opt.value ? "text-primary" : "text-base-content/50"} />
-                      <p className="font-semibold mt-2">{opt.label}</p>
-                      <p className="text-xs text-base-content/60 mt-1">{opt.description}</p>
-                    </button>
-                  );
-                })}
+          <div className="space-y-4 p-4 bg-base-200/50 rounded-xl border border-base-300">
+            <p className="text-xs font-semibold text-base-content/60 uppercase tracking-wider">Pipeline Settings</p>
+
+            {loadingData ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 size={18} className="animate-spin text-primary" />
+                <span className="ml-2 text-sm text-base-content/50">Loading campaigns & accounts...</span>
               </div>
-            </div>
-          )}
-
-          {/* Sales Operator specific fields */}
-          {isSalesOp && (
-            <div className="space-y-4 p-4 bg-base-200/50 rounded-xl border border-base-300">
-              <p className="text-xs font-semibold text-base-content/60 uppercase tracking-wider">Pipeline Settings</p>
-
-              {loadingData ? (
-                <div className="flex items-center justify-center py-4">
-                  <Loader2 size={18} className="animate-spin text-primary" />
-                  <span className="ml-2 text-sm text-base-content/50">Loading campaigns & accounts...</span>
+            ) : (
+              <>
+                {/* Campaign picker */}
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Campaign</label>
+                  <select
+                    className="select select-bordered w-full"
+                    value={campaignId}
+                    onChange={(e) => setCampaignId(e.target.value)}
+                    required
+                  >
+                    <option value="">Select a campaign...</option>
+                    {campaignsList.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.status || "draft"})
+                      </option>
+                    ))}
+                  </select>
+                  {campaignsList.length === 0 && (
+                    <p className="text-xs text-warning mt-1">No campaigns found. Create one first.</p>
+                  )}
                 </div>
-              ) : (
-                <>
-                  {/* Campaign picker */}
-                  <div>
-                    <label className="text-sm font-medium mb-1 block">Campaign</label>
-                    <select
-                      className="select select-bordered w-full"
-                      value={campaignId}
-                      onChange={(e) => setCampaignId(e.target.value)}
-                      required
-                    >
-                      <option value="">Select a campaign...</option>
-                      {campaignsList.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name} ({c.status || "draft"})
-                        </option>
-                      ))}
-                    </select>
-                    {campaignsList.length === 0 && (
-                      <p className="text-xs text-warning mt-1">No campaigns found. Create one first.</p>
-                    )}
-                  </div>
 
-                  {/* LinkedIn account picker */}
-                  <div>
-                    <label className="text-sm font-medium mb-1 block">LinkedIn Account</label>
-                    <select
-                      className="select select-bordered w-full"
-                      value={accountId}
-                      onChange={(e) => setAccountId(e.target.value)}
-                      required
-                    >
-                      <option value="">Select an account...</option>
-                      {accountsList.map((a) => (
-                        <option key={a.dbId || a.id} value={a.dbId || a.id}>
-                          {a.name || a.email} {a.isActive ? "" : "(inactive)"}
-                        </option>
-                      ))}
-                    </select>
-                    {accountsList.length === 0 && (
-                      <p className="text-xs text-warning mt-1">No LinkedIn accounts connected.</p>
-                    )}
-                  </div>
-
-                  {/* Daily invite limit */}
-                  <div>
-                    <label className="text-sm font-medium mb-1 block">
-                      Daily Invite Limit <span className="text-base-content/40 font-normal">(10–30)</span>
-                    </label>
-                    <input
-                      type="number"
-                      className="input input-bordered w-full"
-                      min={1}
-                      max={30}
-                      value={dailyInviteLimit}
-                      onChange={(e) => setDailyInviteLimit(e.target.value)}
-                    />
-                  </div>
-
-                  {/* Wait time */}
-                  <div>
-                    <label className="text-sm font-medium mb-1 block">
-                      Wait Before Checking Connections <span className="text-base-content/40 font-normal">(minutes)</span>
-                    </label>
-                    <input
-                      type="number"
-                      className="input input-bordered w-full"
-                      min={5}
-                      max={120}
-                      value={waitMinutes}
-                      onChange={(e) => setWaitMinutes(e.target.value)}
-                    />
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* Recruiter specific fields */}
-          {isRecruiter && (
-            <div className="space-y-4 p-4 bg-base-200/50 rounded-xl border border-base-300">
-              <p className="text-xs font-semibold text-base-content/60 uppercase tracking-wider">Pipeline Settings</p>
-
-              {loadingData ? (
-                <div className="flex items-center justify-center py-4">
-                  <Loader2 size={18} className="animate-spin text-primary" />
-                  <span className="ml-2 text-sm text-base-content/50">Loading jobs & accounts...</span>
+                {/* LinkedIn account picker */}
+                <div>
+                  <label className="text-sm font-medium mb-1 block">LinkedIn Account</label>
+                  <select
+                    className="select select-bordered w-full"
+                    value={accountId}
+                    onChange={(e) => setAccountId(e.target.value)}
+                    required
+                  >
+                    <option value="">Select an account...</option>
+                    {accountsList.map((a) => (
+                      <option key={a.dbId || a.id} value={a.dbId || a.id}>
+                        {a.name || a.email} {a.isActive ? "" : "(inactive)"}
+                      </option>
+                    ))}
+                  </select>
+                  {accountsList.length === 0 && (
+                    <p className="text-xs text-warning mt-1">No LinkedIn accounts connected.</p>
+                  )}
                 </div>
-              ) : (
-                <>
-                  {/* Job picker */}
-                  <div>
-                    <label className="text-sm font-medium mb-1 block">Job</label>
-                    <select
-                      className="select select-bordered w-full"
-                      value={jobId}
-                      onChange={(e) => setJobId(e.target.value)}
-                      required
-                    >
-                      <option value="">Select a job...</option>
-                      {jobsList.map((j) => (
-                        <option key={j.id} value={j.id}>
-                          {j.title} ({j.status || "draft"})
-                        </option>
-                      ))}
-                    </select>
-                    {jobsList.length === 0 && (
-                      <p className="text-xs text-warning mt-1">No jobs found. Create one in the Hiring page first.</p>
-                    )}
-                  </div>
 
-                  {/* Post tone */}
-                  <div>
-                    <label className="text-sm font-medium mb-1 block">Post Tone</label>
-                    <select className="select select-bordered w-full" value={postTone} onChange={(e) => setPostTone(e.target.value)}>
-                      <option value="professional">Professional</option>
-                      <option value="casual">Casual / Friendly</option>
-                      <option value="enthusiastic">Enthusiastic</option>
-                      <option value="formal">Formal</option>
-                    </select>
-                  </div>
+                {/* Daily invite limit */}
+                <div>
+                  <label className="text-sm font-medium mb-1 block">
+                    Daily Invite Limit <span className="text-base-content/40 font-normal">(10-30)</span>
+                  </label>
+                  <input
+                    type="number"
+                    className="input input-bordered w-full"
+                    min={1}
+                    max={30}
+                    value={dailyInviteLimit}
+                    onChange={(e) => setDailyInviteLimit(e.target.value)}
+                  />
+                </div>
 
-                  {/* LinkedIn account picker */}
-                  <div>
-                    <label className="text-sm font-medium mb-1 block">LinkedIn Account <span className="text-base-content/40 font-normal">(for auto-posting)</span></label>
-                    <select
-                      className="select select-bordered w-full"
-                      value={recruiterAccountId}
-                      onChange={(e) => setRecruiterAccountId(e.target.value)}
-                    >
-                      <option value="">None (publish locally only)</option>
-                      {accountsList.map((a) => (
-                        <option key={a.dbId || a.id} value={a.dbId || a.id}>
-                          {a.name || a.email} {a.isActive ? "" : "(inactive)"}
-                        </option>
-                      ))}
-                    </select>
-                    {accountsList.length === 0 && (
-                      <p className="text-xs text-base-content/50 mt-1">No LinkedIn accounts connected. Post will be published locally.</p>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
+                {/* Wait time */}
+                <div>
+                  <label className="text-sm font-medium mb-1 block">
+                    Wait Before Checking Connections <span className="text-base-content/40 font-normal">(minutes)</span>
+                  </label>
+                  <input
+                    type="number"
+                    className="input input-bordered w-full"
+                    min={5}
+                    max={120}
+                    value={waitMinutes}
+                    onChange={(e) => setWaitMinutes(e.target.value)}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+
+          {error && <div className="alert alert-error py-2 text-sm">{error}</div>}
 
           <div>
             <label className="text-sm font-medium mb-2 block">Autonomy Mode</label>
@@ -368,11 +218,7 @@ export default function AgentConfigForm({ onClose, onCreated, editConfig }) {
             </div>
           </div>
 
-          <button
-            type="submit"
-            className="btn btn-primary w-full"
-            disabled={saving || !canSubmit}
-          >
+          <button type="submit" className="btn btn-primary w-full" disabled={saving || !canSubmit}>
             {saving ? <span className="loading loading-spinner loading-sm" /> : editConfig ? "Update" : "Create Agent"}
           </button>
         </form>

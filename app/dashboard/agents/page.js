@@ -9,6 +9,7 @@ import TopBar from "@/components/layout/TopBar";
 import AgentConfigForm from "./components/AgentConfigForm";
 import AgentRunCard from "./components/AgentRunCard";
 import toast from "react-hot-toast";
+import { useDialog } from "@/components/ui/DialogProvider";
 import {
   Bot,
   Plus,
@@ -17,13 +18,15 @@ import {
   Trash2,
   Loader2,
   Zap,
-  Users,
   Briefcase,
   ToggleLeft,
   ToggleRight,
 } from "lucide-react";
 
+const MODE_LABELS = { assisted: "Assisted", autopilot: "Autopilot", semi_auto: "Semi-Auto", full_auto: "Full-Auto" };
+
 export default function AgentsPage() {
+  const { confirm } = useDialog();
   const { data: session, status } = useSession();
   const router = useRouter();
   const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } = useSidebar();
@@ -35,15 +38,20 @@ export default function AgentsPage() {
   const [editConfig, setEditConfig] = useState(null);
   const [launchingId, setLaunchingId] = useState(null);
 
+  // Sales agents only. The hiring agent has its own page under Recruiter.
   useEffect(() => {
     if (status === "unauthenticated") router.push("/signin");
-  }, [status, router]);
+    if (status !== "authenticated") return;
+    const modes = Array.isArray(session?.user?.modes) ? session.user.modes : [];
+    if (session?.user?.role === "admin" || modes.includes("sales")) return;
+    router.replace(modes.includes("recruiter") ? "/dashboard/recruiter/agent" : "/dashboard/home");
+  }, [session, status, router]);
 
   const fetchData = useCallback(async () => {
     try {
       const [cfgRes, runRes] = await Promise.all([
-        fetch("/api/agents/configs"),
-        fetch("/api/agents/runs"),
+        fetch("/api/agents/configs?pipeline=sales_operator"),
+        fetch("/api/agents/runs?pipeline=sales_operator"),
       ]);
       const cfgData = await cfgRes.json();
       const runData = await runRes.json();
@@ -83,7 +91,8 @@ export default function AgentsPage() {
   };
 
   const handleDeleteConfig = async (configId) => {
-    if (!confirm("Delete this agent config?")) return;
+    const ok = await confirm({ title: "Delete this agent?", message: "Its saved settings are removed. Runs that already happened stay in the history.", confirmText: "Delete", tone: "danger" });
+    if (!ok) return;
     try {
       const res = await fetch(`/api/agents/configs/${configId}`, { method: "DELETE" });
       const data = await res.json();
@@ -115,7 +124,7 @@ export default function AgentsPage() {
   };
 
   const activeRuns = runs.filter((r) =>
-    ["queued", "running", "paused_at_checkpoint"].includes(r.status)
+    ["queued", "running", "waiting", "paused_at_checkpoint", "paused"].includes(r.status)
   );
   const pastRuns = runs.filter((r) =>
     ["completed", "failed", "cancelled"].includes(r.status)
@@ -146,13 +155,13 @@ export default function AgentsPage() {
           {/* Header */}
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-base-content">AI Agents</h1>
+              <h1 className="text-2xl font-bold text-base-content">Sales Agents</h1>
               <p className="text-sm text-base-content/70 mt-1">
-                Configure and run autonomous pipelines for recruiting &amp; sales
+                Configure and run agents that work a sales campaign: find leads, send invites and follow up. Hiring has its own agent under Recruiter.
               </p>
             </div>
             <button className="btn btn-primary btn-sm gap-2" onClick={() => { setEditConfig(null); setShowForm(true); }}>
-              <Plus size={16} /> New Agent
+              <Plus size={16} /> New Sales Agent
             </button>
           </div>
 
@@ -193,7 +202,6 @@ export default function AgentsPage() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {configs.map((cfg) => {
-                  const isRecruiter = cfg.pipelineType === "recruiter";
                   return (
                     <div
                       key={cfg.id}
@@ -203,11 +211,7 @@ export default function AgentsPage() {
                     >
                       <div className="flex items-start justify-between mb-3">
                         <div className="flex items-center gap-2">
-                          {isRecruiter ? (
-                            <Users size={15} className="text-secondary" />
-                          ) : (
-                            <Briefcase size={15} className="text-accent" />
-                          )}
+                          <Briefcase size={15} className="text-accent" />
                           <span className="font-semibold text-sm text-base-content">{cfg.name}</span>
                         </div>
                         <button
@@ -221,9 +225,9 @@ export default function AgentsPage() {
                       </div>
 
                       <div className="flex flex-wrap gap-1.5 mb-4">
-                        <span className="badge badge-xs badge-outline">{isRecruiter ? "Recruiter" : "Sales"}</span>
+                        <span className="badge badge-xs badge-outline">Sales</span>
                         <span className="badge badge-xs badge-outline">
-                          {cfg.mode === "full_auto" ? "Full-Auto" : "Semi-Auto"}
+                          {MODE_LABELS[cfg.mode] || cfg.mode}
                         </span>
                         {cfg.config?.dailyInviteLimit && (
                           <span className="badge badge-xs badge-outline">

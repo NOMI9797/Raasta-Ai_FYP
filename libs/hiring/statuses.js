@@ -44,11 +44,26 @@ export const MANUAL_TRANSITIONS = {
 };
 export const ALL_STATUSES = Object.keys(STATUS_META);
 export function canTransition(from, to) { return (MANUAL_TRANSITIONS[from] || []).includes(to); }
+// Statuses in a Kanban stage that a recruiter may move a candidate to from `from` (drag and drop target)
+export function allowedMovesToStage(from, stage) {
+  return ALL_STATUSES.filter((s) => STATUS_META[s].stage === stage && canTransition(from, s));
+}
 
 // Interview (one invite / AI interview) statuses — interviews.status (docs/ai-hiring/05-data-model.md §4)
 export const INTERVIEW_STATUS = {
   INVITED: 'invited', OPENED: 'opened', IN_PROGRESS: 'in_progress', COMPLETED: 'completed',
   ABANDONED: 'abandoned', EXPIRED: 'expired', FAILED: 'failed', CANCELLED: 'cancelled',
+};
+// Labels and badge colours for interview statuses (recruiter UI)
+export const INTERVIEW_STATUS_META = {
+  invited:     { label: 'Invited',      badge: 'badge-ghost' },
+  opened:      { label: 'Link opened',  badge: 'badge-info' },
+  in_progress: { label: 'In progress',  badge: 'badge-accent' },
+  completed:   { label: 'Completed',    badge: 'badge-success' },
+  abandoned:   { label: 'Abandoned',    badge: 'badge-warning' },
+  expired:     { label: 'Expired',      badge: 'badge-warning' },
+  failed:      { label: 'Failed',       badge: 'badge-error' },
+  cancelled:   { label: 'Cancelled',    badge: 'badge-neutral' },
 };
 // At most one of these per candidate at a time
 export const ACTIVE_INTERVIEW_STATUSES = [INTERVIEW_STATUS.INVITED, INTERVIEW_STATUS.OPENED, INTERVIEW_STATUS.IN_PROGRESS];

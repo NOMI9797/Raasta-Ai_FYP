@@ -10,6 +10,7 @@ import { Toaster } from "react-hot-toast";
 import { Tooltip } from "react-tooltip";
 import config from "@/config";
 import QueryProvider from "@/components/QueryProvider";
+import { DialogProvider } from "@/components/ui/DialogProvider";
 
 // Crisp customer chat support:
 // This component is separated from ClientLayout because it needs to be wrapped with <SessionProvider> to use useSession() hook
@@ -60,8 +61,8 @@ const ClientLayout = ({ children }) => {
           {/* Show a progress bar at the top when navigating between pages */}
           <NextTopLoader color={config.colors.main} showSpinner={false} />
 
-          {/* Content inside app/page.js files  */}
-          {children}
+          {/* Content inside app/page.js files. DialogProvider powers useDialog() (confirm / alert dialogs) */}
+          <DialogProvider>{children}</DialogProvider>
 
           {/* Show Success/Error messages anywhere from the app with toast() */}
           <Toaster

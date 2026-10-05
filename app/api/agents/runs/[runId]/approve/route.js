@@ -4,6 +4,10 @@ import { agentRuns, agentConfigs } from "@/libs/schema";
 import { eq, and } from "drizzle-orm";
 import { withAuth } from "@/libs/auth-middleware";
 import { AgentRunner, getPipelineDefinition } from "@/libs/agent-runner";
+import { RECRUITER_PIPELINE } from "@/libs/agent/runs";
+import { findBlockingAction } from "@/libs/agent/launch";
+import { ActionError, decideAction } from "@/libs/agent/actions";
+import { requestAgentTick } from "@/libs/agent/triggers";
 
 export const POST = withAuth(async (request, { user, params }) => {
   try {
@@ -24,6 +28,20 @@ export const POST = withAuth(async (request, { user, params }) => {
         { error: "Run is not paused at a checkpoint" },
         { status: 400 }
       );
+    }
+
+    // Recruiter agent: approve its pending blocking request (the job post); the worker continues
+    if (run.pipelineType === RECRUITER_PIPELINE) {
+      const action = await findBlockingAction(run.id);
+      if (!action) return NextResponse.json({ error: "Nothing is waiting for approval" }, { status: 409 });
+      try {
+        await decideAction({ actionId: action.id, userId: user.id, isAdmin, decision: "approve" });
+      } catch (error) {
+        if (error instanceof ActionError) return NextResponse.json({ error: error.message }, { status: error.status });
+        throw error;
+      }
+      await requestAgentTick(run.id, { delayMs: 0 });
+      return NextResponse.json({ success: true, message: "Approved. The agent is continuing." });
     }
 
     // Load the original config from the agent config record

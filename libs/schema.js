@@ -172,7 +172,9 @@ export const jobs = pgTable('jobs', {
   publishedAt: timestamp('published_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+}, (t) => [
+  index('jobs_user_created_idx').on(t.userId, t.createdAt),
+]);
 
 // Candidates table - Recruiter module (applicants per job)
 export const candidates = pgTable('candidates', {
@@ -199,7 +201,11 @@ export const candidates = pgTable('candidates', {
   decidedBy: text('decided_by'),              // 'system' | users.id
   appliedAt: timestamp('applied_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+}, (t) => [
+  // the pipeline, the job counts and the worker all read candidates by job and status; lists read them by owner
+  index('candidates_job_status_idx').on(t.jobId, t.status),
+  index('candidates_user_applied_idx').on(t.userId, t.appliedAt),
+]);
 
 // Interview Questions — AI hiring pipeline (docs/ai-hiring/05-data-model.md §3)
 export const interviewQuestions = pgTable('interview_questions', {
@@ -345,16 +351,21 @@ export const agentRuns = pgTable('agent_runs', {
   agentConfigId: uuid('agent_config_id').references(() => agentConfigs.id, { onDelete: 'set null' }),
   userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   pipelineType: varchar('pipeline_type', { length: 30 }).notNull(),
+  jobId: uuid('job_id').references(() => jobs.id, { onDelete: 'set null' }), // recruiter runs: the job the agent manages
   mode: varchar('mode', { length: 20 }).notNull(),
-  status: varchar('status', { length: 30 }).notNull().default('queued'), // queued | running | paused_at_checkpoint | completed | failed | cancelled
+  status: varchar('status', { length: 30 }).notNull().default('queued'), // queued | running | waiting | paused_at_checkpoint | paused | completed | failed | cancelled
   currentStep: varchar('current_step', { length: 50 }),
   totalSteps: integer('total_steps'),
+  config: json('config'),   // config snapshot at launch
   results: json('results'), // accumulated output per step
   errorMessage: text('error_message'),
   startedAt: timestamp('started_at'),
   completedAt: timestamp('completed_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+}, (t) => [
+  index('agent_runs_job_status_idx').on(t.jobId, t.status),
+  index('agent_runs_user_created_idx').on(t.userId, t.createdAt),
+]);
 
 // Agent Steps — logs each step of a run
 export const agentSteps = pgTable('agent_steps', {
@@ -367,7 +378,62 @@ export const agentSteps = pgTable('agent_steps', {
   output: json('output'),
   startedAt: timestamp('started_at'),
   completedAt: timestamp('completed_at'),
-});
+}, (t) => [
+  index('agent_steps_run_idx').on(t.agentRunId, t.stepIndex),
+]);
+
+// Agent Actions — every action the supervised recruiter agent takes or proposes.
+// Doubles as the approval inbox (status pending) and the audit trail.
+export const agentActions = pgTable('agent_actions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  agentRunId: uuid('agent_run_id').references(() => agentRuns.id, { onDelete: 'cascade' }).notNull(),
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  jobId: uuid('job_id').references(() => jobs.id, { onDelete: 'cascade' }),
+  candidateId: uuid('candidate_id').references(() => candidates.id, { onDelete: 'cascade' }),
+  action: varchar('action', { length: 40 }).notNull(),   // libs/agent/policy.js AGENT_ACTION
+  route: varchar('route', { length: 10 }).notNull(),     // auto | ask | human
+  status: varchar('status', { length: 20 }).notNull().default('pending'), // pending | approved | rejected | executed | failed | superseded
+  blocking: boolean('blocking').notNull().default(false), // the run waits for it
+  summary: text('summary').notNull(),
+  payload: json('payload'),           // what will be done
+  evidence: json('evidence'),         // why (scores, skills, flags)
+  escalations: json('escalations').default([]),
+  result: json('result'),
+  dedupeKey: text('dedupe_key'),      // one action per subject, e.g. shortlist:<candidateId>
+  decidedBy: text('decided_by'),      // user id, or "agent" for automatic actions
+  decidedAt: timestamp('decided_at'),
+  decisionNote: text('decision_note'),
+  executedAt: timestamp('executed_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (t) => [
+  index('agent_actions_run_idx').on(t.agentRunId, t.createdAt),
+  index('agent_actions_user_status_idx').on(t.userId, t.status),
+  index('agent_actions_dedupe_idx').on(t.dedupeKey),
+]);
+
+// Job Publications — where each job post went, per platform. One row per attempt (automatic or hand-off).
+// Also the guard for posting limits and for never posting the same job twice at once.
+export const jobPublications = pgTable('job_publications', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  jobId: uuid('job_id').references(() => jobs.id, { onDelete: 'cascade' }).notNull(),
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  platform: varchar('platform', { length: 20 }).notNull(),        // linkedin | rozee
+  accountId: uuid('account_id'),                                  // linkedin_accounts / rozee_accounts id (automatic posts)
+  mode: varchar('mode', { length: 10 }).notNull(),                // auto | handoff
+  status: varchar('status', { length: 20 }).notNull(),            // publishing | published | failed | needs_login | handed_off
+  initiatedBy: varchar('initiated_by', { length: 10 }).notNull().default('user'), // user | agent
+  content: text('content'),                                       // the text that was posted
+  postUrl: text('post_url'),
+  error: text('error'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  completedAt: timestamp('completed_at'),
+}, (t) => [
+  index('job_publications_job_idx').on(t.jobId, t.platform, t.createdAt),
+  index('job_publications_account_idx').on(t.accountId, t.createdAt),
+  uniqueIndex('job_publications_one_inflight').on(t.jobId, t.platform).where(sql`${t.status} = 'publishing'`),
+]);
 
 // Notifications — in-app alerts shown in the top bar bell
 export const notifications = pgTable('notifications', {

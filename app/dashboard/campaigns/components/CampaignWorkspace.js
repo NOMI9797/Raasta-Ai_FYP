@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { useDialog } from "@/components/ui/DialogProvider";
 import { ArrowLeft, Settings, Maximize2, Minimize2, Zap, Target, MessageSquare, BarChart3, Loader2, Workflow } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -11,6 +12,7 @@ import { useLeads } from "../hooks/useLeads";
 import { useRedisWorkflow } from "../hooks/useRedisWorkflow";
 
 export default function CampaignWorkspace({ campaign, onBack }) {
+  const { alert } = useDialog();
   const queryClient = useQueryClient();
   const router = useRouter();
   const [selectedLead, setSelectedLead] = useState(null);
@@ -97,7 +99,7 @@ export default function CampaignWorkspace({ campaign, onBack }) {
       await refreshLeads();
     } catch (error) {
       console.error('❌ Error in Redis workflow message generation:', error);
-      alert(`Error: ${error.message}`);
+      await alert({ title: "Couldn't generate the messages", message: error.message, tone: "error" });
     }
   };
 

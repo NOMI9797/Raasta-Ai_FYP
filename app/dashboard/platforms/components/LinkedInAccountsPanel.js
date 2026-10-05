@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useDialog } from "@/components/ui/DialogProvider";
 import Image from "next/image";
 import {
   Plus,
@@ -18,6 +19,7 @@ import {
 import { useLinkedInAccounts } from "@/app/dashboard/accounts/hooks";
 
 export default function LinkedInAccountsPanel() {
+  const { confirm } = useDialog();
   const {
     accounts,
     loading,
@@ -86,7 +88,13 @@ export default function LinkedInAccountsPanel() {
   };
 
   const handleDelete = async (accountId) => {
-    if (!confirm("Disconnect this LinkedIn account?")) return;
+    const ok = await confirm({
+      title: "Disconnect this LinkedIn account?",
+      message: "The saved session is removed from Raasta-AI. You can connect the account again later.",
+      confirmText: "Disconnect",
+      tone: "danger",
+    });
+    if (!ok) return;
     try {
       await deleteAccount(accountId);
       showToast("Account disconnected", "success");

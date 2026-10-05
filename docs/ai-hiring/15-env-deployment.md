@@ -33,6 +33,8 @@ Add these to `.env.local` (dev) and the deployment environment. Also create `.en
 | `HIRING_WORKER_CONCURRENCY` | worker | `3` | |
 | `WORKER_ID` | worker | hostname | consumer name |
 | `MAILGUN_API_KEY` | web, worker | existing | |
+| `EMAIL_OUTBOX` | web, worker | – | `local` writes emails to `.storage/outbox` when there is no Mailgun key, even in production (`npm run serve` sets it) |
+| `DEV_WARMUP`, `QUERY_DEVTOOLS` | `npm run dev` | – | `false` turns off the screen warm-up; `true` shows the React Query panel (see 21) |
 | `MODEL_CACHE_DIR` | ai-engine | `/models` | |
 | `FACE_ANALYSIS_ENABLED` | ai-engine | `false` | needs TensorFlow + weights |
 
@@ -68,6 +70,16 @@ cd services/ai-engine && python -m venv .venv && source .venv/bin/activate \
   && pip install -r requirements.txt && uvicorn main:app --port 8000 --reload
 ```
 Microphone access needs a secure context. `http://localhost` is allowed; any other host needs HTTPS.
+
+`npm run dev` compiles every screen the first time it is opened, which is slow on a laptop. To use or demo the product, run `npm run serve` instead (a production build on the same port, see 21). It keeps `SERVICE_CONTROL=true` and `EMAIL_OUTBOX=local` unless you set them.
+
+## The hiring worker starts with the web server
+
+`npm run dev` and `npm start` also run the hiring worker (`instrumentation.js`, see 20), so `npm run worker:hiring` is no longer needed. `HIRING_WORKER_MODE` is `embedded` (default), `external` (you or Docker run the worker; the web server only reports on it) or `off`. Use `external` in Docker Compose, where the worker is its own service.
+
+## Starting from the web app
+
+In development the other programs can also be started, stopped and watched from **Recruiter > Setup guide** (see 20). Two optional settings: `SERVICE_CONTROL` (`true` or `false`; on in development, off in production) and `AI_ENGINE_PYTHON` (path of the Python that runs the AI engine; default is `services/ai-engine/.venv`). Programs started this way write `.runtime/<program>.log` and `.runtime/<program>.pid.json`.
 
 ## Docker Compose (`docker-compose.yml` at repo root)
 

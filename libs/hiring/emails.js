@@ -159,8 +159,11 @@ function outboxDir() {
   return path.resolve(process.env.STORAGE_LOCAL_DIR || "./.storage", "outbox");
 }
 
+// Without a Mailgun key, emails go to the local outbox. Production refuses that, unless EMAIL_OUTBOX=local
+// says so (npm run serve sets it: a fast local run is not a deployment).
 export function usesDevOutbox() {
-  return !process.env.MAILGUN_API_KEY && process.env.NODE_ENV !== "production";
+  if (process.env.MAILGUN_API_KEY) return false;
+  return process.env.NODE_ENV !== "production" || process.env.EMAIL_OUTBOX === "local";
 }
 
 /**

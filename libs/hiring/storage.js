@@ -65,7 +65,7 @@ const local = {
     return { key };
   },
 
-  async getObjectStream(key) {
+  async getObjectStream(key, { range } = {}) {
     const file = localPath(key);
     let stat;
     try {
@@ -78,6 +78,10 @@ const local = {
       contentType = JSON.parse(await fsp.readFile(file + META_SUFFIX, "utf8")).contentType || contentType;
     } catch {
       // no sidecar — keep the default
+    }
+    if (range) {
+      // Inclusive byte range, already validated against the size by parseRange()
+      return { stream: fs.createReadStream(file, { start: range.start, end: range.end }), contentType, size: stat.size, range };
     }
     return { stream: fs.createReadStream(file), contentType, size: stat.size };
   },
@@ -217,9 +221,34 @@ export function putObject(key, buffer, contentType) {
   return driver().putObject(key, buffer, contentType);
 }
 
-/** Returns { stream, contentType, size }. Throws StorageError code "not_found" if missing. */
-export function getObjectStream(key) {
-  return driver().getObjectStream(key);
+/**
+ * Returns { stream, contentType, size }. Throws StorageError code "not_found" if missing.
+ * options.range ({ start, end }, inclusive) asks for part of the object; the result carries
+ * `range` only when the driver honoured it, otherwise it is the whole object.
+ */
+export function getObjectStream(key, options = {}) {
+  return driver().getObjectStream(key, options);
+}
+
+/**
+ * Parse an HTTP Range header for an object of `size` bytes. Returns { start, end } (inclusive),
+ * "unsatisfiable" (answer 416), or null when the header should be ignored (absent, malformed,
+ * another unit, several ranges) and the whole object served.
+ */
+export function parseRange(header, size) {
+  if (!header || !Number.isFinite(size) || size <= 0) return null;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(String(header).trim());
+  if (!match || (match[1] === "" && match[2] === "")) return null;
+  if (match[1] === "") {
+    const suffix = Number(match[2]);
+    if (suffix === 0) return "unsatisfiable";
+    return { start: Math.max(0, size - suffix), end: size - 1 };
+  }
+  const start = Number(match[1]);
+  const end = match[2] === "" ? size - 1 : Math.min(Number(match[2]), size - 1);
+  if (start >= size) return "unsatisfiable";
+  if (end < start) return null;
+  return { start, end };
 }
 
 /** Short-lived download URL. Local driver: a relative "/api/files/<token>" URL served by the web app. */

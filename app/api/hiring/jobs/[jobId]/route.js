@@ -50,6 +50,7 @@ export const PATCH = withAuth(async (request, { params, user }) => {
       "locationType",
       "employmentType",
       "linkedinPost",
+      "rozeePost",
       "formalDescription",
       "linkedinPostUrl",
       "status",

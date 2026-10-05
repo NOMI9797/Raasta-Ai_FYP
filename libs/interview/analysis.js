@@ -145,6 +145,8 @@ export async function analyseInterview(interviewId, { force = false } = {}, deps
   let [interview] = await d.database.select().from(interviews).where(eq(interviews.id, interviewId)).limit(1);
   if (!interview) return { skipped: "not found" };
   if (interview.status !== "completed") return { skipped: `interview is ${interview.status}` };
+  // The recruiter deleted the recording: keep the stored scores instead of recomputing from nothing
+  if (interview.recordingStatus === "deleted") return { skipped: "recording deleted", analysis: interview.analysis };
   if (interview.analysisStatus === "complete" && !force) return { skipped: "already analysed", analysis: interview.analysis };
 
   const endedAt = new Date(interview.endedAt || interview.updatedAt).getTime();

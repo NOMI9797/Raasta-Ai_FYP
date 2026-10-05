@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { deliverEmail, formatExpiry, inviteEmail, outcomeEmail, relativeExpiry, reminderEmail } from "../../libs/hiring/emails";
+import { deliverEmail, formatExpiry, inviteEmail, outcomeEmail, relativeExpiry, reminderEmail, usesDevOutbox } from "../../libs/hiring/emails";
 
 const VARS = {
   candidateName: "Sara Malik",
@@ -98,5 +98,27 @@ test("deliverEmail: dev outbox without a Mailgun key, never logs the link", asyn
     process.env.NODE_ENV = saved.env ?? "";
     if (!saved.env) delete process.env.NODE_ENV;
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("usesDevOutbox: production needs EMAIL_OUTBOX=local to keep the outbox; a Mailgun key always wins", () => {
+  const saved = { key: process.env.MAILGUN_API_KEY, env: process.env.NODE_ENV, outbox: process.env.EMAIL_OUTBOX };
+  try {
+    delete process.env.MAILGUN_API_KEY;
+    delete process.env.EMAIL_OUTBOX;
+    process.env.NODE_ENV = "production";
+    assert.equal(usesDevOutbox(), false);
+    process.env.EMAIL_OUTBOX = "local";
+    assert.equal(usesDevOutbox(), true);
+    process.env.MAILGUN_API_KEY = "key-123";
+    assert.equal(usesDevOutbox(), false, "with a key the email is really sent");
+    delete process.env.EMAIL_OUTBOX;
+    process.env.NODE_ENV = "development";
+    delete process.env.MAILGUN_API_KEY;
+    assert.equal(usesDevOutbox(), true);
+  } finally {
+    for (const [name, value] of [["MAILGUN_API_KEY", saved.key], ["NODE_ENV", saved.env], ["EMAIL_OUTBOX", saved.outbox]]) {
+      if (value === undefined) delete process.env[name]; else process.env[name] = value;
+    }
   }
 });

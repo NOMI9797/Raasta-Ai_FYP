@@ -70,7 +70,7 @@ Plain, branded "Raasta-AI". HTML + text versions. Sender `config.mailgun.fromNoR
 | `POST /api/hiring/interviews/[interviewId]/cancel` | withAuth + owner | Cancel invite |
 
 ## Implementation notes (Phase 6)
-- **Dev outbox:** without `MAILGUN_API_KEY` (and outside production), `deliverEmail` writes each email as `.html` + `.txt` to `STORAGE_LOCAL_DIR/outbox/`, so invite links can be opened locally. In production a missing key is an error. Email bodies and links are never logged.
+- **Dev outbox:** without `MAILGUN_API_KEY` (and outside production), `deliverEmail` writes each email as `.html` + `.txt` to `STORAGE_LOCAL_DIR/outbox/`, so invite links can be opened locally. In production a missing key is an error, unless `EMAIL_OUTBOX=local` is set (`npm run serve` sets it, because a fast local run is not a deployment). Email bodies and links are never logged.
 - **Auto-invite:** `queueAfterShortlist` queues `send-invite` per candidate when `autoInvite` is on. This covers the automatic shortlist and a manual move to `shortlisted` (`PATCH /api/hiring/candidates/[id]`). If the job has no questions yet, `send-invite` re-queues itself every 30 s (up to 10 times) while `ensure-questions` runs.
 - **Email failure:** the interview row keeps `error_message = invite_email_failed: …` and the job is retried; the retry rotates the token (the failed email was never seen).
 - **Cancel** puts the candidate back to `shortlisted`. **Extend** sets `expires_at = max(now, expires_at) + hours` (1–720); an expired invite becomes `invited`/`opened` again and the candidate `interview_invited`.

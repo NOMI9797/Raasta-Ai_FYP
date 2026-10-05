@@ -59,7 +59,7 @@ async function publishJobWithPage(page, job) {
 async function publishJob(account, job) {
   const sessionCheck = await testSession(account, true);
   if (!sessionCheck.isValid) {
-    return { success: false, error: `Session invalid: ${sessionCheck.reason}` };
+    return { success: false, code: "session_invalid", error: `Session invalid: ${sessionCheck.reason}` };
   }
   try {
     return await publishJobWithPage(sessionCheck.page, job);

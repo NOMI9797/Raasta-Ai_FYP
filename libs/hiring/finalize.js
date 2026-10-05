@@ -13,6 +13,7 @@ import { computeInterviewScore } from "../interview/repository";
 import { notify, NOTIFICATION_TYPES } from "../notifications";
 import { NEEDS_REVIEW, communicationScore, fallbackSummary, finalScore, normaliseSummary, suggestDecision } from "./final-evaluator";
 import { SYSTEM_DECIDER, applyDecision } from "./decisions";
+import { isJobManagedByAgent } from "../agent/runs";
 
 export const FINAL_ANALYSIS_VERSION = 1;
 const DECISION_LABELS = {
@@ -28,6 +29,7 @@ function defaults(deps = {}) {
     notifyFn: deps.notifyFn || notify,
     now: deps.now || (() => new Date()),
     decisionDeps: deps.decisionDeps,
+    isManaged: deps.isManaged || isJobManagedByAgent,
   };
 }
 
@@ -58,6 +60,7 @@ function scrubAll(summary, names) {
 /**
  * Compute and store the final evaluation. With autoFinalize (and a clear suggestion) the status
  * is applied by the system; otherwise the candidate waits in the recruiter's decisions queue.
+ * A job managed by the supervised agent never auto-finalizes: the agent asks the recruiter.
  */
 export async function finalizeCandidate({ candidateId, interviewId }, deps) {
   const d = defaults(deps);
@@ -123,7 +126,8 @@ export async function finalizeCandidate({ candidateId, interviewId }, deps) {
   await d.database.update(candidates).set({ finalScore: final.score, finalAnalysis, updatedAt: now }).where(eq(candidates.id, candidateId));
 
   let applied = null;
-  if (config.autoFinalize && suggestedDecision !== NEEDS_REVIEW && candidate.status === CANDIDATE_STATUS.INTERVIEW_COMPLETED) {
+  if (config.autoFinalize && suggestedDecision !== NEEDS_REVIEW && candidate.status === CANDIDATE_STATUS.INTERVIEW_COMPLETED
+    && !(await d.isManaged(job.id))) {
     await applyDecision({ candidateId, decision: suggestedDecision, decidedBy: SYSTEM_DECIDER }, d.decisionDeps);
     applied = suggestedDecision;
   }
@@ -138,5 +142,5 @@ export async function finalizeCandidate({ candidateId, interviewId }, deps) {
     link: `/dashboard/recruiter/jobs/${job.id}/candidates`,
   });
 
-  return { candidateId, interviewId, finalScore: final.score, suggestedDecision, applied, fallbackSummary: Boolean(summary.fallback) };
+  return { candidateId, interviewId, jobId: job.id, finalScore: final.score, suggestedDecision, applied, fallbackSummary: Boolean(summary.fallback) };
 }

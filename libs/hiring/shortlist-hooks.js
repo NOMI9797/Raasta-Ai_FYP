@@ -5,14 +5,17 @@ import { db } from "../db";
 import { jobs } from "../schema";
 import { enqueue } from "./queue";
 import { notify, NOTIFICATION_TYPES } from "../notifications";
+import { isJobManagedByAgent } from "../agent/runs";
+import { requestAgentTickForJob } from "../agent/triggers";
 
 /**
  * Use as applyShortlist's onShortlisted (and after a manual move to shortlisted). Queues
  * ensure-questions for the job (idempotent), personalise-questions per candidate if enabled,
  * and send-invite per candidate when autoInvite is on (send-invite waits for the questions).
+ * On a job managed by the supervised agent, the agent decides about invites instead.
  * Never throws: the shortlist is already saved.
  */
-export async function queueAfterShortlist(candidateIds, { job, config }, { enqueueJob = enqueue } = {}) {
+export async function queueAfterShortlist(candidateIds, { job, config }, { enqueueJob = enqueue, isManaged = isJobManagedByAgent } = {}) {
   try {
     await enqueueJob("ensure-questions", { jobId: job.id });
     if (config.personalisedQuestions > 0) {
@@ -21,6 +24,10 @@ export async function queueAfterShortlist(candidateIds, { job, config }, { enque
       }
     }
     if (config.autoInvite) {
+      if (await isManaged(job.id)) {
+        await requestAgentTickForJob(job.id);
+        return;
+      }
       for (const candidateId of candidateIds) {
         await enqueueJob("send-invite", { candidateId });
       }

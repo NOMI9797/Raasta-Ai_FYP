@@ -50,6 +50,15 @@ export async function publishLinkedInPost(page, postText) {
     await randomDelay(2000, 4000);
     await captureStepScreenshot(page, "after_navigate_feed");
 
+    // A sign-in or security check means a person has to step in. Stop here instead of working around it.
+    if (["/checkpoint", "/challenge", "/uas/", "/login", "/authwall"].some((part) => page.url().includes(part))) {
+      return {
+        success: false,
+        code: "checkpoint",
+        error: "LinkedIn is asking for a sign-in or security check. Open LinkedIn yourself to confirm it, then reconnect the account.",
+      };
+    }
+
     // Click the "Start a post" trigger
     const startPostSelectors = [
       // New UI: div with aria-label and visible "Start a post" text
@@ -80,16 +89,22 @@ export async function publishLinkedInPost(page, postText) {
     await randomDelay(1500, 3000);
     await captureStepScreenshot(page, "after_open_composer");
 
+    // The composer is a modal dialog. Everything from here on is looked up inside it, so a button in the feed
+    // behind it (a post menu, Like, Comment) can never be clicked by mistake.
+    const composer = page
+      .locator('dialog[open], [role="dialog"]')
+      .filter({ has: page.locator('div[role="textbox"], .ql-editor') })
+      .first();
+    await composer.waitFor({ state: "visible", timeout: 15000 });
+
     // Type into the rich-text editor
-    const editor = page.locator(
-      '.ql-editor[data-placeholder], .ql-editor, div[role="textbox"][aria-label*="post" i], div[role="textbox"][contenteditable="true"]'
-    );
+    const editor = composer.locator('.ql-editor, div[role="textbox"][contenteditable="true"], div[role="textbox"]').first();
     await editor.waitFor({ state: "visible", timeout: 10000 });
     await editor.click();
     await randomDelay(500, 1000);
 
-    // Type text in chunks to look human-like
-    const chunks = postText.match(/.{1,80}/g) || [postText];
+    // Type in chunks. [\s\S] keeps the line breaks (a plain dot would drop them and run the paragraphs together).
+    const chunks = postText.match(/[\s\S]{1,80}/g) || [postText];
     for (const chunk of chunks) {
       await editor.type(chunk, { delay: Math.floor(Math.random() * 30) + 10 });
       await randomDelay(200, 600);
@@ -99,52 +114,48 @@ export async function publishLinkedInPost(page, postText) {
     await randomDelay(1000, 2000);
     await captureStepScreenshot(page, "after_enter_text");
 
-    // Click the Post button
-    const postSelectors = [
-      // Primary: button with inner span.artdeco-button__text = "Post"
-      'button:has(span.artdeco-button__text:text-is("Post"))',
-      // Fallbacks
-      'button.share-actions__primary-action',
-      'button[aria-label*="Post" i]:not([aria-label*="Start"])',
-      'button:has-text("Post")',
+    // The Post button inside the composer (disabled until there is text, so the click waits for it to be enabled)
+    const postCandidates = [
+      composer.getByRole("button", { name: "Post", exact: true }),
+      composer.locator("button").filter({ hasText: /^\s*Post\s*$/ }),
+      composer.locator('button[aria-label="Post"]'),
     ];
-
     let postBtn = null;
-    for (const selector of postSelectors) {
-      const candidate = page.locator(selector).first();
-      if (await candidate.isVisible({ timeout: 4000 }).catch(() => false)) {
-        postBtn = candidate;
-        console.log(`✅ Found "Post" button with selector: ${selector}`);
+    for (const candidate of postCandidates) {
+      const button = candidate.last();
+      if (await button.isVisible({ timeout: 4000 }).catch(() => false)) {
+        postBtn = button;
         break;
       }
     }
-
     if (!postBtn) {
-      throw new Error('Could not find "Post" button in composer');
+      return {
+        success: false,
+        code: "ui_changed",
+        error: "Could not find the Post button in the LinkedIn composer. LinkedIn may have changed its page. Use Copy and open to post it yourself.",
+      };
     }
 
-    await postBtn.click();
+    await postBtn.click({ timeout: 10000 });
     console.log("✅ Post button clicked — publishing...");
-    await randomDelay(3000, 6000);
     await captureStepScreenshot(page, "after_click_post");
 
-    // Try to grab the URL of the new post from the feed
-    let postUrl = null;
-    try {
-      const latestPost = page.locator(
-        'a[href*="/feed/update/urn:li:activity:"]'
-      ).first();
-      if (await latestPost.isVisible({ timeout: 5000 }).catch(() => false)) {
-        const href = await latestPost.getAttribute("href");
-        if (href) postUrl = new URL(href, "https://www.linkedin.com").href;
-      }
-    } catch {}
+    // LinkedIn closes the composer once it accepts the post. If it stays open, nothing is confirmed.
+    const closed = await composer.waitFor({ state: "hidden", timeout: 20000 }).then(() => true).catch(() => false);
+    if (!closed) {
+      return {
+        success: false,
+        code: "unconfirmed",
+        error: "Clicked Post, but LinkedIn did not confirm it. Check your LinkedIn profile before posting again.",
+      };
+    }
 
-    console.log("🎉 Post published successfully!", postUrl || "");
-    return { success: true, postUrl };
+    // No link is recorded: the first post in the feed is not necessarily this one, and a wrong link is worse than none
+    console.log("🎉 Post published");
+    return { success: true, postUrl: null };
   } catch (err) {
-    console.error("❌ Failed to publish LinkedIn post:", err.message);
+    console.error("❌ Failed to publish LinkedIn post:", String(err.message).split(String.fromCharCode(10))[0]);
     await captureStepScreenshot(page, "error_state");
-    return { success: false, error: err.message };
+    return { success: false, code: /Timeout .*exceeded/.test(err.message) ? "ui_changed" : undefined, error: err.message };
   }
 }

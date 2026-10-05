@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useDialog } from "@/components/ui/DialogProvider";
 
 const initialProgress = { current: 0, total: 0, stage: null };
 const CONTROLLABLE_STATUSES = ["processing", "paused", "queued"];
 
 export default function useInviteWorkflow({ campaignId }) {
+  const { confirm } = useDialog();
   const [isRunning, setIsRunning] = useState(false);
   const [activationStatus, setActivationStatus] = useState(null);
   const [progress, setProgress] = useState(initialProgress);
@@ -196,9 +198,13 @@ export default function useInviteWorkflow({ campaignId }) {
 
   const handleCancelWorkflow = useCallback(async () => {
     if (!currentJobId) return;
-    const confirmCancel = window.confirm(
-      "Are you sure? This will permanently cancel the workflow and you cannot resume it."
-    );
+    const confirmCancel = await confirm({
+      title: "Cancel this workflow?",
+      message: "This will permanently cancel the workflow and you cannot resume it.",
+      confirmText: "Cancel workflow",
+      cancelText: "Keep running",
+      tone: "danger",
+    });
     if (!confirmCancel) return;
 
     try {
@@ -228,7 +234,7 @@ export default function useInviteWorkflow({ campaignId }) {
         details: error.message,
       });
     }
-  }, [currentJobId]);
+  }, [currentJobId, confirm]);
 
   const handleRunWorkflow = useCallback(async () => {
     if (!campaignId) {

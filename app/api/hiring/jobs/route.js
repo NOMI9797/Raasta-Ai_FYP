@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/libs/db";
-import { jobs, candidates } from "@/libs/schema";
-import { eq, desc, inArray, sql } from "drizzle-orm";
+import { jobs, candidates, jobPublications } from "@/libs/schema";
+import { and, eq, desc, inArray, sql } from "drizzle-orm";
 import { withAuth } from "@/libs/auth-middleware";
 import { CANDIDATE_STATUS } from "@/libs/hiring/statuses";
 import { POST_SHORTLIST_STATUSES } from "@/libs/hiring/shortlist";
@@ -34,6 +34,33 @@ async function withCounts(jobRows) {
   return jobRows.map((j) => ({ ...j, counts: counts.get(j.id) }));
 }
 
+// Adds published { linkedin, rozee } = { url, at } | null: where each job's post has gone live
+async function withPublishing(jobRows) {
+  if (jobRows.length === 0) return jobRows;
+  const rows = await db
+    .select({ jobId: jobPublications.jobId, platform: jobPublications.platform, url: jobPublications.postUrl, at: jobPublications.completedAt })
+    .from(jobPublications)
+    .where(and(inArray(jobPublications.jobId, jobRows.map((j) => j.id)), eq(jobPublications.status, "published")))
+    .orderBy(desc(jobPublications.completedAt));
+  const latest = new Map();
+  for (const row of rows) {
+    const mine = latest.get(row.jobId) || {};
+    if (!mine[row.platform]) mine[row.platform] = { url: row.url, at: row.at };
+    latest.set(row.jobId, mine);
+  }
+  // Jobs posted before publications were recorded keep their old columns
+  return jobRows.map((j) => {
+    const mine = latest.get(j.id) || {};
+    return {
+      ...j,
+      published: {
+        linkedin: mine.linkedin || (j.linkedinPostUrl ? { url: j.linkedinPostUrl, at: j.publishedAt } : null),
+        rozee: mine.rozee || (j.rozeePublishedAt ? { url: j.rozeePostUrl, at: j.rozeePublishedAt } : null),
+      },
+    };
+  });
+}
+
 // GET /api/hiring/jobs - list jobs visible to the current user
 export const GET = withAuth(async (request, { user }) => {
   try {
@@ -47,7 +74,7 @@ export const GET = withAuth(async (request, { user }) => {
           .where(eq(jobs.userId, user.id))
           .orderBy(desc(jobs.createdAt));
 
-    return NextResponse.json({ success: true, jobs: await withCounts(allJobs) });
+    return NextResponse.json({ success: true, jobs: await withCounts(await withPublishing(allJobs)) });
   } catch (error) {
     console.error("List jobs error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
