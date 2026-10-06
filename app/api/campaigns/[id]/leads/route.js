@@ -10,11 +10,15 @@ export const GET = withAuth(async (request, { params, user }) => {
   try {
     const campaignId = params.id;
 
-    // Check if campaign exists and belongs to user
+    // Admin analytics can inspect any campaign; other users remain isolated.
     const [campaign] = await db
       .select()
       .from(campaigns)
-      .where(and(eq(campaigns.id, campaignId), eq(campaigns.userId, user.id)))
+      .where(
+        user.role === "admin"
+          ? eq(campaigns.id, campaignId)
+          : and(eq(campaigns.id, campaignId), eq(campaigns.userId, user.id))
+      )
       .limit(1);
 
     if (!campaign) {
@@ -24,7 +28,7 @@ export const GET = withAuth(async (request, { params, user }) => {
       );
     }
 
-    // Get leads for this campaign (ensure user owns the leads)
+    // Campaign ownership was checked above. Admins can inspect organization-wide data.
     const campaignLeads = await db
       .select({
         id: leads.id,
@@ -45,7 +49,11 @@ export const GET = withAuth(async (request, { params, user }) => {
         createdAt: leads.createdAt
       })
       .from(leads)
-      .where(and(eq(leads.campaignId, campaignId), eq(leads.userId, user.id)))
+      .where(
+        user.role === "admin"
+          ? eq(leads.campaignId, campaignId)
+          : and(eq(leads.campaignId, campaignId), eq(leads.userId, user.id))
+      )
       .orderBy(leads.createdAt);
 
     return NextResponse.json({
@@ -66,11 +74,15 @@ export const POST = withAuth(async (request, { params, user }) => {
   try {
     const campaignId = params.id;
 
-    // Check if campaign exists and belongs to user
+    // Admin analytics can inspect any campaign; other users remain isolated.
     const [campaign] = await db
       .select()
       .from(campaigns)
-      .where(and(eq(campaigns.id, campaignId), eq(campaigns.userId, user.id)))
+      .where(
+        user.role === "admin"
+          ? eq(campaigns.id, campaignId)
+          : and(eq(campaigns.id, campaignId), eq(campaigns.userId, user.id))
+      )
       .limit(1);
 
     if (!campaign) {

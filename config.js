@@ -4,7 +4,7 @@ const config = {
   appName: "Raasta-AI",
   appDescription:
     "Raasta-AI is the AI pipeline for client acquisition and hiring: prospects from LinkedIn, Rozee.pk and Indeed, personal outreach sent within LinkedIn's daily limits, and parsed CVs.",
-  domainName: "reachly.ai",
+  domainName: "raasta-ai.com",
   // Public contact address shown on the landing page. TODO: replace with your real inbox.
   contactEmail: "hello@raasta-ai.com",
   crisp: {
@@ -58,13 +58,13 @@ const config = {
   },
   mailgun: {
     subdomain: "mg",
-    fromNoReply: `Raasta-AI <noreply@mg.reachly.ai>`,
-    fromAdmin: `Raasta-AI Team <hello@mg.reachly.ai>`,
-    supportEmail: "support@reachly.ai",
-    forwardRepliesTo: "support@reachly.ai",
+    fromNoReply: `Raasta-AI <noreply@mg.raasta-ai.com>`,
+    fromAdmin: `Raasta-AI Team <hello@mg.raasta-ai.com>`,
+    supportEmail: "support@raasta-ai.com",
+    forwardRepliesTo: "support@raasta-ai.com",
   },
   colors: {
-    theme: "reachly",
+    theme: "raasta-ai",
     main: "#6366F1",
   },
   auth: {
@@ -74,3 +74,4 @@ const config = {
 };
 
 export default config;
+

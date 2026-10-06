@@ -25,7 +25,7 @@ const faqList = [
     question: "Is LinkedIn automation safe? Will my account get banned?",
     answer: (
       <p>
-        Raasta-AI is built with safety-first defaults — daily invite limits (10–20
+        Raasta-AI is built with safety-first defaults {"\u2014"} daily invite limits (10{"\u2013"}20
         per day), randomised delays between actions, and human-like interaction
         patterns to stay within LinkedIn&apos;s acceptable use boundaries. No
         tool can guarantee zero risk, but we mirror natural usage behaviour as
@@ -39,7 +39,7 @@ const faqList = [
       <p>
         Absolutely. The Recruiter role gives you access to job management, an
         AI-generated job post workflow, a public apply page for candidates, CV
-        parsing powered by LLMs, and a full candidate pipeline — all separate
+        parsing powered by LLMs, and a full candidate pipeline {"\u2014"} all separate
         from the sales outreach features.
       </p>
     ),
@@ -51,7 +51,7 @@ const faqList = [
         <p>
           Agentic Mode lets an AI agent execute your entire outreach pipeline
           automatically: scrape leads, generate personalised messages, send
-          invites, wait for acceptances, and then send follow-up messages — all
+          invites, wait for acceptances, and then send follow-up messages {"\u2014"} all
           without you lifting a finger.
         </p>
         <p>
@@ -76,8 +76,8 @@ const faqList = [
     question: "Can I get a refund?",
     answer: (
       <p>
-        Yes — if you&apos;re not satisfied within the first 7 days of your paid
-        plan, email us at support@reachly.ai and we&apos;ll issue a full refund,
+        Yes {"\u2014"} if you&apos;re not satisfied within the first 7 days of your paid
+        plan, email us at support@raasta-ai.com and we&apos;ll issue a full refund,
         no questions asked.
       </p>
     ),
@@ -141,8 +141,8 @@ const FAQ = () => {
           </p>
           <p className="mt-4 text-base-content/60 leading-relaxed">
             Still have questions? Email us at{" "}
-            <a href="mailto:support@reachly.ai" className="text-primary underline">
-              support@reachly.ai
+            <a href="mailto:support@raasta-ai.com" className="text-primary underline">
+              support@raasta-ai.com
             </a>
           </p>
         </div>
@@ -158,3 +158,4 @@ const FAQ = () => {
 };
 
 export default FAQ;
+

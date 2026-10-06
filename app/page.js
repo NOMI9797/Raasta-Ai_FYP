@@ -13,7 +13,7 @@ import FinalCTA from "@/components/landing/FinalCTA";
 export default function Home() {
   return (
     // data-theme pins the landing to the light theme so DaisyUI dark mode can't leak in.
-    <div data-theme="reachly" className="landing min-h-screen bg-raasta-mist text-raasta-navy antialiased">
+    <div data-theme="raasta-ai" className="landing min-h-screen bg-raasta-mist text-raasta-navy antialiased">
       <Suspense>
         <Header />
       </Suspense>

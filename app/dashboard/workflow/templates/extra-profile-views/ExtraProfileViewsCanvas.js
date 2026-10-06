@@ -40,12 +40,12 @@ function DelayEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, tar
 const nodeWrapperStyle = { boxShadow: 'none', background: 'transparent', border: 'none', padding: 0 };
 
 const initialNodes = [
-  { id: "node1", position: { x: 250, y: 100 }, data: { label: "View profile", icon: "👁" }, type: "default", style: nodeWrapperStyle },
-  { id: "node2", position: { x: 250, y: 300 }, data: { label: "Follow", icon: "👤" }, style: nodeWrapperStyle },
-  { id: "node3", position: { x: 250, y: 500 }, data: { label: "View profile", icon: "👁" }, style: nodeWrapperStyle },
-  { id: "node4", position: { x: 250, y: 700 }, data: { label: "Like a post", icon: "👍" }, style: nodeWrapperStyle },
-  { id: "node5", position: { x: 250, y: 900 }, data: { label: "View profile", icon: "👁" }, style: nodeWrapperStyle },
-  { id: "end", position: { x: 250, y: 1100 }, data: { label: "End of sequence", isEnd: true, icon: "■" }, style: nodeWrapperStyle },
+  { id: "node1", position: { x: 250, y: 100 }, data: { label: "View profile", icon: "ðŸ‘" }, type: "default", style: nodeWrapperStyle },
+  { id: "node2", position: { x: 250, y: 300 }, data: { label: "Follow", icon: "ðŸ‘¤" }, style: nodeWrapperStyle },
+  { id: "node3", position: { x: 250, y: 500 }, data: { label: "View profile", icon: "ðŸ‘" }, style: nodeWrapperStyle },
+  { id: "node4", position: { x: 250, y: 700 }, data: { label: "Like a post", icon: "ðŸ‘" }, style: nodeWrapperStyle },
+  { id: "node5", position: { x: 250, y: 900 }, data: { label: "View profile", icon: "ðŸ‘" }, style: nodeWrapperStyle },
+  { id: "end", position: { x: 250, y: 1100 }, data: { label: "End of sequence", isEnd: true, icon: "â– " }, style: nodeWrapperStyle },
 ];
 
 const initialEdges = [
@@ -74,7 +74,7 @@ function DarkNode({ data, id }) {
     >
       <div className={`relative rounded-xl border ${isEnd ? "border-[#2b3447] bg-[#2a3446]" : "border-[#2b3447] bg-[#1c2434]"} px-5 py-4 shadow-none`} style={{ boxShadow: "none" }}>
         <div className="text-[12px] text-[#dbe4f3] font-medium flex items-center gap-3">
-          <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-[#2f3a4e] text-[#c7d2fe] text-sm">{data?.icon || "◎"}</span>
+          <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-[#2f3a4e] text-[#c7d2fe] text-sm">{data?.icon || "â—Ž"}</span>
           <span>{data?.label}</span>
         </div>
         {isEnd && (
@@ -130,8 +130,8 @@ export default function ExtraProfileViewsCanvas({ campaignName, campaignId }) {
   useEffect(() => {
     const detect = () => {
       const html = document.documentElement;
-      const darkThemes = ['dark','business','night','dracula','forest','black','dim','sunset','halloween','synthwave','reachly-dark'];
-      const lightThemes = ['light','corporate','cupcake','emerald','winter','lofi','pastel','bumblebee','garden','reachly'];
+      const darkThemes = ['dark','business','night','dracula','forest','black','dim','sunset','halloween','synthwave','raasta-ai-dark'];
+      const lightThemes = ['light','corporate','cupcake','emerald','winter','lofi','pastel','bumblebee','garden','raasta-ai'];
       const attrTheme = (html.getAttribute('data-theme') || document.body.getAttribute('data-theme') || '').toLowerCase();
       const hasDarkClass = html.classList.contains('dark') || document.body.classList.contains('dark');
       const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -312,3 +312,4 @@ export default function ExtraProfileViewsCanvas({ campaignName, campaignId }) {
     </div>
   );
 }
+

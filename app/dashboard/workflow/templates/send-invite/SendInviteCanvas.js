@@ -40,9 +40,9 @@ function DelayEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, tar
 const nodeWrapperStyle = { boxShadow: 'none', background: 'transparent', border: 'none', padding: 0 };
 
 const initialNodes = [
-  { id: "start", position: { x: 250, y: 100 }, data: { label: "Start", icon: "🛈" }, type: "default", style: nodeWrapperStyle },
-  { id: "invite", position: { x: 250, y: 300 }, data: { label: "Send invite", icon: "✉" }, style: nodeWrapperStyle },
-  { id: "end", position: { x: 250, y: 500 }, data: { label: "End of sequence", isEnd: true, icon: "■" }, style: nodeWrapperStyle },
+  { id: "start", position: { x: 250, y: 100 }, data: { label: "Start", icon: "ðŸ›ˆ" }, type: "default", style: nodeWrapperStyle },
+  { id: "invite", position: { x: 250, y: 300 }, data: { label: "Send invite", icon: "âœ‰" }, style: nodeWrapperStyle },
+  { id: "end", position: { x: 250, y: 500 }, data: { label: "End of sequence", isEnd: true, icon: "â– " }, style: nodeWrapperStyle },
 ];
 
 const initialEdges = [
@@ -68,7 +68,7 @@ function DarkNode({ data, id }) {
     >
       <div className={`relative rounded-xl border ${isEnd ? "border-[#2b3447] bg-[#2a3446]" : "border-[#2b3447] bg-[#1c2434]"} px-5 py-4 shadow-none`} style={{ boxShadow: "none" }}>
         <div className="text-[12px] text-[#dbe4f3] font-medium flex items-center gap-3">
-          <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-[#2f3a4e] text-[#c7d2fe] text-sm">{data?.icon || "◎"}</span>
+          <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-[#2f3a4e] text-[#c7d2fe] text-sm">{data?.icon || "â—Ž"}</span>
           <span>{data?.label}</span>
         </div>
         {isEnd && (
@@ -146,7 +146,7 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
   const getStageDescription = (stage) => {
     if (!stage) return 'Processing...';
     const desc = stageDescriptions[stage] || `Processing: ${stage}`;
-    console.log(`📝 Stage description for "${stage}":`, desc);
+    console.log(`ðŸ“ Stage description for "${stage}":`, desc);
     return desc;
   };
   
@@ -208,19 +208,19 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
     localStorage.removeItem('currentJobId');
     localStorage.removeItem('currentCampaignId');
 
-    // ✅ Set states synchronously for immediate UI update
+    // âœ… Set states synchronously for immediate UI update
     setIsRunning(true);
     setActivationStatus(null);
     setProgress({ current: 0, total: 1, stage: null });
     setIsProcessing(true);
     setPreflightStage('validating_campaign'); // Set immediately for instant feedback
     
-    console.log('🚀 Starting workflow - isProcessing:', true, 'preflightStage: validating_campaign');
+    console.log('ðŸš€ Starting workflow - isProcessing:', true, 'preflightStage: validating_campaign');
 
     try {
-      // ✅ OPTIMISTIC: Show progress during API call
+      // âœ… OPTIMISTIC: Show progress during API call
       const updatePreflightStage = (stage) => {
-        console.log(`📊 Preflight stage: ${stage}`);
+        console.log(`ðŸ“Š Preflight stage: ${stage}`);
         setPreflightStage(stage);
         setProgress(prev => ({ ...prev, stage }));
       };
@@ -263,7 +263,7 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
         
         // Handle existing workflow case (409 Conflict)
         if (response.status === 409 && errorData.jobId) {
-          console.log(`🔄 Found existing running job: ${errorData.jobId}`);
+          console.log(`ðŸ”„ Found existing running job: ${errorData.jobId}`);
           
           // Check if it's for the same campaign or a different one
           if (errorData.isSameCampaign) {
@@ -279,7 +279,7 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
             
             setActivationStatus({ 
               type: 'info', 
-              message: '🔄 Workflow already running',
+              message: 'ðŸ”„ Workflow already running',
               details: `Resuming existing workflow (${errorData.progress || 0}% complete). Progress: ${errorData.processedLeads || 0}/${errorData.totalLeads || 0}`
             });
             
@@ -290,7 +290,7 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
             // Different campaign - show error and don't proceed
             setActivationStatus({ 
               type: 'warning', 
-              message: '⚠️ Another workflow is running',
+              message: 'âš ï¸ Another workflow is running',
               details: `Workflow for campaign "${errorData.campaignName || 'Unknown'}" is currently running (${errorData.progress || 0}% complete). Please wait for it to finish before starting a new one.`
             });
             
@@ -320,13 +320,13 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
         details: 'You can close this page. The workflow will continue running on the server.'
       });
 
-      console.log(`✅ Workflow started: Job ${jobId}`);
+      console.log(`âœ… Workflow started: Job ${jobId}`);
 
       // Clear preflight stage once SSE connects (handled in SSE useEffect)
       // SSE will automatically connect when currentJobId is set
 
     } catch (error) {
-      console.error('❌ Start workflow error:', error);
+      console.error('âŒ Start workflow error:', error);
       setActivationStatus({ 
         type: 'error', 
         message: 'Failed to start workflow', 
@@ -349,14 +349,14 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
       return;
     }
 
-    console.log(`📡 Connecting to SSE stream for job: ${currentJobId.substring(0, 8)}...`);
+    console.log(`ðŸ“¡ Connecting to SSE stream for job: ${currentJobId.substring(0, 8)}...`);
 
     // Create EventSource connection
     const eventSource = new EventSource(`/api/jobs/${currentJobId}/stream`);
     eventSourceRef.current = eventSource;
 
     eventSource.onopen = () => {
-      console.log('✅ SSE connection opened');
+      console.log('âœ… SSE connection opened');
     };
 
     eventSource.onmessage = (event) => {
@@ -364,14 +364,14 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
         const data = JSON.parse(event.data);
         
         if (data.type === 'connected') {
-          console.log('✅ SSE connected to job stream');
+          console.log('âœ… SSE connected to job stream');
           // Clear preflight stage once SSE is connected
           setPreflightStage(null);
           return;
         }
 
         if (data.type === 'status') {
-          // ✅ Clear preflight stage once we receive real SSE data
+          // âœ… Clear preflight stage once we receive real SSE data
           setPreflightStage(null);
           
           if (completionTimeoutRef.current && data.status !== 'completed') {
@@ -381,12 +381,12 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
           
           // Handle completion first to ensure 100% progress
           if (data.status === 'completed') {
-            // ✅ Ensure progress reaches 100% - use totalLeads for both current and total
+            // âœ… Ensure progress reaches 100% - use totalLeads for both current and total
             const totalLeads = data.totalLeads || data.processedLeads || progress.total || 1;
             const finalProgress = totalLeads; // Always 100% when completed
             const completionStage = getCompletionStage(data.results);
             
-            console.log(`✅ Workflow completed: ${finalProgress}/${totalLeads} (100%)`);
+            console.log(`âœ… Workflow completed: ${finalProgress}/${totalLeads} (100%)`);
             
             // Update progress to 100%
             setProgress({ 
@@ -404,13 +404,13 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
             if (data.results?.skipped) {
               setActivationStatus({
                 type: 'info',
-                message: '✅ Workflow completed - Nothing to do',
+                message: 'âœ… Workflow completed - Nothing to do',
                 details: data.results.message || 'All leads in this campaign have already been processed.'
               });
             } else {
               setActivationStatus({
                 type: 'success',
-                message: '✅ Workflow completed!',
+                message: 'âœ… Workflow completed!',
                 details: data.results ? 
                   `Sent: ${data.results.sent}, Already Connected: ${data.results.alreadyConnected}, Already Pending: ${data.results.alreadyPending}, Failed: ${data.results.failed}` : 
                   'Workflow completed successfully'
@@ -421,7 +421,7 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
             localStorage.removeItem('currentJobId');
             localStorage.removeItem('currentCampaignId');
             
-            // ✅ Keep progress bar visible for 2 seconds then reset UI
+            // âœ… Keep progress bar visible for 2 seconds then reset UI
             if (completionTimeoutRef.current) {
               clearTimeout(completionTimeoutRef.current);
             }
@@ -443,7 +443,7 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
             : (data.currentLead || data.processedLeads || 0);
           const stageInfo = data.stage ? ` (${data.stage})` : '';
           
-          console.log(`📊 Job status update: ${data.status} - ${Math.ceil(currentProgress)}/${data.totalLeads} (${data.progress}%)${stageInfo}`);
+          console.log(`ðŸ“Š Job status update: ${data.status} - ${Math.ceil(currentProgress)}/${data.totalLeads} (${data.progress}%)${stageInfo}`);
           
           // Update status
           setStatus(data);
@@ -467,7 +467,7 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
             
             setActivationStatus({
               type: 'info',
-              message: '⏸️ Workflow paused',
+              message: 'â¸ï¸ Workflow paused',
               details: 'Click Resume to continue where you left off.'
             });
             
@@ -477,7 +477,7 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
             
             setActivationStatus({
               type: 'warning',
-              message: '🛑 Workflow cancelled',
+              message: 'ðŸ›‘ Workflow cancelled',
               details: 'Workflow was cancelled by user.'
             });
             
@@ -497,7 +497,7 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
             
             setActivationStatus({ 
               type: 'error', 
-              message: isTimeout ? '⏱️ Workflow timed out' : '❌ Workflow failed', 
+              message: isTimeout ? 'â±ï¸ Workflow timed out' : 'âŒ Workflow failed', 
               details: data.errorMessage || (isTimeout ? 'The workflow took too long and may have crashed. Please try again.' : 'An error occurred during workflow execution.')
             });
             
@@ -512,12 +512,12 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
         }
 
         if (data.type === 'complete') {
-          console.log('✅ SSE stream completed');
+          console.log('âœ… SSE stream completed');
           eventSource.close();
         }
 
         if (data.type === 'error') {
-          console.error('❌ SSE error:', data.message);
+          console.error('âŒ SSE error:', data.message);
           setActivationStatus({
             type: 'error',
             message: 'Connection error',
@@ -527,19 +527,19 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
         }
 
       } catch (error) {
-        console.error('❌ Failed to parse SSE data:', error);
+        console.error('âŒ Failed to parse SSE data:', error);
       }
     };
 
     eventSource.onerror = (error) => {
-      console.error('❌ SSE connection error:', error);
+      console.error('âŒ SSE connection error:', error);
       // EventSource will automatically reconnect, so we don't need to handle it
     };
 
     // Cleanup on unmount or job ID change
     return () => {
       if (eventSourceRef.current) {
-        console.log('🧹 Closing SSE connection');
+        console.log('ðŸ§¹ Closing SSE connection');
         eventSourceRef.current.close();
         eventSourceRef.current = null;
       }
@@ -566,11 +566,11 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
       
       setActivationStatus({
         type: 'info',
-        message: '⏸️ Workflow pausing...',
+        message: 'â¸ï¸ Workflow pausing...',
         details: 'The workflow will pause after the current batch completes.'
       });
     } catch (error) {
-      console.error('❌ Pause error:', error);
+      console.error('âŒ Pause error:', error);
       setActivationStatus({
         type: 'error',
         message: 'Failed to pause workflow',
@@ -595,7 +595,7 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
         if (response.status === 409) {
           setActivationStatus({
             type: 'warning',
-            message: '⚠️ Another workflow is running',
+            message: 'âš ï¸ Another workflow is running',
             details: errorData.message
           });
           return;
@@ -606,7 +606,7 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
       
       setActivationStatus({
         type: 'info',
-        message: '▶️ Workflow resumed',
+        message: 'â–¶ï¸ Workflow resumed',
         details: 'Continuing from where you left off...'
       });
       
@@ -617,7 +617,7 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
       // SSE will automatically connect when currentJobId is set
       
     } catch (error) {
-      console.error('❌ Resume error:', error);
+      console.error('âŒ Resume error:', error);
       setActivationStatus({
         type: 'error',
         message: 'Failed to resume workflow',
@@ -648,7 +648,7 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
       
       setActivationStatus({
         type: 'warning',
-        message: '🛑 Workflow cancelled',
+        message: 'ðŸ›‘ Workflow cancelled',
         details: 'You can start a new workflow.'
       });
       
@@ -664,7 +664,7 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
       
       // SSE will automatically close when currentJobId is null
     } catch (error) {
-      console.error('❌ Cancel error:', error);
+      console.error('âŒ Cancel error:', error);
       setActivationStatus({
         type: 'error',
         message: 'Failed to cancel workflow',
@@ -688,7 +688,7 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
     setProgress({ current: 0, total: 0, stage: null });
     setIsProcessing(true);
 
-    console.log(`🚀 Starting SSE workflow for campaign: ${campaignId}`);
+    console.log(`ðŸš€ Starting SSE workflow for campaign: ${campaignId}`);
 
     try {
       const response = await fetch(`/api/redis-workflow/campaigns/${campaignId}/activate-stream`, {
@@ -702,7 +702,7 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
         })
       });
 
-      console.log('📡 SSE Response:', { ok: response.ok, status: response.status });
+      console.log('ðŸ“¡ SSE Response:', { ok: response.ok, status: response.status });
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -712,7 +712,7 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
         throw new Error('Response body is null - streaming not supported');
       }
 
-      console.log('📡 Starting to read SSE stream...');
+      console.log('ðŸ“¡ Starting to read SSE stream...');
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -724,7 +724,7 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
         const { done, value } = await reader.read();
         
         if (done) {
-          console.log('✅ SSE stream completed');
+          console.log('âœ… SSE stream completed');
           reading = false;
           break;
         }
@@ -741,25 +741,25 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
             
             try {
               const data = JSON.parse(jsonData);
-              console.log(`📡 SSE Event #${eventCount}:`, data.type, data);
+              console.log(`ðŸ“¡ SSE Event #${eventCount}:`, data.type, data);
 
               if (data.type === 'start') {
-                console.log(`🎬 START: ${data.total} leads, ${data.batches} batches`);
+                console.log(`ðŸŽ¬ START: ${data.total} leads, ${data.batches} batches`);
                 setProgress({ current: 0, total: data.total });
               } 
               else if (data.type === 'progress') {
-                console.log(`⏳ PROGRESS: ${data.current}/${data.total} (${data.percentage}%)`);
+                console.log(`â³ PROGRESS: ${data.current}/${data.total} (${data.percentage}%)`);
                 setProgress({ current: data.current, total: data.total });
               } 
               else if (data.type === 'batch_delay') {
-                console.log(`⏱️ DELAY: Waiting ${data.delayMinutes} min before batch ${data.nextBatch}`);
+                console.log(`â±ï¸ DELAY: Waiting ${data.delayMinutes} min before batch ${data.nextBatch}`);
                 setActivationStatus({
                   type: 'info',
                   message: `Waiting ${data.delayMinutes} minutes before next batch (${data.nextBatch}/${data.totalBatches})...`
                 });
               }
               else if (data.type === 'limit_reached') {
-                console.log(`⚠️ LIMIT REACHED: ${data.message}`);
+                console.log(`âš ï¸ LIMIT REACHED: ${data.message}`);
                 setActivationStatus({
                   type: 'warning',
                   message: data.message,
@@ -767,7 +767,7 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
                 });
               }
               else if (data.type === 'complete') {
-                console.log(`🎉 COMPLETE:`, data);
+                console.log(`ðŸŽ‰ COMPLETE:`, data);
                 setProgress({ current: data.total, total: data.total });
                 setActivationStatus({
                   type: 'success',
@@ -777,7 +777,7 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
                 setIsProcessing(false);
               } 
               else if (data.type === 'error') {
-                console.log(`❌ ERROR:`, data.message);
+                console.log(`âŒ ERROR:`, data.message);
                 setActivationStatus({
                   type: 'error',
                   message: data.message,
@@ -786,15 +786,15 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
                 setIsProcessing(false);
               }
             } catch (parseError) {
-              console.error('❌ Failed to parse SSE JSON:', parseError);
+              console.error('âŒ Failed to parse SSE JSON:', parseError);
             }
           }
         }
       }
       
-      console.log(`✅ Total SSE events: ${eventCount}`);
+      console.log(`âœ… Total SSE events: ${eventCount}`);
     } catch (error) {
-      console.error('❌ SSE Error:', error);
+      console.error('âŒ SSE Error:', error);
       setActivationStatus({
         type: 'error',
         message: 'Network error occurred while activating workflow',
@@ -803,15 +803,15 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
       setIsProcessing(false);
     } finally {
       setIsRunning(false);
-      console.log('🏁 Workflow execution finished');
+      console.log('ðŸ Workflow execution finished');
     }
   };
 
   useEffect(() => {
     const detect = () => {
       const html = document.documentElement;
-      const darkThemes = ['dark','business','night','dracula','forest','black','dim','sunset','halloween','synthwave','reachly-dark'];
-      const lightThemes = ['light','corporate','cupcake','emerald','winter','lofi','pastel','bumblebee','garden','reachly'];
+      const darkThemes = ['dark','business','night','dracula','forest','black','dim','sunset','halloween','synthwave','raasta-ai-dark'];
+      const lightThemes = ['light','corporate','cupcake','emerald','winter','lofi','pastel','bumblebee','garden','raasta-ai'];
       const attrTheme = (html.getAttribute('data-theme') || document.body.getAttribute('data-theme') || '').toLowerCase();
       const hasDarkClass = html.classList.contains('dark') || document.body.classList.contains('dark');
       const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -890,7 +890,7 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
       if (!campaignId) return;
       
       try {
-        console.log(`🔍 Checking for active jobs for campaign: ${campaignId.substring(0, 8)}...`);
+        console.log(`ðŸ” Checking for active jobs for campaign: ${campaignId.substring(0, 8)}...`);
         
         // Check database for any active job for this campaign
         const response = await fetch(`/api/campaigns/${campaignId}/active-job`);
@@ -903,7 +903,7 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
         const { job } = await response.json();
         
         if (job && ['processing', 'queued', 'paused'].includes(job.status)) {
-          console.log(`✅ Found active job: ${job.id.substring(0, 8)}... | Status: ${job.status}`);
+          console.log(`âœ… Found active job: ${job.id.substring(0, 8)}... | Status: ${job.status}`);
           
           // Restore job state
           setCurrentJobId(job.id);
@@ -915,7 +915,7 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
             stage: null
           });
           
-          // ✅ CRITICAL: Set status state so button visibility works correctly
+          // âœ… CRITICAL: Set status state so button visibility works correctly
           // This matches the structure that SSE events use
           setStatus({
             type: 'status',
@@ -941,13 +941,13 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
           if (job.status === 'paused') {
             setActivationStatus({
               type: 'info',
-              message: '⏸️ Workflow paused',
+              message: 'â¸ï¸ Workflow paused',
               details: 'Click Resume to continue where you left off.'
             });
           } else {
             setActivationStatus({
               type: 'info',
-              message: '🔄 Workflow in progress',
+              message: 'ðŸ”„ Workflow in progress',
               details: `Processing ${job.processedLeads || 0}/${job.totalLeads || 0} leads`
             });
           }
@@ -957,7 +957,7 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
           console.log('No active jobs found for this campaign');
         }
       } catch (error) {
-        console.error('❌ Error checking for active job:', error);
+        console.error('âŒ Error checking for active job:', error);
       }
     };
     
@@ -1214,3 +1214,4 @@ export default function SendInviteCanvas({ campaignName, campaignId }) {
     </div>
   );
 }
+
