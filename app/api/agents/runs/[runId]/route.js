@@ -28,8 +28,8 @@ export const GET = withAuth(async (request, { user, params }) => {
       .where(eq(agentSteps.agentRunId, runId))
       .orderBy(agentSteps.stepIndex);
 
-    // Recruiter agent: its audit trail (what it did automatically, what was approved and by whom)
-    const actions = run.pipelineType === RECRUITER_PIPELINE ? await listRunActions(runId, { limit: 100 }) : [];
+    // Supervised agents (recruiter and sales): the audit trail of what was done automatically, what was approved and by whom
+    const actions = await listRunActions(runId, { limit: 200 });
 
     let activity = null;
     if (run.pipelineType === RECRUITER_PIPELINE) {
