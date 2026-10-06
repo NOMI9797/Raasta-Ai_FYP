@@ -81,7 +81,7 @@ export default function JobBoardSearch({ platform, campaignId, onImported }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Import failed");
       toast.success(data.message || "Added to campaign");
-      const importedUrls = new Set((data.leads || []).map((l) => l.url));
+      const importedUrls = new Set(data.importedUrls || (data.leads || []).map((l) => l.url));
       setResults((prev) => prev.filter((r) => !importedUrls.has(r.url)));
       setSelected((prev) => new Set([...prev].filter((url) => !importedUrls.has(url))));
       onImported?.();

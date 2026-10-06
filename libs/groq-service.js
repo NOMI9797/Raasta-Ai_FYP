@@ -6,6 +6,15 @@ const groq = new OpenAI({
   baseURL: 'https://api.groq.com/openai/v1',
 });
 
+// Groq retired the Llama 3.x and older models these calls used to ask for (callers and saved settings
+// still pass them). Send those to the current fast model. GPT-OSS models reason before answering,
+// so keep reasoning low or a short max_tokens is used up before any text comes back.
+function modelOptions(model) {
+  const retired = !model || /^(llama|mixtral|gemma)/i.test(model);
+  const resolved = retired ? process.env.LLM_FAST_MODEL || "openai/gpt-oss-20b" : model;
+  return { model: resolved, ...(/gpt-oss/i.test(resolved) ? { reasoning_effort: "low" } : {}) };
+}
+
 // Available Groq models (commonly supported models)
 export const GROQ_MODELS = {
   'llama-3.1-8b-instant': 'Llama 3.1 8B (Fast)', 
@@ -59,7 +68,7 @@ Write the message directly without any prefixes, introductions, or explanations.
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      model,
+      ...modelOptions(model),
       temperature: 0.7,
       max_tokens: 500,
     });
@@ -142,7 +151,7 @@ Write the message directly without any prefixes, introductions, or explanations.
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      model,
+      ...modelOptions(model),
       temperature: 0.7,
       max_tokens: 500,
       stream: true,
@@ -245,7 +254,7 @@ ${customPrompt ? `\nExtra instructions: ${customPrompt}` : ''}`;
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      model,
+      ...modelOptions(model),
       temperature: 0.65,
       max_tokens: 600,
     });
@@ -265,7 +274,7 @@ export async function validateGroqApiKey() {
   try {
     const response = await groq.chat.completions.create({
       messages: [{ role: 'user', content: 'Hello' }],
-      model: 'llama-3.1-8b-instant',
+      ...modelOptions(null),
       max_tokens: 5,
     });
     return !!response.choices[0]?.message?.content;

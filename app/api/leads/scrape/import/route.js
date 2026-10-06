@@ -6,14 +6,21 @@ import { campaigns, leads, rozeeAccounts } from "@/libs/schema";
 import { detectPlatformFromUrl } from "@/libs/platform-urls";
 import { PLATFORM_IDS } from "@/libs/platforms";
 import { enrichRozeeLeadInDb } from "@/libs/lead-rozee-enrichment";
+import { PLATFORM_KIND } from "@/libs/sales/stages";
+import { companyKey, companyNameOf, groupProfilesByCompany, jobFromProfile, jobsOf, mergeJobs } from "@/libs/sales/companies";
+
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 /**
- * Import pre-scraped profiles from the Lead Scraper module into a campaign.
+ * Import pre-scraped profiles from Find leads into a campaign.
  *
  * Unlike POST /api/campaigns/[id]/leads (which only takes URLs and creates
  * pending leads to be scraped later), this endpoint trusts that the caller
- * already has usable profile data, so the resulting leads are saved with
- * `status='completed'` and their name/title/sourceData pre-filled.
+ * already has usable data, so leads are saved with `status='completed'`.
+ *
+ * Job-board results (Rozee.pk, Indeed) are job posts; they are grouped into
+ * one lead per company (sourceData.jobs lists its posts). A post from a company
+ * already in the campaign is added to that company instead of creating a lead.
  *
  * Body:
  *   {
@@ -77,15 +84,13 @@ export const POST = withAuth(async (request, { user }) => {
         continue;
       }
       normalised.push({
-        userId: user.id,
-        campaignId,
+        ...p,
         url,
         name: p?.name?.trim() || null,
         title: p?.title?.trim() || null,
         company: p?.company?.trim() || null,
         source,
         sourceData: p?.sourceData && typeof p.sourceData === "object" ? p.sourceData : {},
-        status: "completed",
       });
     }
 
@@ -96,23 +101,72 @@ export const POST = withAuth(async (request, { user }) => {
       );
     }
 
-    // Dedupe against existing leads in any of the user's campaigns (matches
-    // the behaviour of POST /api/campaigns/[id]/leads).
-    const existing = await db
-      .select({ url: leads.url, campaignId: leads.campaignId })
-      .from(leads)
-      .where(eq(leads.userId, user.id));
-    const existingUrls = new Set(existing.map((l) => l.url));
+    // Dedupe against every lead (and every grouped job post) in any of the user's campaigns
+    const existing = await db.select().from(leads).where(eq(leads.userId, user.id));
+    const existingUrls = new Set();
+    for (const lead of existing) {
+      existingUrls.add(lead.url);
+      for (const job of jobsOf(lead)) existingUrls.add(job.url);
+    }
 
-    const toInsert = [];
     const skipped = [];
+    const fresh = [];
     for (const row of normalised) {
       if (existingUrls.has(row.url)) {
         skipped.push({ url: row.url, reason: "Already exists" });
       } else {
-        toInsert.push(row);
+        fresh.push(row);
         existingUrls.add(row.url); // guard against dupes inside this batch too
       }
+    }
+
+    const leadRow = (p, extra = {}) => ({
+      userId: user.id,
+      campaignId,
+      url: p.url,
+      name: p.name,
+      title: p.title,
+      company: p.company,
+      source: p.source,
+      sourceData: p.sourceData,
+      status: "completed",
+      ...extra,
+    });
+
+    const toInsert = [];
+    let jobsAddedToExisting = 0;
+    let companiesInserted = 0;
+
+    // People are one lead each
+    for (const p of fresh.filter((r) => PLATFORM_KIND[r.source] !== "company")) {
+      toInsert.push(leadRow(p));
+    }
+
+    // Job posts become one lead per company in this campaign
+    const companyLeadsHere = existing.filter((l) => l.campaignId === campaignId && PLATFORM_KIND[l.source] === "company");
+    const companyProfiles = fresh.filter((r) => PLATFORM_KIND[r.source] === "company");
+    for (const group of groupProfilesByCompany(companyProfiles)) {
+      const jobs = group.profiles.map((p) => jobFromProfile(p, p.source));
+      const match = group.key && companyLeadsHere.find((l) => (l.sourceData?.companyKey || companyKey(companyNameOf(l))) === group.key);
+      if (match) {
+        const merged = mergeJobs(jobsOf(match), jobs);
+        jobsAddedToExisting += merged.length - jobsOf(match).length;
+        await db
+          .update(leads)
+          .set({ sourceData: { ...(match.sourceData || {}), companyKey: group.key, jobs: merged }, updatedAt: new Date() })
+          .where(eq(leads.id, match.id));
+        continue;
+      }
+      const first = group.profiles[0];
+      const name = group.name || first.name;
+      toInsert.push(
+        leadRow(first, {
+          name,
+          company: name,
+          sourceData: { ...first.sourceData, companyKey: group.key, jobs },
+        })
+      );
+      companiesInserted++;
     }
 
     let inserted = [];
@@ -121,7 +175,7 @@ export const POST = withAuth(async (request, { user }) => {
     }
 
     // Flip draft campaigns to active now that they have leads.
-    if (inserted.length && campaign.status === "draft") {
+    if ((inserted.length || jobsAddedToExisting) && campaign.status === "draft") {
       await db
         .update(campaigns)
         .set({ status: "active", updatedAt: new Date() })
@@ -149,23 +203,31 @@ export const POST = withAuth(async (request, { user }) => {
       }
     }
 
+    const people = inserted.length - companiesInserted;
+    const parts = [
+      people ? `Added ${plural(people, "person", "people")}` : null,
+      companiesInserted ? `Added ${plural(companiesInserted, "company", "companies")}` : null,
+      jobsAddedToExisting ? `${plural(jobsAddedToExisting, "job post", "job posts")} added to companies already in the campaign` : null,
+      skipped.length ? `skipped ${plural(skipped.length, "duplicate", "duplicates")}` : null,
+      rejected.length ? `rejected ${rejected.length}` : null,
+      enrichmentErrors.length ? `${plural(enrichmentErrors.length, "enrichment error", "enrichment errors")}` : null,
+    ].filter(Boolean);
+
     return NextResponse.json({
       success: true,
-      message: `Imported ${inserted.length} lead${inserted.length === 1 ? "" : "s"}${
-        skipped.length ? `, skipped ${skipped.length} duplicate${skipped.length === 1 ? "" : "s"}` : ""
-      }${rejected.length ? `, rejected ${rejected.length}` : ""}${
-        enrichmentErrors.length
-          ? `, ${enrichmentErrors.length} enrichment error${enrichmentErrors.length === 1 ? "" : "s"}`
-          : ""
-      }.`,
+      message: `${parts.join(", ") || "Nothing new to add"}.`,
       stats: {
         imported: inserted.length,
+        companies: companiesInserted,
+        jobsAddedToExisting,
         skipped: skipped.length,
         rejected: rejected.length,
         total: profiles.length,
         enrichmentErrors: enrichmentErrors.length,
       },
       leads: inserted,
+      // Every URL that is now in the campaign, so the caller can clear them from its list
+      importedUrls: fresh.map((r) => r.url),
       skipped,
       rejected,
       enrichmentErrors,

@@ -16,7 +16,7 @@ const FUNNELS = {
   ],
   company: [
     { label: "Added", match: () => true },
-    { label: "Researched", match: (l) => Boolean(l.sourceData?.conversion || l.sourceData?.company?.website) },
+    { label: "Researched", match: (l) => Boolean(l.sourceData?.research || l.sourceData?.conversion) },
     { label: "Contacted", match: (l) => l.messageSent },
   ],
 };

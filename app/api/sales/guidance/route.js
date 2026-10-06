@@ -16,9 +16,10 @@ export const GET = withAuth(async (request, { user }) => {
   try {
     const mine = (table) => eq(table.userId, user.id);
     // A lead counts as researched once its profile was read (LinkedIn) or company details are known (job boards)
+    // (Company leads are saved as "completed" at import, so status only counts for LinkedIn people)
     const researched = or(
-      eq(leads.status, "completed"),
-      sql`${leads.sourceData}->'company'->>'website' is not null`,
+      and(eq(leads.source, "linkedin"), eq(leads.status, "completed")),
+      sql`${leads.sourceData}->'research' is not null`,
       sql`${leads.sourceData}->'conversion' is not null`
     );
 

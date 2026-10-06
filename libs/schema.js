@@ -85,7 +85,11 @@ export const messages = pgTable('messages', {
   customPrompt: text('custom_prompt'),
   postsAnalyzed: integer('posts_analyzed').default(3),
   source: varchar('source', { length: 20 }).notNull().default('linkedin'), // platform the message was sent through
-  status: varchar('status', { length: 20 }).notNull().default('draft'), // draft, sent, scheduled
+  status: varchar('status', { length: 20 }).notNull().default('draft'), // draft, approved, sent, scheduled
+  channel: varchar('channel', { length: 20 }).notNull().default('linkedin'), // linkedin (invite + message) | email
+  subject: text('subject'), // email subject line
+  recipient: text('recipient'), // email address or LinkedIn profile URL the message goes to
+  approvedAt: timestamp('approved_at'),
   sentAt: timestamp('sent_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
