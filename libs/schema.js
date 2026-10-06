@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, integer, boolean, json, uuid, varchar, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, integer, boolean, json, uuid, varchar, index, uniqueIndex, vector } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 // Users table - for authentication and user isolation
@@ -454,6 +454,39 @@ export const notifications = pgTable('notifications', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (t) => [
   index('notifications_user_created_idx').on(t.userId, t.createdAt),
+]);
+
+// Sales knowledge base (RAG) — what the sales agent may tell clients. See libs/sales/knowledge/
+export const kbDocuments = pgTable('kb_documents', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  title: text('title').notNull(),
+  category: varchar('category', { length: 30 }).notNull().default('other'), // services | pricing | process | faq | case_study | about | other
+  kind: varchar('kind', { length: 10 }).notNull().default('note'),          // note | file | web
+  source: text('source'),                                                   // file name or page URL
+  content: text('content').notNull(),
+  status: varchar('status', { length: 20 }).notNull().default('ready'),     // ready | failed
+  error: text('error'),
+  chunkCount: integer('chunk_count').notNull().default(0),
+  isSample: boolean('is_sample').notNull().default(false),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (t) => [
+  index('kb_documents_user_idx').on(t.userId, t.updatedAt),
+]);
+
+// One searchable passage of a document. The table also has a generated `tsv` column for keyword search.
+export const kbChunks = pgTable('kb_chunks', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  documentId: uuid('document_id').references(() => kbDocuments.id, { onDelete: 'cascade' }).notNull(),
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  chunkIndex: integer('chunk_index').notNull(),
+  content: text('content').notNull(),
+  embedding: vector('embedding', { dimensions: 384 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (t) => [
+  index('kb_chunks_user_idx').on(t.userId),
+  index('kb_chunks_document_idx').on(t.documentId, t.chunkIndex),
 ]);
 
 // Database initialization function

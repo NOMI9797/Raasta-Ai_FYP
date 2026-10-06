@@ -27,6 +27,7 @@ import {
   Video,
   Activity,
   Send,
+  BookOpen,
 } from "lucide-react";
 
 const NAV = [
@@ -64,6 +65,7 @@ const NAV = [
       { key: "sales-messages", label: "4. Messages", href: "/dashboard/sales/messages", icon: MessageSquare },
       { key: "sales-outreach", label: "5. Outreach", href: "/dashboard/sales/outreach", icon: Send },
       { key: "sales-results", label: "6. Results", href: "/dashboard/sales/results", icon: TrendingUp },
+      { key: "sales-knowledge", label: "Knowledge base", href: "/dashboard/sales/knowledge", icon: BookOpen },
       { key: "sales-agent", label: "Sales agent", href: "/dashboard/agents", icon: Bot },
       { key: "sales-setup", label: "Setup guide", href: "/dashboard/sales/setup", icon: Activity },
     ],

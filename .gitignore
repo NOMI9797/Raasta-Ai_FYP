@@ -56,3 +56,6 @@ __pycache__/
 
 # processes started from the web app (pid files and their output)
 /.runtime/
+
+# local AI models (knowledge base embeddings)
+/.cache/
