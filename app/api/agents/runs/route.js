@@ -3,11 +3,11 @@ import { db } from "@/libs/db";
 import { agentRuns, agentConfigs } from "@/libs/schema";
 import { and, eq, desc } from "drizzle-orm";
 import { withAuth } from "@/libs/auth-middleware";
-import { AgentRunner, getPipelineDefinition } from "@/libs/agent-runner";
-import { RECRUITER_PIPELINE } from "@/libs/agent/runs";
+import { RECRUITER_PIPELINE, SALES_PIPELINE } from "@/libs/agent/runs";
 import { getRunActivity } from "@/libs/agent/run-summary";
 import { RECRUITER_STEPS } from "@/libs/agent/recruiter-agent";
 import { RunError, startRecruiterRun } from "@/libs/agent/launch";
+import { startSalesRun } from "@/libs/sales/agent/launch";
 
 export const GET = withAuth(async (request, { user }) => {
   try {
@@ -74,36 +74,18 @@ export const POST = withAuth(async (request, { user }) => {
       }
     }
 
-    // Validate pipeline exists
-    const pipeline = await getPipelineDefinition(finalPipelineType);
+    // The sales agent also runs in the worker (libs/sales/agent): one supervised engine for both
+    if (finalPipelineType === SALES_PIPELINE) {
+      try {
+        const run = await startSalesRun({ user, agentConfigId: agentConfigId || null, mode: finalMode, config: finalConfig });
+        return NextResponse.json({ success: true, run }, { status: 201 });
+      } catch (error) {
+        if (error instanceof RunError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+        throw error;
+      }
+    }
 
-    // Create the run record
-    const [run] = await db
-      .insert(agentRuns)
-      .values({
-        agentConfigId: agentConfigId || null,
-        userId: user.id,
-        pipelineType: finalPipelineType,
-        mode: finalMode,
-        status: "queued",
-        totalSteps: pipeline.steps.length,
-      })
-      .returning();
-
-    // Execute in background (non-blocking)
-    const runner = new AgentRunner({
-      runId: run.id,
-      pipeline,
-      mode: finalMode,
-      userId: user.id,
-      config: finalConfig,
-    });
-
-    runner.execute().catch((err) => {
-      console.error(`Agent run ${run.id} failed unexpectedly:`, err);
-    });
-
-    return NextResponse.json({ success: true, run }, { status: 201 });
+    return NextResponse.json({ error: `Unknown pipeline: ${finalPipelineType}` }, { status: 400 });
   } catch (error) {
     console.error("Create agent run error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { LEAD_STAGE, acceptanceCheckDue, buildSalesPlan, isCampaignFinished, keyFor } from "../../libs/sales/agent/plan";
 import { ROUTE, SALES_ACTION, SALES_ESCALATION, decideSales } from "../../libs/sales/agent/policy";
 
-const company = (id, extra = {}) => ({ id, source: "indeed", status: "completed", sourceData: {}, ...extra });
+const company = (id, extra = {}) => ({ id, source: "indeed", status: "completed", company: `Company ${id}`, sourceData: {}, ...extra });
 const researched = (id, score, extra = {}) =>
   company(id, { sourceData: { research: { status: "done" }, ...(score != null ? { fit: { score, reason: "x" } } : {}) }, ...extra });
 const email = (status = "draft", recipient = "hr@acme.pk") => ({ status, channel: "email", recipient, content: "Hi" });
@@ -97,4 +97,16 @@ test("the campaign is finished when every lead is sent, skipped or stopped", () 
   assert.equal(isCampaignFinished(done), true);
   const open = buildSalesPlan(state([researched("a", 90)]), { mode: "autopilot" });
   assert.equal(isCampaignFinished(open), false);
+});
+
+test("job posts without a company name are skipped; failed research blocks the lead until someone researches it", () => {
+  const nameless = company("a", { company: null, name: null });
+  const blocked = company("b", { company: "Acme" });
+  const plan = buildSalesPlan(state([nameless, blocked], {}, { researchBlocked: new Map([["b", "Website could not be read"]]) }), { mode: "autopilot" });
+  assert.deepEqual(plan.skip, [{ leadId: "a", reason: "The job post has no company name" }]);
+  assert.equal(plan.stages.b, LEAD_STAGE.BLOCKED);
+  assert.deepEqual(plan.research, []);
+
+  const researchedLater = buildSalesPlan(state([researched("b", null, { company: "Acme" })], {}, { researchBlocked: new Map([["b", "x"]]) }), { mode: "autopilot" });
+  assert.deepEqual(researchedLater.score, ["b"]);
 });

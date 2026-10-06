@@ -67,7 +67,7 @@ npm run check:branding # fails if the legacy source name appears anywhere
 | Hiring APIs | `app/api/hiring/**` |
 | Public apply form | `app/apply/[jobId]/page.js`, `app/api/hiring/apply/[jobId]/route.js` |
 | Recruiter UI | `app/dashboard/recruiter/**`, sidebar `components/layout/Sidebar.js` |
-| Sales agent pipeline | `libs/agent-pipelines/sales-operator.js`, `libs/agent-runner.js` (sales only; the hiring agent is separate) |
+| Sales agent | `libs/sales/agent/` (policy, planner, scoring, tick `advanceSalesRun`, launch). Same supervised engine as the hiring agent (`libs/agent/`), run by the hiring worker |
 | Schema / DB | `libs/schema.{js,ts}`, `libs/db.ts`, `drizzle/` |
 | New: AI helpers | `libs/ai/` |
 | New: hiring logic | `libs/hiring/` |

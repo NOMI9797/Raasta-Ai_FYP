@@ -67,7 +67,7 @@ Implemented in `libs/hiring/queue-admin.js`, shown as the "Hiring queue" card on
 
 A person-triggered tick (start, resume, approve) is queued at once, not after the delayed-queue wait; screening results wake the agent after 8 seconds (so applicants screened together share one tick).
 
-The hiring agent is its own agent with its own page (`/dashboard/recruiter/agent`). It posts through `libs/hiring/publishing.js` (see 19): one post per platform, the job goes live on Raasta-AI first, posting limits apply, and a sign-in or security check on a platform stops that post and keeps the agent away from that account for 12 hours. The sales agent (`libs/agent-runner.js`, `/dashboard/agents`) is separate.
+The hiring agent is its own agent with its own page (`/dashboard/recruiter/agent`). It posts through `libs/hiring/publishing.js` (see 19): one post per platform, the job goes live on Raasta-AI first, posting limits apply, and a sign-in or security check on a platform stops that post and keeps the agent away from that account for 12 hours. The sales agent (`libs/sales/agent/`, `/dashboard/agents`) uses the same supervised engine and worker.
 
 The recruiter agent works on the recruiter's behalf for one job. It is a **supervised agent**: a fixed workflow whose actions are routed through a per-action policy that decides whether the agent acts on its own, asks first, or leaves the step to a human. It is not a free-roaming LLM agent: the steps of hiring are known in advance, and the AI judgement already lives inside each step (screening, questions, interview, summary). Rationale and research: the "Recruiter Agent Options" brief (2026-10-04).
 

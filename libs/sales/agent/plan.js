@@ -6,6 +6,7 @@
 //     email:    send_email (asked in Semi-auto) → sent
 //     LinkedIn: send_invite → waiting for acceptance → send_linkedin_message → sent
 import { PLATFORM_KIND } from "../stages";
+import { companyNameOf } from "../companies";
 import { isEmailAddress } from "../send/email";
 import { DEFAULTS, ROUTE, SALES_ACTION, SALES_ESCALATION, decideSales } from "./policy";
 
@@ -62,12 +63,13 @@ function escalationsFor(action, { lead, message, fit, config, contactedElsewhere
  * @param {object} state
  *   leads: lead rows; messages: Map leadId → latest message; actions: Map dedupeKey → this run's action;
  *   contactedElsewhere: Set of lead ids already contacted in another campaign;
- *   allowance: { email, invite, linkedinMessage } sends left today; linkedinReady: boolean
+ *   allowance: { email, invite, linkedinMessage } sends left today; linkedinReady: boolean;
+ *   researchBlocked: Map leadId → why research could not be done (a person can do it, then the agent carries on)
  * @param {{ mode: string, config?: object }} options
  */
 export function buildSalesPlan(state, { mode, config: overrides = {} }) {
   const config = { ...DEFAULTS, ...overrides };
-  const { leads, messages, actions, contactedElsewhere = new Set(), linkedinReady = false } = state;
+  const { leads, messages, actions, contactedElsewhere = new Set(), linkedinReady = false, researchBlocked = new Map() } = state;
   const allowance = { email: 0, invite: 0, linkedinMessage: 0, ...state.allowance };
   const capOf = { [SALES_ACTION.SEND_EMAIL]: "email", [SALES_ACTION.SEND_INVITE]: "invite", [SALES_ACTION.SEND_LINKEDIN_MESSAGE]: "linkedinMessage" };
 
@@ -82,6 +84,16 @@ export function buildSalesPlan(state, { mode, config: overrides = {} }) {
     }
     if (actions.get(keyFor(SALES_ACTION.SKIP_LEAD, lead.id))) {
       setStage(lead, LEAD_STAGE.SKIPPED);
+      continue;
+    }
+    if (isCompany(lead) && !companyNameOf(lead)) {
+      plan.skip.push({ leadId: lead.id, reason: "The job post has no company name" });
+      setStage(lead, LEAD_STAGE.SKIPPED);
+      continue;
+    }
+    if (!isResearched(lead) && researchBlocked.has(lead.id)) {
+      plan.blocked.push({ leadId: lead.id, reason: researchBlocked.get(lead.id) });
+      setStage(lead, LEAD_STAGE.BLOCKED);
       continue;
     }
     if (!isResearched(lead)) {

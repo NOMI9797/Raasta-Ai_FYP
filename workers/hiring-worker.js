@@ -19,7 +19,8 @@ import { analyseInterview, assembleRecording, markAnalysisFailed } from "../libs
 import { finalizeCandidate } from "../libs/hiring/finalize";
 import { sendOutcomeEmail } from "../libs/hiring/decisions";
 import { advanceRun } from "../libs/agent/recruiter-agent";
-import { RUN_STATUS, isJobManagedByAgent, listActiveRecruiterRuns } from "../libs/agent/runs";
+import { advanceSalesRun } from "../libs/sales/agent/sales-agent";
+import { RUN_STATUS, isJobManagedByAgent, listActiveRuns } from "../libs/agent/runs";
 import { AGENT_ADVANCE_JOB, requestAgentTick, requestAgentTickForJob } from "../libs/agent/triggers";
 
 // Set by the web server when it runs this worker for you: stop when that server is gone
@@ -193,7 +194,9 @@ export const handlers = {
         return { runId, busy: true };
       }
       try {
-        return await advanceRun(runId);
+        // The recruiter agent skips runs of other pipelines; those are sales runs
+        const result = await advanceRun(runId);
+        return result?.skipped === "not a recruiter run" ? await advanceSalesRun(runId) : result;
       } finally {
         if ((await redis.get(lockKey)) === WORKER_ID) await redis.del(lockKey);
       }
@@ -219,9 +222,10 @@ const sweeps = [
     for (const interviewId of due) await enqueue("send-reminder", { interviewId }, {}, redis);
     if (due.length) log("info", { msg: "reminders queued", count: due.length });
   }],
-  ["advance recruiter agents", async () => {
-    // Catches up on missed events and starts each day's invite allowance
-    const runs = (await listActiveRecruiterRuns()).filter((r) => r.status !== RUN_STATUS.PAUSED);
+  ["advance agents", async () => {
+    // Catches up on missed events, starts each day's invite and email allowance, and checks LinkedIn
+    // acceptances for sales runs (recruiter and sales agents alike)
+    const runs = (await listActiveRuns()).filter((r) => r.status !== RUN_STATUS.PAUSED);
     for (const run of runs) await requestAgentTick(run.id, { redis });
     if (runs.length) log("info", { msg: "agent ticks queued", count: runs.length });
   }],
