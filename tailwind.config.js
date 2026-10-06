@@ -7,6 +7,43 @@ module.exports = {
   ],
   theme: {
     extend: {
+      // Landing page tokens. Values live in app/landing-tokens.css; the dashboard keeps the DaisyUI theme.
+      colors: {
+        raasta: {
+          cobalt: "rgb(var(--raasta-cobalt) / <alpha-value>)",
+          cobaltDeep: "rgb(var(--raasta-cobalt-deep) / <alpha-value>)",
+          wash: "rgb(var(--raasta-cobalt-wash) / <alpha-value>)",
+          cobaltSoft: "rgb(var(--raasta-cobalt-soft) / <alpha-value>)",
+          navy: "rgb(var(--raasta-navy) / <alpha-value>)",
+          navyDeep: "rgb(var(--raasta-navy-deep) / <alpha-value>)",
+          slate: "rgb(var(--raasta-slate) / <alpha-value>)",
+          mist: "rgb(var(--raasta-mist) / <alpha-value>)",
+          line: "rgb(var(--raasta-line) / <alpha-value>)",
+          white: "rgb(var(--raasta-white) / <alpha-value>)",
+          success: "rgb(var(--raasta-success) / <alpha-value>)",
+          successWash: "rgb(var(--raasta-success-wash) / <alpha-value>)",
+          danger: "rgb(var(--raasta-danger) / <alpha-value>)",
+          dangerWash: "rgb(var(--raasta-danger-wash) / <alpha-value>)",
+        },
+      },
+      fontFamily: {
+        display: ["var(--font-display)", "var(--font-sans)", "system-ui", "sans-serif"],
+        mono: ["var(--font-mono)", "ui-monospace", "SFMono-Regular", "monospace"],
+      },
+      // Radius follows hierarchy: chip < control < card < window
+      borderRadius: {
+        chip: "4px",
+        control: "8px",
+        card: "12px",
+        window: "20px",
+      },
+      // Elevation: e1 selected control, e2 featured plan, e3 product window
+      boxShadow: {
+        e1: "var(--raasta-e1)",
+        e2: "var(--raasta-e2)",
+        e3: "var(--raasta-e3)",
+        e4: "var(--raasta-e4)",
+      },
       backgroundImage: {
         gradient:
           "linear-gradient(60deg, #6366F1, #4F46E5, #4338CA, #a166ab, #5073b8, #1098ad, #07b39b, #6fba82)",
@@ -17,8 +54,13 @@ module.exports = {
         wiggle: "wiggle 1.5s ease-in-out infinite",
         popup: "popup 0.25s ease-in-out",
         shimmer: "shimmer 3s ease-out infinite alternate",
+        marquee: "marquee 30s linear infinite",
       },
       keyframes: {
+        marquee: {
+          "0%": { transform: "translateX(0)" },
+          "100%": { transform: "translateX(-50%)" },
+        },
         opacity: {
           "0%": { opacity: 0 },
           "100%": { opacity: 1 },

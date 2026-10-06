@@ -1,10 +1,19 @@
-import { Inter } from "next/font/google";
+import { Inter, Inter_Tight, JetBrains_Mono } from "next/font/google";
 import { getSEOTags } from "@/libs/seo";
 import ClientLayout from "@/components/LayoutClient";
 import config from "@/config";
 import "./globals.css";
 
-const font = Inter({ subsets: ["latin"] });
+const font = Inter({ subsets: ["latin"], variable: "--font-sans" });
+
+const displayFont = Inter_Tight({
+	subsets: ["latin"],
+	weight: ["400", "500", "600", "700"],
+	variable: "--font-display",
+});
+
+// Mono for data: IDs, counts, "9 / 15"
+const monoFont = JetBrains_Mono({ subsets: ["latin"], weight: ["400", "500"], variable: "--font-mono" });
 
 export const viewport = {
 	// Will use the primary color of your theme to show a nice theme color in the URL bar of supported browsers
@@ -22,7 +31,7 @@ export default function RootLayout({ children }) {
 		<html
 			lang="en"
 			data-theme={config.colors.theme}
-			className={font.className}
+			className={`${font.className} ${font.variable} ${displayFont.variable} ${monoFont.variable}`}
 		>
 			<body>
 				{/* ClientLayout contains all the client wrappers (Crisp chat support, toast messages, tooltips, etc.) */}

@@ -3,8 +3,10 @@ import themes from "daisyui/src/theming/themes";
 const config = {
   appName: "Raasta-AI",
   appDescription:
-    "AI-powered LinkedIn outreach and recruitment automation. Run your entire B2B sales and hiring pipeline on autopilot.",
+    "Raasta-AI is the AI pipeline for client acquisition and hiring: prospects from LinkedIn, Rozee.pk and Indeed, personal outreach sent within LinkedIn's daily limits, and parsed CVs.",
   domainName: "reachly.ai",
+  // Public contact address shown on the landing page. TODO: replace with your real inbox.
+  contactEmail: "hello@raasta-ai.com",
   crisp: {
     id: "",
     onlyShowOnRoutes: ["/"],
@@ -41,7 +43,7 @@ const config = {
         features: [
           { name: "Up to 5 LinkedIn accounts" },
           { name: "Unlimited campaigns" },
-          { name: "AI agentic mode (full autopilot)" },
+          { name: "Optional autopilot (skip manual review)" },
           { name: "Recruiter pipeline & CV parsing" },
           { name: "Advanced analytics & reporting" },
           { name: "Priority support" },

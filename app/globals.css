@@ -1,3 +1,5 @@
+@import "./landing-tokens.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -5,6 +7,19 @@
 html,
 body {
   scroll-behavior: smooth !important;
+}
+
+/* Landing: anchor targets stop 90px down, clear of the floating navbar */
+.landing section[id],
+.landing [id="hiring"] {
+  scroll-margin-top: 90px;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  scrollbar-width: none;
 }
 
 /* It makes the HTML progress bar filling smooth when value change. */

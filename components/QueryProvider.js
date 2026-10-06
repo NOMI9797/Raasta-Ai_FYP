@@ -3,9 +3,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { useState } from "react";
+import { usePathname } from "next/navigation";
 
 // Create a custom QueryProvider component
 const QueryProvider = ({ children }) => {
+  const pathname = usePathname();
   // Create a new QueryClient instance for each component tree
   // This ensures that data is not shared between different users in SSR
   const [queryClient] = useState(
@@ -51,8 +53,8 @@ const QueryProvider = ({ children }) => {
   return (
     <QueryClientProvider client={queryClient}>
       {children}
-      {/* Show React Query DevTools in development */}
-      {process.env.NODE_ENV === "development" && (
+      {/* Show React Query DevTools in development (not on the marketing page) */}
+      {process.env.NODE_ENV === "development" && pathname !== "/" && (
         <ReactQueryDevtools
           initialIsOpen={false}
           position="bottom-right"
