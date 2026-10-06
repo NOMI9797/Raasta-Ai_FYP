@@ -26,27 +26,27 @@ node scripts/update-daily-limits.js
 
 **Output example**:
 ```
-🚀 Starting migration: Update LinkedIn accounts daily limits
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ðŸš€ Starting migration: Update LinkedIn accounts daily limits
+â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”
 
-📊 Checking current state...
+ðŸ“Š Checking current state...
 
-📋 Found 2 account(s) that need updating:
+ðŸ“‹ Found 2 account(s) that need updating:
    1. user@example.com (current limit: 100)
    2. test@example.com (current limit: NULL)
 
-⚠️  About to update these accounts to daily_limit = 30
-⏳ Proceeding with migration in 2 seconds...
+âš ï¸  About to update these accounts to daily_limit = 30
+â³ Proceeding with migration in 2 seconds...
 
-🔄 Updating accounts...
+ðŸ”„ Updating accounts...
 
-✅ Successfully updated 2 account(s):
-   1. user@example.com → daily_limit = 30
-   2. test@example.com → daily_limit = 30
+âœ… Successfully updated 2 account(s):
+   1. user@example.com â†’ daily_limit = 30
+   2. test@example.com â†’ daily_limit = 30
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-✨ Migration completed successfully!
-🎯 All LinkedIn accounts now have daily_limit ≤ 30
+â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”
+âœ¨ Migration completed successfully!
+ðŸŽ¯ All LinkedIn accounts now have daily_limit â‰¤ 30
 ```
 
 **Safety features**:
@@ -66,7 +66,7 @@ All scripts should be run from the project root directory:
 
 ```bash
 # Make sure you're in the project root
-cd /path/to/Reachly
+cd /path/to/Raasta-AI
 
 # Run a script
 node scripts/script-name.js
@@ -90,4 +90,5 @@ When creating new scripts:
 - Environment variables are loaded from `.env` file
 - Scripts run synchronously and exit when complete
 - Use `console.log` for output (not application logging)
+
 

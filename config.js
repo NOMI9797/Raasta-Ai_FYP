@@ -4,7 +4,7 @@ const config = {
   appName: "Raasta-AI",
   appDescription:
     "AI-powered LinkedIn outreach and recruitment automation. Run your entire B2B sales and hiring pipeline on autopilot.",
-  domainName: "reachly.ai",
+  domainName: "raasta-ai.com",
   crisp: {
     id: "",
     onlyShowOnRoutes: ["/"],
@@ -56,13 +56,13 @@ const config = {
   },
   mailgun: {
     subdomain: "mg",
-    fromNoReply: `Raasta-AI <noreply@mg.reachly.ai>`,
-    fromAdmin: `Raasta-AI Team <hello@mg.reachly.ai>`,
-    supportEmail: "support@reachly.ai",
-    forwardRepliesTo: "support@reachly.ai",
+    fromNoReply: `Raasta-AI <noreply@mg.raasta-ai.com>`,
+    fromAdmin: `Raasta-AI Team <hello@mg.raasta-ai.com>`,
+    supportEmail: "support@raasta-ai.com",
+    forwardRepliesTo: "support@raasta-ai.com",
   },
   colors: {
-    theme: "reachly",
+    theme: "raasta-ai",
     main: "#6366F1",
   },
   auth: {
@@ -72,3 +72,4 @@ const config = {
 };
 
 export default config;
+

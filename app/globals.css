@@ -2,21 +2,365 @@
 @tailwind components;
 @tailwind utilities;
 
-html,
-body {
-  scroll-behavior: smooth !important;
+:root {
+  --hue: 255;
+  --primary: oklch(0.55 0.2 var(--hue));
+  --primary-soft: oklch(0.96 0.03 var(--hue));
+  --bg: oklch(0.985 0.002 var(--hue));
+  --surface: oklch(1 0 0);
+  --border: oklch(0.92 0.005 var(--hue));
+  --ink: oklch(0.2 0.01 var(--hue));
+  --muted: oklch(0.5 0.01 var(--hue));
+  --dark: oklch(0.22 0.01 var(--hue));
+  --on-primary: oklch(1 0 0);
+  --on-dark: oklch(1 0 0);
+  --dither-white: oklch(1 0 0);
 }
 
-/* It makes the HTML progress bar filling smooth when value change. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --primary: oklch(0.68 0.18 var(--hue));
+    --primary-soft: oklch(0.29 0.06 var(--hue));
+    --bg: oklch(0.16 0.01 var(--hue));
+    --surface: oklch(0.2 0.012 var(--hue));
+    --border: oklch(0.3 0.014 var(--hue));
+    --ink: oklch(0.95 0.006 var(--hue));
+    --muted: oklch(0.7 0.012 var(--hue));
+    --dark: oklch(0.1 0.008 var(--hue));
+    --on-primary: oklch(1 0 0);
+    --on-dark: oklch(1 0 0);
+    --dither-white: oklch(0.985 0.002 var(--hue));
+  }
+}
+
+html,
+body {
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+body {
+  margin: 0;
+}
+
+h1,
+h2 {
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
 progress::-webkit-progress-value {
-  transition: 0.6s width ease-out;
+  transition: width 0.6s ease-out;
 }
 
 @layer base {
   .btn-gradient {
-    @apply !bg-gradient !bg-[length:300%_300%] hover:saturate-[1.2] shadow duration-100 !border-0 !border-transparent !bg-transparent animate-shimmer disabled:!bg-none disabled:!bg-gray-500/30  !text-white;
+    @apply !border-0 !border-transparent !bg-primary !text-on-primary shadow duration-100 disabled:opacity-30;
   }
+
   .btn {
     @apply !capitalize;
   }
+}
+
+@layer utilities {
+  .dither-field {
+    position: relative;
+    isolation: isolate;
+    background: var(--bg);
+  }
+
+  .dither-field > :first-child {
+    opacity: 0.85;
+  }
+
+  .dither-static {
+    background-color: var(--bg);
+    background-image:
+      radial-gradient(ellipse at 28% 48%, color-mix(in oklch, var(--primary) 52%, transparent) 0 18%, transparent 48%),
+      radial-gradient(ellipse at 72% 58%, color-mix(in oklch, var(--primary) 42%, transparent) 0 14%, transparent 44%),
+      radial-gradient(circle, color-mix(in oklch, var(--primary) 65%, transparent) 0 0.7px, transparent 1px);
+    background-size: 100% 100%, 100% 100%, 4px 4px;
+    -webkit-mask-image: radial-gradient(ellipse at center, #000 15%, transparent 76%);
+    mask-image: radial-gradient(ellipse at center, #000 15%, transparent 76%);
+  }
+
+  .dither-edge-softener,
+  .dither-cta-mask {
+    position: absolute;
+    z-index: 2;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .dither-edge-softener {
+    background: linear-gradient(to bottom, var(--bg) 0%, transparent 35%, transparent 65%, var(--bg) 100%);
+  }
+
+  .dither-cta-mask {
+    background: radial-gradient(circle at center, var(--bg) 0 16%, color-mix(in oklch, var(--bg) 82%, transparent) 34%, transparent 68%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+.problem-card {
+  box-shadow: 0 10px 28px -24px color-mix(in oklch, var(--dark) 35%, transparent);
+}
+
+.problem-card:hover {
+  box-shadow: 0 24px 44px -24px color-mix(in oklch, var(--primary) 45%, transparent);
+}
+
+@keyframes solution-progress {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+
+.solution-progress {
+  animation: solution-progress 6s linear forwards;
+  transform-origin: top;
+}
+
+.solution-progress[data-paused="true"] {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .solution-progress { animation: none; transform: scaleY(1); }
+}
+
+.built-for-featured {
+  box-shadow: 0 20px 50px -32px color-mix(in oklch, var(--dark) 40%, transparent);
+}
+
+
+.resource-featured {
+  box-shadow: 0 20px 50px -32px color-mix(in oklch, var(--dark) 40%, transparent);
+}
+
+.pricing-card:hover {
+  border-color: var(--primary);
+  box-shadow: 0 18px 48px -28px color-mix(in oklch, var(--primary) 65%, transparent);
+}
+
+
+/* Global motion layer */
+.scroll-progress {
+  width: 100%;
+  transform: scaleX(var(--scroll-progress, 0));
+  will-change: transform;
+}
+
+.landing-navbar {
+  transition: border-color 180ms ease-out, box-shadow 180ms ease-out;
+}
+
+.landing-navbar[data-scrolled="true"] {
+  border-color: var(--border);
+  box-shadow: 0 12px 32px -28px color-mix(in oklch, var(--dark) 45%, transparent);
+}
+
+.nav-cta {
+  position: relative;
+  isolation: isolate;
+}
+
+.nav-cta::before {
+  position: absolute;
+  z-index: -1;
+  inset: -2px;
+  border-radius: 999px;
+  padding: 2px;
+  background: conic-gradient(from 0deg, transparent 0 55%, var(--primary) 68%, transparent 80%);
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+.nav-cta:hover::before {
+  opacity: 1;
+  animation: nav-border-sweep 1.2s linear infinite;
+}
+
+@keyframes nav-border-sweep {
+  to { transform: rotate(1turn); }
+}
+
+[data-spotlight] {
+  position: relative;
+  isolation: isolate;
+}
+
+[data-spotlight]::before {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(320px circle at var(--mx, 50%) var(--my, 50%), color-mix(in oklch, var(--primary) 12%, transparent), transparent 65%);
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease-out;
+}
+
+[data-spotlight]:hover::before {
+  opacity: 1;
+}
+
+[data-spotlight] > * {
+  position: relative;
+  z-index: 1;
+}
+
+[data-tilt] {
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.magnetic-button {
+  will-change: transform;
+}
+
+@media (hover: none), (pointer: coarse) {
+  [data-tilt],
+  .magnetic-button {
+    transform: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-navbar,
+  [data-spotlight]::before,
+  .magnetic-button {
+    transition: none;
+  }
+
+  .nav-cta:hover::before {
+    animation: none;
+  }
+
+  [data-tilt],
+  .magnetic-button {
+    transform: none !important;
+  }
+}
+
+
+.workflow-pill {
+  display: flex;
+  height: 44px;
+  align-items: center;
+  border-radius: 999px;
+  background: white;
+  padding-inline: 18px;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  box-shadow: 0 1px 3px color-mix(in oklch, var(--dark) 16%, transparent);
+}
+
+.workflow-node {
+  box-shadow:
+    0 0 0 8px color-mix(in oklch, white 18%, transparent),
+    0 16px 36px color-mix(in oklch, var(--dark) 38%, transparent);
+  animation: workflow-node-pulse 3s ease-in-out infinite;
+}
+
+@keyframes workflow-node-pulse {
+  0%, 100% { box-shadow: 0 0 0 8px color-mix(in oklch, white 16%, transparent), 0 16px 36px color-mix(in oklch, var(--dark) 38%, transparent); }
+  50% { box-shadow: 0 0 0 13px color-mix(in oklch, white 6%, transparent), 0 18px 42px color-mix(in oklch, var(--primary) 38%, transparent); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workflow-node { animation: none; }
+}
+
+.solution-mock-panel {
+  width: 100%;
+  max-height: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 30px 60px -24px color-mix(in oklch, var(--primary) 35%, transparent);
+  color: var(--ink);
+}
+
+/* Landing page visual rhythm */
+body {
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+h1[class] {
+  font-size: clamp(40px, 5.2vw, 64px);
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+}
+
+h2[class] {
+  font-size: clamp(30px, 3.4vw, 44px);
+  font-weight: 500;
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+}
+
+small {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.pricing-card-popular {
+  box-shadow: 0 24px 64px -38px color-mix(in oklch, var(--primary) 55%, transparent);
+}
+
+.footer-link {
+  position: relative;
+  display: inline-block;
+  transition: color 160ms ease-out;
+}
+
+.footer-link::after {
+  position: absolute;
+  right: 0;
+  bottom: -2px;
+  left: 0;
+  height: 1px;
+  background: currentColor;
+  content: "";
+  transform: scaleX(0);
+  transform-origin: right;
+  transition: transform 180ms ease-out;
+}
+
+.footer-link:hover { color: white; }
+.footer-link:hover::after { transform: scaleX(1); transform-origin: left; }
+
+html[data-page-hidden] *,
+html[data-page-hidden] *::before,
+html[data-page-hidden] *::after {
+  animation-play-state: paused !important;
 }

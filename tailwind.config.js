@@ -7,9 +7,21 @@ module.exports = {
   ],
   theme: {
     extend: {
+      colors: {
+        "primary": "var(--primary)",
+        "primary-soft": "var(--primary-soft)",
+        "bg": "var(--bg)",
+        "surface": "var(--surface)",
+        "border": "var(--border)",
+        "ink": "var(--ink)",
+        "muted": "var(--muted)",
+        "dark": "var(--dark)",
+        "on-primary": "var(--on-primary)",
+        "on-dark": "var(--on-dark)",
+      },
       backgroundImage: {
         gradient:
-          "linear-gradient(60deg, #6366F1, #4F46E5, #4338CA, #a166ab, #5073b8, #1098ad, #07b39b, #6fba82)",
+          "linear-gradient(60deg, var(--primary), var(--primary-soft), var(--primary))",
       },
       animation: {
         opacity: "opacity 0.25s ease-in-out",
@@ -61,11 +73,11 @@ module.exports = {
   daisyui: {
     themes: [
       {
-        reachly: {
+        "raasta-ai": {
           "primary": "#6366F1",        // Electric Indigo - main brand color
           "primary-focus": "#4F46E5",  // Darker Indigo for focus states
           "primary-content": "#ffffff", // White text on primary
-          "secondary": "#F9B095",      // No Way Rosé - softer accent
+          "secondary": "#F9B095",      // No Way RosÃ© - softer accent
           "secondary-focus": "#f7a285", // Darker shade for focus
           "secondary-content": "#2F3035", // Dark text on secondary
           "accent": "#E6E4E6",         // Violet Essence - subtle highlight
@@ -96,11 +108,11 @@ module.exports = {
         },
       },
       {
-        "reachly-dark": {
+        "raasta-ai-dark": {
           "primary": "#6366F1",        // Electric Indigo - main brand color
           "primary-focus": "#4F46E5",  // Darker Indigo for focus states
           "primary-content": "#ffffff", // White text on primary
-          "secondary": "#F9B095",      // Keep same No Way Rosé - softer accent
+          "secondary": "#F9B095",      // Keep same No Way RosÃ© - softer accent
           "secondary-focus": "#f7a285", // Darker shade for focus
           "secondary-content": "#1a1a1a", // Dark text on secondary
           "accent": "#E6E4E6",         // Keep same Violet Essence - subtle highlight
@@ -133,3 +145,5 @@ module.exports = {
     ],
   },
 };
+
+

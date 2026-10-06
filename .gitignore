@@ -44,3 +44,11 @@ public/sitemap-0.xml
 
 # cursor
 .cursor/
+
+# local dev verification logs
+.dev-ui.*.log
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/

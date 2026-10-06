@@ -1,4 +1,4 @@
-# Reachly - Background Workflow Scalability Analysis & Recommendations
+# Raasta-AI - Background Workflow Scalability Analysis & Recommendations
 
 **Document Version:** 1.0  
 **Date:** October 21, 2025  
@@ -11,10 +11,10 @@
 
 The current background processing implementation works well for small-scale usage but has **critical bottlenecks** that will prevent scaling beyond 50-100 concurrent users. At the target scale of 500-1000 users, the system will experience:
 
-- 🔴 **Server crashes** due to excessive worker processes (500+ simultaneous)
-- 🔴 **Database connection exhaustion** (500+ connections vs 100 max)
-- 🟠 **High operational costs** from excessive API polling (10,000+ requests/min)
-- 🟠 **Poor performance** due to resource contention
+- ðŸ”´ **Server crashes** due to excessive worker processes (500+ simultaneous)
+- ðŸ”´ **Database connection exhaustion** (500+ connections vs 100 max)
+- ðŸŸ  **High operational costs** from excessive API polling (10,000+ requests/min)
+- ðŸŸ  **Poor performance** due to resource contention
 
 **This document outlines the issues and provides prioritized solutions to achieve production-scale reliability.**
 
@@ -25,22 +25,22 @@ The current background processing implementation works well for small-scale usag
 ### Architecture
 
 ```
-Frontend (React) → API (Next.js) → PostgreSQL Database
-                      ↓
-                  Spawn Worker Process → LinkedIn (Playwright)
-                      ↓
+Frontend (React) â†’ API (Next.js) â†’ PostgreSQL Database
+                      â†“
+                  Spawn Worker Process â†’ LinkedIn (Playwright)
+                      â†“
                   Redis Pub/Sub (control signals)
 ```
 
 ### How It Works
 
-1. User clicks "Run Background" → API creates job in database
+1. User clicks "Run Background" â†’ API creates job in database
 2. API spawns independent Node.js worker process via `child_process.spawn()`
 3. Worker opens Chrome browser (Playwright) and sends LinkedIn invites
 4. Frontend polls job status every 3 seconds
 5. User can pause/cancel via Redis Pub/Sub signals
 
-### What's Good ✅
+### What's Good âœ…
 
 - Background processing (jobs survive browser close)
 - Event-driven control (Redis Pub/Sub for instant pause/cancel)
@@ -52,7 +52,7 @@ Frontend (React) → API (Next.js) → PostgreSQL Database
 
 ## Critical Issues at Scale (500-1000 Users)
 
-### Issue 1: Worker Process Explosion 🔴 **CRITICAL**
+### Issue 1: Worker Process Explosion ðŸ”´ **CRITICAL**
 
 #### Current Approach
 ```javascript
@@ -66,23 +66,23 @@ const worker = spawn('npx', ['tsx', workerPath, jobId], {
 #### Problem at 500 Users
 - **500 concurrent workers** = 500 Node.js processes
 - Each worker runs Playwright (Chrome) = **500 browser instances**
-- **Memory usage**: 500 × 200MB = **100GB RAM minimum**
+- **Memory usage**: 500 Ã— 200MB = **100GB RAM minimum**
 - **CPU**: Severe context switching overhead
 
 #### Impact
-- 🔴 Server crashes at ~50-100 concurrent users
-- 🔴 New jobs cannot start
-- 🔴 Existing jobs crash due to resource starvation
+- ðŸ”´ Server crashes at ~50-100 concurrent users
+- ðŸ”´ New jobs cannot start
+- ðŸ”´ Existing jobs crash due to resource starvation
 
 #### Evidence
 ```
-Current: 50 users × 200MB = 10GB RAM (approaching limit)
-At scale: 500 users × 200MB = 100GB RAM (server crash)
+Current: 50 users Ã— 200MB = 10GB RAM (approaching limit)
+At scale: 500 users Ã— 200MB = 100GB RAM (server crash)
 ```
 
 ---
 
-### Issue 2: Database Connection Pool Exhaustion 🔴 **CRITICAL**
+### Issue 2: Database Connection Pool Exhaustion ðŸ”´ **CRITICAL**
 
 #### Current Approach
 ```javascript
@@ -97,9 +97,9 @@ await db.query.workflowJobs.findFirst(...);
 - Connection pool exhausted at ~50-100 concurrent users
 
 #### Impact
-- 🔴 Workers fail to start: "Error: too many connections"
-- 🔴 Cascading failures across system
-- 🔴 Database becomes unresponsive
+- ðŸ”´ Workers fail to start: "Error: too many connections"
+- ðŸ”´ Cascading failures across system
+- ðŸ”´ Database becomes unresponsive
 
 #### Evidence
 ```
@@ -109,7 +109,7 @@ At scale: 500 workers = 500+ connections (exceeds limit by 5x)
 
 ---
 
-### Issue 3: Excessive API Polling 🟠 **HIGH**
+### Issue 3: Excessive API Polling ðŸŸ  **HIGH**
 
 #### Current Approach
 ```javascript
@@ -120,26 +120,26 @@ setInterval(async () => {
 ```
 
 #### Problem at 500 Users
-- **500 users** × 20 polls/minute = **10,000 API requests/minute**
+- **500 users** Ã— 20 polls/minute = **10,000 API requests/minute**
 - Each poll queries the database
 - **Database load**: 10,000 queries/minute for status checks alone
 - **Vercel costs**: Each poll = 1 function invocation
 
 #### Impact
-- 🟠 High database query load (slow response times)
-- 🟠 Expensive Vercel function invocations ($$$)
-- 🟠 Poor user experience during peak load
+- ðŸŸ  High database query load (slow response times)
+- ðŸŸ  Expensive Vercel function invocations ($$$)
+- ðŸŸ  Poor user experience during peak load
 
 #### Cost Estimate
 ```
-Current (50 users): 1,000 requests/min × 43,200 min/month = 43M requests/month
-At scale (500 users): 10,000 requests/min × 43,200 min/month = 432M requests/month
+Current (50 users): 1,000 requests/min Ã— 43,200 min/month = 43M requests/month
+At scale (500 users): 10,000 requests/min Ã— 43,200 min/month = 432M requests/month
 Vercel cost: ~$200-500/month just for polling
 ```
 
 ---
 
-### Issue 4: Redis Connection Limits 🟡 **MEDIUM**
+### Issue 4: Redis Connection Limits ðŸŸ¡ **MEDIUM**
 
 #### Current Approach
 ```javascript
@@ -149,18 +149,18 @@ const redis = getRedisClient();
 ```
 
 #### Problem at 500 Users
-- **500 workers** × 2 connections = **1,000 Redis connections**
+- **500 workers** Ã— 2 connections = **1,000 Redis connections**
 - Upstash free tier: **1,000 max connections**
 - Performance degrades with many connections
 
 #### Impact
-- 🟡 May hit connection limits on free tier
-- 🟡 Increased Redis Pub/Sub latency
-- 🟡 Requires paid Redis tier
+- ðŸŸ¡ May hit connection limits on free tier
+- ðŸŸ¡ Increased Redis Pub/Sub latency
+- ðŸŸ¡ Requires paid Redis tier
 
 ---
 
-### Issue 5: Session Storage on Disk 🟡 **MEDIUM**
+### Issue 5: Session Storage on Disk ðŸŸ¡ **MEDIUM**
 
 #### Current Approach
 ```javascript
@@ -174,9 +174,9 @@ const sessionPath = `./linkedin-sessions/${accountId}/`;
 - **Vercel/serverless**: No persistent disk (sessions lost on deploy)
 
 #### Impact
-- 🟡 Sessions lost on every deployment
-- 🟡 Disk I/O bottleneck
-- 🟡 Not compatible with serverless architecture
+- ðŸŸ¡ Sessions lost on every deployment
+- ðŸŸ¡ Disk I/O bottleneck
+- ðŸŸ¡ Not compatible with serverless architecture
 
 ---
 
@@ -184,7 +184,7 @@ const sessionPath = `./linkedin-sessions/${accountId}/`;
 
 ---
 
-## Priority 1: CRITICAL (Must Implement) 🔴
+## Priority 1: CRITICAL (Must Implement) ðŸ”´
 
 ### Solution 1.1: Implement Job Queue System (BullMQ)
 
@@ -247,17 +247,17 @@ node workers/queue-worker.js
 ```
 
 #### Benefits
-- ✅ **Controlled concurrency**: 10 workers instead of 500
-- ✅ **Memory**: 10 × 200MB = 2GB (vs 100GB)
-- ✅ **Job persistence**: Survives server restarts
-- ✅ **Automatic retries**: Built-in retry logic
-- ✅ **Rate limiting**: Prevents overload
-- ✅ **Monitoring**: Bull Board dashboard
+- âœ… **Controlled concurrency**: 10 workers instead of 500
+- âœ… **Memory**: 10 Ã— 200MB = 2GB (vs 100GB)
+- âœ… **Job persistence**: Survives server restarts
+- âœ… **Automatic retries**: Built-in retry logic
+- âœ… **Rate limiting**: Prevents overload
+- âœ… **Monitoring**: Bull Board dashboard
 
 #### Impact
 ```
-Before: 500 processes × 200MB = 100GB RAM ❌
-After:  10 processes × 200MB = 2GB RAM ✅
+Before: 500 processes Ã— 200MB = 100GB RAM âŒ
+After:  10 processes Ã— 200MB = 2GB RAM âœ…
 
 Supports: 10,000+ concurrent users
 ```
@@ -271,7 +271,7 @@ Supports: 10,000+ concurrent users
 
 ### Solution 1.2: Database Connection Pooling
 
-**Issue**: Each worker creates DB connections → pool exhaustion
+**Issue**: Each worker creates DB connections â†’ pool exhaustion
 
 #### Implementation Option A: Increase Pool Size
 
@@ -299,9 +299,9 @@ DATABASE_URL=postgresql://user:pass@localhost:6432/db
 ```
 
 #### Benefits
-- ✅ **500 virtual connections** using only **20 real connections**
-- ✅ Prevents "too many connections" errors
-- ✅ Better performance (connection reuse)
+- âœ… **500 virtual connections** using only **20 real connections**
+- âœ… Prevents "too many connections" errors
+- âœ… Better performance (connection reuse)
 
 #### Effort
 - **Option A**: 30 minutes
@@ -309,7 +309,7 @@ DATABASE_URL=postgresql://user:pass@localhost:6432/db
 
 ---
 
-## Priority 2: HIGH (Should Implement) 🟠
+## Priority 2: HIGH (Should Implement) ðŸŸ 
 
 ### Solution 2.1: Replace Polling with Server-Sent Events (SSE)
 
@@ -374,15 +374,15 @@ eventSource.onmessage = (event) => {
 ```
 
 #### Benefits
-- ✅ **Zero polling** → 99% reduction in API calls
-- ✅ **Real-time updates** → Instant UI updates (<100ms)
-- ✅ **Lower costs** → Fewer Vercel function invocations
-- ✅ **Lower DB load** → No status queries
+- âœ… **Zero polling** â†’ 99% reduction in API calls
+- âœ… **Real-time updates** â†’ Instant UI updates (<100ms)
+- âœ… **Lower costs** â†’ Fewer Vercel function invocations
+- âœ… **Lower DB load** â†’ No status queries
 
 #### Impact
 ```
-Before: 10,000 API calls/min × 500 users = 5M calls/min ❌
-After:  500 SSE connections (1 per user) ✅
+Before: 10,000 API calls/min Ã— 500 users = 5M calls/min âŒ
+After:  500 SSE connections (1 per user) âœ…
 
 Cost reduction: ~90% on Vercel function invocations
 DB query reduction: ~99% for status checks
@@ -432,9 +432,9 @@ const subscriber = getRedisSubscriber();
 ```
 
 #### Benefits
-- ✅ **500 workers** → **20 Redis connections** (pooled)
-- ✅ Better performance
-- ✅ Prevents connection limit issues
+- âœ… **500 workers** â†’ **20 Redis connections** (pooled)
+- âœ… Better performance
+- âœ… Prevents connection limit issues
 
 #### Effort
 - **Development**: 2 hours
@@ -443,11 +443,11 @@ const subscriber = getRedisSubscriber();
 
 ---
 
-## Priority 3: MEDIUM (Nice to Have) 🟡
+## Priority 3: MEDIUM (Nice to Have) ðŸŸ¡
 
 ### Solution 3.1: Move LinkedIn Sessions to Redis/S3
 
-**Issue**: Sessions on disk → lost on deploy, I/O bottleneck
+**Issue**: Sessions on disk â†’ lost on deploy, I/O bottleneck
 
 #### Implementation Option A: Redis
 
@@ -471,7 +471,7 @@ import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 export async function saveToS3(accountId, sessionData) {
   const s3 = new S3Client({ region: 'us-east-1' });
   await s3.send(new PutObjectCommand({
-    Bucket: 'reachly-linkedin-sessions',
+    Bucket: 'raasta-ai-linkedin-sessions',
     Key: `${accountId}.json`,
     Body: JSON.stringify(sessionData)
   }));
@@ -479,9 +479,9 @@ export async function saveToS3(accountId, sessionData) {
 ```
 
 #### Benefits
-- ✅ Sessions survive deployments
-- ✅ Works in serverless (Vercel)
-- ✅ No disk I/O bottleneck
+- âœ… Sessions survive deployments
+- âœ… Works in serverless (Vercel)
+- âœ… No disk I/O bottleneck
 
 #### Effort
 - **Option A (Redis)**: 3-4 hours
@@ -491,7 +491,7 @@ export async function saveToS3(accountId, sessionData) {
 
 ### Solution 3.2: Per-Account Rate Limiting
 
-**Issue**: Multiple campaigns using same LinkedIn account → ban risk
+**Issue**: Multiple campaigns using same LinkedIn account â†’ ban risk
 
 #### Implementation
 
@@ -507,8 +507,8 @@ const accountQueue = new Queue(`account-${accountId}`, {
 ```
 
 #### Benefits
-- ✅ Prevents LinkedIn bans
-- ✅ Automatic job queuing per account
+- âœ… Prevents LinkedIn bans
+- âœ… Automatic job queuing per account
 
 #### Effort
 - **Development**: 4 hours
@@ -544,9 +544,9 @@ createBullBoard({
 ```
 
 #### Benefits
-- ✅ Real-time error tracking
-- ✅ Queue monitoring
-- ✅ Performance metrics
+- âœ… Real-time error tracking
+- âœ… Queue monitoring
+- âœ… Performance metrics
 
 #### Effort
 - **Development**: 4 hours
@@ -562,9 +562,9 @@ createBullBoard({
 
 | Task | Priority | Effort | Owner |
 |------|----------|--------|-------|
-| Implement BullMQ job queue | 🔴 Critical | 2-3 days | Backend |
-| Add DB connection pooling | 🔴 Critical | 4 hours | Backend |
-| Test with 100 concurrent users | 🔴 Critical | 1 day | QA |
+| Implement BullMQ job queue | ðŸ”´ Critical | 2-3 days | Backend |
+| Add DB connection pooling | ðŸ”´ Critical | 4 hours | Backend |
+| Test with 100 concurrent users | ðŸ”´ Critical | 1 day | QA |
 
 **Deliverable**: System handles 500+ users without crashes
 
@@ -575,9 +575,9 @@ createBullBoard({
 
 | Task | Priority | Effort | Owner |
 |------|----------|--------|-------|
-| Replace polling with SSE | 🟠 High | 1-2 days | Frontend/Backend |
-| Redis connection pooling | 🟠 High | 3-4 hours | Backend |
-| Test with 500 concurrent users | 🟠 High | 1 day | QA |
+| Replace polling with SSE | ðŸŸ  High | 1-2 days | Frontend/Backend |
+| Redis connection pooling | ðŸŸ  High | 3-4 hours | Backend |
+| Test with 500 concurrent users | ðŸŸ  High | 1 day | QA |
 
 **Deliverable**: 90% cost reduction, real-time updates
 
@@ -588,9 +588,9 @@ createBullBoard({
 
 | Task | Priority | Effort | Owner |
 |------|----------|--------|-------|
-| Move sessions to Redis/S3 | 🟡 Medium | 4-6 hours | Backend |
-| Per-account rate limiting | 🟡 Medium | 6 hours | Backend |
-| Add monitoring (Sentry, Bull Board) | 🟡 Medium | 6 hours | DevOps |
+| Move sessions to Redis/S3 | ðŸŸ¡ Medium | 4-6 hours | Backend |
+| Per-account rate limiting | ðŸŸ¡ Medium | 6 hours | Backend |
+| Add monitoring (Sentry, Bull Board) | ðŸŸ¡ Medium | 6 hours | DevOps |
 
 **Deliverable**: Monitoring, alerting, edge case handling
 
@@ -600,16 +600,16 @@ createBullBoard({
 
 | Metric | Current | After Phase 1 | After Phase 2 | After Phase 3 |
 |--------|---------|---------------|---------------|---------------|
-| **Max concurrent users** | 50-100 ❌ | 500+ ✅ | 1,000+ ✅ | 10,000+ ✅ |
+| **Max concurrent users** | 50-100 âŒ | 500+ âœ… | 1,000+ âœ… | 10,000+ âœ… |
 | **Worker processes** | 1 per user | 10 pooled | 10 pooled | 10 pooled |
-| **Memory (500 users)** | 100GB ❌ | 2GB ✅ | 2GB ✅ | 2GB ✅ |
-| **DB connections** | 500+ ❌ | 20-50 ✅ | 20-50 ✅ | 20-50 ✅ |
-| **Redis connections** | 1000+ ⚠️ | 100 ✅ | 50 ✅ | 50 ✅ |
-| **API calls (polling)** | 10K/min ⚠️ | 10K/min ⚠️ | ~0 ✅ | ~0 ✅ |
-| **Monthly cost (Vercel)** | $200-500 💰 | $200-500 💰 | $20-50 ✅ | $20-50 ✅ |
-| **Job persistence** | No ❌ | Yes ✅ | Yes ✅ | Yes ✅ |
-| **Auto-retry** | No ❌ | Yes ✅ | Yes ✅ | Yes ✅ |
-| **Monitoring** | Basic ⚠️ | Basic ⚠️ | Basic ⚠️ | Advanced ✅ |
+| **Memory (500 users)** | 100GB âŒ | 2GB âœ… | 2GB âœ… | 2GB âœ… |
+| **DB connections** | 500+ âŒ | 20-50 âœ… | 20-50 âœ… | 20-50 âœ… |
+| **Redis connections** | 1000+ âš ï¸ | 100 âœ… | 50 âœ… | 50 âœ… |
+| **API calls (polling)** | 10K/min âš ï¸ | 10K/min âš ï¸ | ~0 âœ… | ~0 âœ… |
+| **Monthly cost (Vercel)** | $200-500 ðŸ’° | $200-500 ðŸ’° | $20-50 âœ… | $20-50 âœ… |
+| **Job persistence** | No âŒ | Yes âœ… | Yes âœ… | Yes âœ… |
+| **Auto-retry** | No âŒ | Yes âœ… | Yes âœ… | Yes âœ… |
+| **Monitoring** | Basic âš ï¸ | Basic âš ï¸ | Basic âš ï¸ | Advanced âœ… |
 
 ---
 
@@ -618,22 +618,22 @@ createBullBoard({
 ### What Happens If We Don't Fix This?
 
 #### At 50 Users (Current Limit)
-- ⚠️ System starts slowing down
-- ⚠️ Occasional "too many connections" errors
-- ⚠️ High server CPU usage
+- âš ï¸ System starts slowing down
+- âš ï¸ Occasional "too many connections" errors
+- âš ï¸ High server CPU usage
 
 #### At 100 Users
-- 🔴 **Server crashes** or becomes unresponsive
-- 🔴 **Database connection errors** for all users
-- 🔴 **New jobs fail to start**
-- 🔴 **Existing jobs crash mid-execution**
-- 🔴 **Users cannot use the platform**
+- ðŸ”´ **Server crashes** or becomes unresponsive
+- ðŸ”´ **Database connection errors** for all users
+- ðŸ”´ **New jobs fail to start**
+- ðŸ”´ **Existing jobs crash mid-execution**
+- ðŸ”´ **Users cannot use the platform**
 
 #### At 500-1000 Users (Target Scale)
-- 🔴 **Complete system failure**
-- 🔴 **Data loss** (jobs not completing)
-- 🔴 **Reputation damage** (user complaints)
-- 🔴 **Revenue loss** (users churn)
+- ðŸ”´ **Complete system failure**
+- ðŸ”´ **Data loss** (jobs not completing)
+- ðŸ”´ **Reputation damage** (user complaints)
+- ðŸ”´ **Revenue loss** (users churn)
 
 ---
 
@@ -651,15 +651,15 @@ createBullBoard({
 ### Return on Investment
 
 #### Cost Savings (Monthly)
-- **Vercel function invocations**: -$180/month (polling → SSE)
+- **Vercel function invocations**: -$180/month (polling â†’ SSE)
 - **Redis tier upgrade avoided**: -$50/month (connection pooling)
 - **Total monthly savings**: **$230/month**
 
 **Payback period**: ~35 months
 
 #### Revenue Impact
-- **Supports 10x more users**: 50 → 500+ users
-- **If ARPU = $50/month**: 450 new users × $50 = **+$22,500/month**
+- **Supports 10x more users**: 50 â†’ 500+ users
+- **If ARPU = $50/month**: 450 new users Ã— $50 = **+$22,500/month**
 - **Annual revenue increase**: **$270,000/year**
 
 **ROI**: **3,375%** (first year)
@@ -670,10 +670,10 @@ createBullBoard({
 
 ### Immediate Actions (This Week)
 
-1. ✅ **Approve Phase 1 budget** ($3,200-$4,000)
-2. ✅ **Assign backend developer** to implement BullMQ
-3. ✅ **Schedule testing window** (1 day) with 100 simulated users
-4. ✅ **Create monitoring dashboard** for current system metrics
+1. âœ… **Approve Phase 1 budget** ($3,200-$4,000)
+2. âœ… **Assign backend developer** to implement BullMQ
+3. âœ… **Schedule testing window** (1 day) with 100 simulated users
+4. âœ… **Create monitoring dashboard** for current system metrics
 
 ### Next Steps (After Approval)
 
@@ -699,20 +699,20 @@ createBullBoard({
 The current implementation is **well-designed for small scale** but has **critical bottlenecks** that prevent scaling beyond 50-100 users.
 
 ### Without Fixes
-- 🔴 System fails at 100+ concurrent users
-- 🔴 Cannot support 500-1000 target scale
-- 🔴 Revenue growth blocked by technical limitations
+- ðŸ”´ System fails at 100+ concurrent users
+- ðŸ”´ Cannot support 500-1000 target scale
+- ðŸ”´ Revenue growth blocked by technical limitations
 
 ### With Phase 1 Fixes (Critical)
-- ✅ Supports 500+ concurrent users
-- ✅ System stable and reliable
-- ✅ Unblocks revenue growth
+- âœ… Supports 500+ concurrent users
+- âœ… System stable and reliable
+- âœ… Unblocks revenue growth
 
 ### With All Phases
-- ✅ Supports 10,000+ concurrent users
-- ✅ 90% cost reduction
-- ✅ Production-grade monitoring
-- ✅ Competitive advantage (real-time updates)
+- âœ… Supports 10,000+ concurrent users
+- âœ… 90% cost reduction
+- âœ… Production-grade monitoring
+- âœ… Competitive advantage (real-time updates)
 
 **Recommendation**: **Approve and prioritize Phase 1 immediately.** The $3,200-$4,000 investment prevents catastrophic failure and enables $270,000/year revenue growth.
 
@@ -723,21 +723,21 @@ The current implementation is **well-designed for small scale** but has **critic
 ### A. BullMQ Architecture Diagram
 
 ```
-User Request → API → Add Job to Redis Queue
-                          ↓
+User Request â†’ API â†’ Add Job to Redis Queue
+                          â†“
                     [Redis Queue]
-                          ↓
-            ┌─────────────┼─────────────┐
-            ▼             ▼             ▼
+                          â†“
+            â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+            â–¼             â–¼             â–¼
        Worker 1      Worker 2      Worker 10
-            ↓             ↓             ↓
+            â†“             â†“             â†“
        LinkedIn      LinkedIn      LinkedIn
     (Playwright)  (Playwright)  (Playwright)
-            ↓             ↓             ↓
+            â†“             â†“             â†“
        Update DB     Update DB     Update DB
-            ↓             ↓             ↓
+            â†“             â†“             â†“
       Publish SSE   Publish SSE   Publish SSE
-            ↓             ↓             ↓
+            â†“             â†“             â†“
        Frontend      Frontend      Frontend
 ```
 
@@ -745,26 +745,26 @@ User Request → API → Add Job to Redis Queue
 
 ```
 500 Workers
-     ↓
+     â†“
 PgBouncer (Connection Pooler)
-     ↓
+     â†“
 20 Real PostgreSQL Connections
-     ↓
+     â†“
 PostgreSQL Database
 
-Efficiency: 500 virtual → 20 real (25x multiplier)
+Efficiency: 500 virtual â†’ 20 real (25x multiplier)
 ```
 
 ### C. SSE vs Polling Comparison
 
 ```
 Polling (Current):
-500 users × 20 requests/min = 10,000 requests/min
+500 users Ã— 20 requests/min = 10,000 requests/min
 Annual requests: 5.2 billion
 Vercel cost: $200-500/month
 
 SSE (Proposed):
-500 users × 1 connection = 500 concurrent connections
+500 users Ã— 1 connection = 500 concurrent connections
 Annual requests: ~500 (initial connection only)
 Vercel cost: $20-50/month
 
@@ -774,10 +774,11 @@ Savings: 90% reduction
 ---
 
 **Document prepared by**: AI Technical Architect  
-**For review by**: Reachly Engineering Team  
-**Next steps**: Team discussion → Approval → Implementation
+**For review by**: Raasta-AI Engineering Team  
+**Next steps**: Team discussion â†’ Approval â†’ Implementation
 
 ---
 
 **Questions or concerns?** Contact the technical lead for clarification.
+
 
