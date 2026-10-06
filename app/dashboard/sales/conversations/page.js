@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import toast from "react-hot-toast";
-import { Building2, Hand, Inbox, Loader2, MailCheck, RefreshCw, User } from "lucide-react";
+import { CalendarCheck, Hand, Inbox, Loader2, MailCheck, MessagesSquare, RefreshCw, Search, Send } from "lucide-react";
 import SalesStageShell from "@/components/sales/SalesStageShell";
-import ConversationThread from "@/components/sales/conversations/ConversationThread";
+import ConversationThread, { Avatar } from "@/components/sales/conversations/ConversationThread";
 import { CLOSED_STATUSES, CONVERSATION_STATUS, INTENT_LABELS, conversationLabel } from "@/libs/sales/conversation/status";
 
 const FILTERS = [
@@ -26,13 +26,72 @@ function matches(c, filter) {
   return true;
 }
 
-const ago = (d) => {
+const STATUS_DOT = {
+  awaiting_reply: "bg-base-content/30",
+  replied: "bg-info",
+  in_conversation: "bg-info",
+  meeting_proposed: "bg-warning",
+  meeting_booked: "bg-success",
+  not_interested: "bg-base-content/20",
+  unsubscribed: "bg-base-content/20",
+  no_response: "bg-base-content/20",
+};
+
+function ago(d) {
   if (!d) return "";
   const m = Math.round((Date.now() - new Date(d).getTime()) / 60000);
-  if (m < 60) return `${Math.max(1, m)}m`;
+  if (m < 1) return "now";
+  if (m < 60) return `${m}m`;
   if (m < 60 * 24) return `${Math.round(m / 60)}h`;
-  return `${Math.round(m / 1440)}d`;
-};
+  if (m < 60 * 24 * 7) return `${Math.round(m / 1440)}d`;
+  return new Date(d).toLocaleDateString([], { day: "numeric", month: "short" });
+}
+
+function Stat({ icon: Icon, label, value, tone = "", active, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-xl border bg-base-100 px-4 py-3 text-left transition-colors ${active ? "border-primary ring-1 ring-primary/30" : "border-base-300 hover:border-primary/40"}`}
+    >
+      <p className="flex items-center gap-1.5 text-xs font-medium text-base-content/55"><Icon className="h-3.5 w-3.5" /> {label}</p>
+      <p className={`mt-1 text-2xl font-semibold tabular-nums ${tone}`}>{value}</p>
+    </button>
+  );
+}
+
+function ConversationItem({ c, selected, showCampaign, onSelect }) {
+  const s = conversationLabel(c.status);
+  const name = c.company || c.name || "Unknown";
+  const preview = c.lastMessage
+    ? `${c.lastMessage.status === "draft" ? "Draft: " : c.lastMessage.direction === "out" ? "You: " : ""}${c.lastMessage.preview.replace(/\s+/g, " ")}`
+    : "";
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onSelect}
+        className={`relative flex w-full gap-3 px-4 py-3 text-left transition-colors ${selected ? "bg-primary/[0.07]" : "hover:bg-base-200/60"}`}
+      >
+        {selected && <span className="absolute inset-y-0 left-0 w-0.5 bg-primary" aria-hidden />}
+        <Avatar name={name} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-2">
+            <span className={`flex-1 truncate text-sm ${c.needsYou ? "font-semibold" : "font-medium"}`}>{name}</span>
+            <span className="shrink-0 text-[11px] text-base-content/45">{ago(c.lastMessage?.at)}</span>
+          </div>
+          <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-base-content/60">
+            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATUS_DOT[c.status] || "bg-base-content/30"}`} />
+            <span className="truncate">{s.label}{c.intent ? ` · ${INTENT_LABELS[c.intent] || c.intent}` : ""}</span>
+          </div>
+          <p className={`mt-1 truncate text-xs ${c.needsYou ? "text-base-content/80" : "text-base-content/50"}`}>{preview}</p>
+          {showCampaign && <p className="mt-0.5 truncate text-[10px] uppercase tracking-wide text-base-content/35">{c.campaignName}</p>}
+        </div>
+        {c.needsYou && <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-warning" title="Needs you" />}
+      </button>
+    </li>
+  );
+}
 
 function Conversations({ campaigns }) {
   const router = useRouter();
@@ -41,6 +100,7 @@ function Conversations({ campaigns }) {
   const selected = searchParams.get("lead");
   const campaignId = searchParams.get("campaign") || "";
   const [filter, setFilter] = useState("all");
+  const [query, setQueryText] = useState("");
   const [data, setData] = useState(null);
   const [syncing, setSyncing] = useState(false);
 
@@ -56,11 +116,11 @@ function Conversations({ campaigns }) {
     return () => clearInterval(timer);
   }, [load]);
 
-  const setQuery = (changes) => {
+  const setQuery = useCallback((changes) => {
     const params = new URLSearchParams(searchParams.toString());
     Object.entries(changes).forEach(([k, v]) => (v ? params.set(k, v) : params.delete(k)));
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-  };
+  }, [pathname, router, searchParams]);
 
   const sync = async () => {
     setSyncing(true);
@@ -77,84 +137,101 @@ function Conversations({ campaigns }) {
     }
   };
 
-  const list = useMemo(() => (data?.conversations || []).filter((c) => matches(c, filter)), [data, filter]);
-  const counts = useMemo(() => Object.fromEntries(FILTERS.map((f) => [f.key, (data?.conversations || []).filter((c) => matches(c, f.key)).length])), [data]);
+  const all = useMemo(() => data?.conversations || [], [data]);
+  const counts = useMemo(() => Object.fromEntries(FILTERS.map((f) => [f.key, all.filter((c) => matches(c, f.key)).length])), [all]);
+  const list = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return all.filter((c) => matches(c, filter)).filter((c) => !q || [c.company, c.name, c.lastMessage?.preview, c.campaignName].some((v) => String(v || "").toLowerCase().includes(q)));
+  }, [all, filter, query]);
+
+  // Open the first conversation (the one that needs you, if any) instead of an empty pane
+  useEffect(() => {
+    if (!data || selected || !all.length) return;
+    const first = all.find((c) => c.needsYou) || all[0];
+    setQuery({ lead: first.leadId });
+  }, [data, selected, all, setQuery]);
+
   const inbox = data?.inbox;
+  const sentCount = all.length;
+  const repliedCount = counts.replied;
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <select className="select select-bordered select-sm" value={campaignId} onChange={(e) => setQuery({ campaign: e.target.value, lead: null })}>
-            <option value="">All campaigns</option>
-            {campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-          <div role="tablist" className="tabs tabs-boxed tabs-sm">
-            {FILTERS.map((f) => (
-              <button key={f.key} role="tab" className={`tab gap-1 ${filter === f.key ? "tab-active" : ""}`} onClick={() => setFilter(f.key)}>
-                {f.label}{counts[f.key] > 0 && <span className={`badge badge-xs ${f.key === "needs_you" ? "badge-warning" : "badge-ghost"}`}>{counts[f.key]}</span>}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="flex items-center gap-2 text-xs text-base-content/60">
+    <div className="space-y-5">
+      {/* Overview: each tile filters the inbox */}
+      {data && <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Stat icon={Send} label="Emailed" value={sentCount} active={filter === "all"} onClick={() => setFilter("all")} />
+        <Stat icon={Hand} label="Needs you" value={counts.needs_you} tone={counts.needs_you ? "text-warning" : ""} active={filter === "needs_you"} onClick={() => setFilter("needs_you")} />
+        <Stat icon={MessagesSquare} label="Replied" value={sentCount ? `${repliedCount} · ${Math.round((repliedCount / sentCount) * 100)}%` : 0} active={filter === "replied"} onClick={() => setFilter("replied")} />
+        <Stat icon={CalendarCheck} label="Meetings" value={counts.meetings} tone={counts.meetings ? "text-success" : ""} active={filter === "meetings"} onClick={() => setFilter("meetings")} />
+      </div>}
+
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-3">
+        <select className="select select-bordered select-sm w-full sm:w-64" value={campaignId} onChange={(e) => setQuery({ campaign: e.target.value, lead: null })}>
+          <option value="">All campaigns</option>
+          {campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        <label className="input input-bordered input-sm flex flex-1 items-center gap-2 sm:max-w-xs">
+          <Search className="h-3.5 w-3.5 opacity-50" />
+          <input className="grow" placeholder="Search company or message" value={query} onChange={(e) => setQueryText(e.target.value)} />
+        </label>
+        <div className="ml-auto flex items-center gap-2">
           {inbox?.configured ? (
-            <span className="flex items-center gap-1"><MailCheck className="h-3.5 w-3.5" /> Watching {inbox.address}{inbox.lastSyncAt && `, checked ${ago(inbox.lastSyncAt)} ago`}</span>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-base-300 bg-base-100 px-3 py-1 text-xs text-base-content/65" title={`Replies are read from ${inbox.address} every 2 minutes`}>
+              <span className="h-1.5 w-1.5 rounded-full bg-success" />
+              <MailCheck className="h-3.5 w-3.5" /> {inbox.address}
+              {inbox.lastSyncAt && <span className="text-base-content/45">· checked {ago(inbox.lastSyncAt) === "now" ? "just now" : `${ago(inbox.lastSyncAt)} ago`}</span>}
+            </span>
           ) : inbox ? (
-            <span className="text-warning">No mailbox set up: replies can&apos;t be read (SENDER_EMAIL / SENDER_PASSWORD)</span>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-warning/40 bg-warning/10 px-3 py-1 text-xs text-warning">No mailbox set up: replies can&apos;t be read</span>
           ) : null}
-          <button className="btn btn-outline btn-xs gap-1" disabled={syncing || inbox?.configured === false} onClick={sync}>
-            {syncing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />} Check now
+          <button className="btn btn-ghost btn-sm btn-square" title="Check for replies now" disabled={syncing || inbox?.configured === false} onClick={sync}>
+            {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
           </button>
         </div>
       </div>
 
       {!data ? (
         <div className="flex justify-center py-16"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>
-      ) : !data.conversations.length ? (
-        <div className="rounded-xl border border-dashed border-base-300 p-10 text-center">
-          <Inbox className="h-8 w-8 mx-auto opacity-40" />
-          <p className="font-semibold mt-2">No conversations yet</p>
-          <p className="text-sm text-base-content/60">Once a lead has been emailed, its thread shows up here, and their replies arrive within a couple of minutes.</p>
+      ) : !all.length ? (
+        <div className="rounded-xl border border-dashed border-base-300 p-12 text-center">
+          <Inbox className="mx-auto h-9 w-9 opacity-40" />
+          <p className="mt-3 font-semibold">No conversations yet</p>
+          <p className="mx-auto mt-1 max-w-md text-sm text-base-content/60">Once a company has been emailed, its thread shows up here. Their replies arrive within a couple of minutes, and the agent answers them from your knowledge base.</p>
         </div>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-[22rem_1fr] items-start">
-          <ul className="rounded-xl border border-base-300 bg-base-100 divide-y divide-base-300 max-h-[75vh] overflow-y-auto">
-            {list.length === 0 && <li className="p-4 text-sm text-base-content/60">Nothing here.</li>}
-            {list.map((c) => {
-              const s = conversationLabel(c.status);
-              const Icon = c.source === "linkedin" ? User : Building2;
-              return (
-                <li key={c.leadId}>
-                  <button className={`w-full text-left p-3 hover:bg-base-200 ${selected === c.leadId ? "bg-primary/5 border-l-4 border-primary" : ""}`} onClick={() => setQuery({ lead: c.leadId })}>
-                    <div className="flex items-center gap-2">
-                      <Icon className="h-4 w-4 opacity-50 shrink-0" />
-                      <span className="font-medium text-sm truncate flex-1">{c.company || c.name}</span>
-                      {c.needsYou && <Hand className="h-3.5 w-3.5 text-warning shrink-0" title="Needs you" />}
-                      <span className="text-xs text-base-content/50">{ago(c.lastMessage?.at)}</span>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                      <span className={`badge badge-xs ${s.tone}`}>{s.label}</span>
-                      {c.intent && <span className="badge badge-xs badge-outline">{INTENT_LABELS[c.intent] || c.intent}</span>}
-                    </div>
-                    {c.lastMessage && (
-                      <p className="text-xs text-base-content/60 mt-1 line-clamp-2">
-                        {c.lastMessage.status === "draft" ? "Draft: " : c.lastMessage.direction === "out" ? "You: " : ""}{c.lastMessage.preview}
-                      </p>
-                    )}
-                    {!campaignId && <p className="text-[11px] text-base-content/40 mt-0.5 truncate">{c.campaignName}</p>}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-          <section className="rounded-xl border border-base-300 bg-base-100 p-4 min-h-[20rem]">
+        <div className="grid overflow-hidden rounded-xl border border-base-300 bg-base-100 shadow-sm lg:h-[calc(100vh-17rem)] lg:min-h-[34rem] lg:grid-cols-[22rem_1fr]">
+          {/* List */}
+          <aside className="flex min-h-0 flex-col border-b border-base-300 lg:border-b-0 lg:border-r">
+            <div className="flex gap-4 overflow-x-auto border-b border-base-300 px-4">
+              {FILTERS.map((f) => (
+                <button
+                  key={f.key}
+                  type="button"
+                  onClick={() => setFilter(f.key)}
+                  className={`-mb-px flex shrink-0 items-center gap-1 border-b-2 py-2.5 text-xs font-medium transition-colors ${filter === f.key ? "border-primary text-primary" : "border-transparent text-base-content/55 hover:text-base-content"}`}
+                >
+                  {f.label}
+                  {counts[f.key] > 0 && <span className={`tabular-nums ${f.key === "needs_you" && filter !== f.key ? "text-warning" : "opacity-60"}`}>{counts[f.key]}</span>}
+                </button>
+              ))}
+            </div>
+            <ul className="min-h-0 flex-1 divide-y divide-base-200 overflow-y-auto max-lg:max-h-80">
+              {list.length === 0 && <li className="p-6 text-center text-sm text-base-content/50">{query ? "No match." : "Nothing here."}</li>}
+              {list.map((c) => (
+                <ConversationItem key={c.leadId} c={c} selected={selected === c.leadId} showCampaign={!campaignId} onSelect={() => setQuery({ lead: c.leadId })} />
+              ))}
+            </ul>
+          </aside>
+
+          {/* Thread */}
+          <section className="flex min-h-[28rem] min-w-0 flex-col lg:min-h-0">
             {selected ? (
-              <ConversationThread leadId={selected} onChanged={load} />
+              <ConversationThread key={selected} leadId={selected} onChanged={load} />
             ) : (
-              <div className="flex flex-col items-center justify-center text-center py-16 text-base-content/60">
-                <Inbox className="h-8 w-8 opacity-40" />
-                <p className="text-sm mt-2">Choose a conversation.</p>
+              <div className="flex flex-1 flex-col items-center justify-center text-center text-base-content/50">
+                <MessagesSquare className="h-9 w-9 opacity-40" />
+                <p className="mt-2 text-sm">Choose a conversation.</p>
               </div>
             )}
           </section>
@@ -164,6 +241,14 @@ function Conversations({ campaigns }) {
   );
 }
 
+function ConversationsWithCampaigns() {
+  const [campaigns, setCampaigns] = useState([]);
+  useEffect(() => {
+    fetch("/api/campaigns").then((r) => r.json()).then((d) => setCampaigns(d.campaigns || [])).catch(() => {});
+  }, []);
+  return <Conversations campaigns={campaigns} />;
+}
+
 // Step 6: replies from leads, answered from the knowledge base
 export default function ConversationsPage() {
   return (
@@ -171,12 +256,4 @@ export default function ConversationsPage() {
       {() => <ConversationsWithCampaigns />}
     </SalesStageShell>
   );
-}
-
-function ConversationsWithCampaigns() {
-  const [campaigns, setCampaigns] = useState([]);
-  useEffect(() => {
-    fetch("/api/campaigns").then((r) => r.json()).then((d) => setCampaigns(d.campaigns || [])).catch(() => {});
-  }, []);
-  return <Conversations campaigns={campaigns} />;
 }

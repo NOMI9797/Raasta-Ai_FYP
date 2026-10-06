@@ -280,6 +280,7 @@ automated test that now repeats it.
 | 9 | Screens | Opened Conversations, Meetings and Knowledge base in the browser | All render with live data: thread, meeting banner, booked meeting card, knowledge entries and Ask box | (visual check) |
 | 10 | Sales agent page redesign | Opened Sales agent in the browser with one paused Auto run and one finished run | Summary strip (1 working, 17 awaiting you, 2 contacted, 1 reply, 1 meeting), approval callout with Review button, step tracker, stat tiles; the earlier run shows as one row and expands on click | (visual check) |
 | 11 | Outreach › Indeed (companies) | Opened Outreach for "Indeed Test Campaign" (20 companies) | Stats (0 ready, 0 / 2 sent today, 1 waiting), test-mode and agent notices, filters "Not approved yet 19" and "Waiting for reply 1", 19 rows marked "Needs an address" with "Agent is asking you" | `outreach.integration` (board statuses) + visual check |
+| 12 | Conversations page redesign | Opened Conversations (all campaigns: Zoho and ABS threads) in the browser | Stat tiles (2 emailed, 0 needs you, 1 replied · 50%, 1 meeting) that filter the inbox; split pane with avatars, status dots and previews; the first conversation opens by itself; thread header, meeting banner, email-style messages with day separators, newest at the bottom; reply box pinned at the bottom. Found and fixed: faint avatar initials, times shown as "0:02", "checked now ago" | (visual check) |
 
 ## Problems the tests found and fixed
 
