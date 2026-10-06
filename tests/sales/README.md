@@ -4,7 +4,7 @@ Automated tests for the Client Acquisition (Sales) module: lead collection, rese
 agent, the knowledge base (RAG), replies, follow-ups and meetings. Every check that was first done
 by hand during development is also kept here as a repeatable test.
 
-**127 test cases in 17 files. Latest run: 122 passed, 0 failed, 5 live checks skipped by default (they pass when run with `npm run test:sales:live`).**
+**135 test cases in 19 files. Latest run: 130 passed, 0 failed, 5 live checks skipped by default (they pass when run with `npm run test:sales:live`).**
 
 ## How to run
 
@@ -40,12 +40,14 @@ npm run test:sales:live          # real Gmail, Groq, Indeed and the embedding mo
 | `meetings.test.js` | Unit | 9 | Time zones, free slots, calendar invites |
 | `message-writer.test.js` | Unit | 5 | AI message writing |
 | `outreach.test.js` | Unit | 3 | Where each company stands on the Outreach step |
+| `results.test.js` | Unit | 7 | Results: KPIs, funnel, activity, intents, outcomes, lead quality |
 | `agent-flow.integration.test.js` | Integration | 4 | Agent outreach end to end |
 | `conversation-flow.integration.test.js` | Integration | 9 | Replies, answers, meetings, follow-ups end to end |
 | `knowledge-search.integration.test.js` | Integration | 13 | Retrieval quality with real embeddings and pgvector |
 | `outreach.integration.test.js` | Integration | 3 | Sending company emails by hand: limit, thread, agent hand-off |
+| `results.integration.test.js` | Integration | 1 | Results from a campaign's real emails, replies and meetings |
 | `live-services.test.js` | Live | 5 | Gmail SMTP/IMAP, Groq, Indeed, embedding model |
-| **Total** | | **127** | |
+| **Total** | | **135** | |
 
 ## Every test case
 
@@ -227,6 +229,24 @@ Integration (database) · Sending first emails by hand on the Outreach step
 - sending by hand: approves drafts, starts the thread, stops at the daily limit
 - a failed send is recorded, and an email without an address isn't tried
 
+### `results.test.js` (7)
+
+Unit · Results (step 8): numbers computed from leads, threads and meetings
+
+- KPIs: contacted, reply rate, meetings, follow-ups, time to reply
+- company funnel with the share of all leads and of the step before
+- only booked meetings count, not offered times
+- activity per day covers the window, counting sent emails and replies
+- reply intents, outcomes of contacted leads, and lead quality
+- LinkedIn people get the person funnel, and platforms are compared
+- no leads, no division by zero
+
+### `results.integration.test.js` (1)
+
+Integration (database) · Results from a real campaign
+
+- results add up a campaign's emails, replies and meetings
+
 ### `live-services.test.js` (5)
 
 Live (opt-in) · Real Gmail SMTP/IMAP, Groq AI, Indeed via JobSpy, embedding model
@@ -281,6 +301,7 @@ automated test that now repeats it.
 | 10 | Sales agent page redesign | Opened Sales agent in the browser with one paused Auto run and one finished run | Summary strip (1 working, 17 awaiting you, 2 contacted, 1 reply, 1 meeting), approval callout with Review button, step tracker, stat tiles; the earlier run shows as one row and expands on click | (visual check) |
 | 11 | Outreach › Indeed (companies) | Opened Outreach for "Indeed Test Campaign" (20 companies) | Stats (0 ready, 0 / 2 sent today, 1 waiting), test-mode and agent notices, filters "Not approved yet 19" and "Waiting for reply 1", 19 rows marked "Needs an address" with "Agent is asking you" | `outreach.integration` (board statuses) + visual check |
 | 12 | Conversations page redesign | Opened Conversations (all campaigns: Zoho and ABS threads) in the browser | Stat tiles (2 emailed, 0 needs you, 1 replied · 50%, 1 meeting) that filter the inbox; split pane with avatars, status dots and previews; the first conversation opens by itself; thread header, meeting banner, email-style messages with day separators, newest at the bottom; reply box pinned at the bottom. Found and fixed: faint avatar initials, times shown as "0:02", "checked now ago" | (visual check) |
+| 13 | Results page redesign | Opened Results › Indeed for "Agent Test - Indeed Semi-auto" (dark theme) | 6 KPIs (4 companies, 1 contacted, 100% reply rate, 1 meeting, 57 min to reply, 0 follow-ups), funnel Found 4 → Researched 2 → Good fit 1 → … → Meeting 1 with step conversion, 14-day activity chart, reply intents, outcomes, lead quality. Found and fixed: the "Poor" fit bar had no colour (class name defined outside Tailwind's scanned folders) | `results.test`, `results.integration` + visual check |
 
 ## Problems the tests found and fixed
 
@@ -294,5 +315,7 @@ automated test that now repeats it.
   email a company already emailed from another campaign without asking. This is now a test of its own.
 - **Bulk sending order.** The outreach test showed that when the daily limit cut a batch short, which
   companies were left for tomorrow depended on database order. Emails now go out in the order chosen.
+- **Missing chart colours.** The Results browser check showed an empty "Poor" bar: the colour class
+  was written in `libs/`, which Tailwind doesn't scan, so it was never generated. Colours now live in the page.
 - **Reply subjects** could keep the "[TEST]" tag ("Re: [TEST] …"), and a removed placeholder left a
   double space. Both were fixed when the unit tests caught them.
