@@ -4,6 +4,7 @@
 // SALES_EMAIL_TEST_RECIPIENT: while testing, every sales email goes to this address instead of the
 // company, with a note saying who it was meant for. Remove it to send to real recipients.
 // Relative imports only (runs in the worker).
+import { randomUUID } from "crypto";
 import { deliverEmail } from "../../hiring/emails";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -58,12 +59,19 @@ async function smtpTransport() {
   return transporter;
 }
 
+/** A Message-ID we choose, so replies can be matched to this email: <uuid@sender-domain> */
+export function newMessageId() {
+  const domain = String(process.env.SENDER_EMAIL || "").split("@")[1] || "raasta.local";
+  return `<${randomUUID()}@${domain}>`;
+}
+
 /**
- * Send one sales email.
- * @returns {{ delivered: "smtp"|"outbox", to: string, intendedTo: string, redirected: boolean, messageId?: string, file?: string }}
+ * Send one sales email. `inReplyTo` / `references` (Message-IDs) keep a reply in the client's thread;
+ * `calendar` ({ method, content } from meetings/ics.js) attaches a calendar invite.
+ * @returns {{ delivered: "smtp"|"outbox", to: string, intendedTo: string, redirected: boolean, messageId: string, file?: string }}
  * Throws on an invalid address or a failed send (the caller records it and may retry).
  */
-export async function sendSalesEmail({ to, subject, body, senderName }, { transport } = {}) {
+export async function sendSalesEmail({ to, subject, body, senderName, inReplyTo = null, references = null, calendar = null }, { transport } = {}) {
   const intendedTo = String(to || "").trim();
   if (!isEmailAddress(intendedTo)) throw new Error(`Not a valid email address: ${intendedTo || "(empty)"}`);
   if (!String(body || "").trim()) throw new Error("The email is empty");
@@ -72,7 +80,12 @@ export async function sendSalesEmail({ to, subject, body, senderName }, { transp
   const actualTo = redirectTo || intendedTo;
   const finalSubject = redirectTo ? `[TEST] ${subject || "(no subject)"}` : subject || "(no subject)";
   const { text, html } = renderEmail({ body, intendedTo: redirectTo ? intendedTo : null });
-  const result = { to: actualTo, intendedTo, redirected: Boolean(redirectTo) };
+  const messageId = newMessageId();
+  const result = { to: actualTo, intendedTo, redirected: Boolean(redirectTo), messageId };
+  const threading = {
+    ...(inReplyTo ? { inReplyTo } : {}),
+    ...(references ? { references: Array.isArray(references) ? references.join(" ") : references } : {}),
+  };
 
   if (transport || smtpConfigured()) {
     const sender = transport || (await smtpTransport());
@@ -83,10 +96,14 @@ export async function sendSalesEmail({ to, subject, body, senderName }, { transp
       subject: finalSubject,
       text,
       html,
+      messageId,
+      ...threading,
+      // A calendar invite shows as "Add to calendar" in Gmail and Outlook: { method, content }
+      ...(calendar ? { icalEvent: { method: calendar.method || "REQUEST", filename: "invite.ics", content: calendar.content } } : {}),
     });
-    return { ...result, delivered: "smtp", messageId: info?.messageId || null };
+    return { ...result, delivered: "smtp", messageId: info?.messageId || messageId };
   }
 
-  const out = await deliverEmail({ to: actualTo, subject: finalSubject, text, html });
+  const out = await deliverEmail({ to: actualTo, subject: finalSubject, text: `Message-ID: ${messageId}\n\n${text}`, html });
   return { ...result, delivered: out.delivered, file: out.file };
 }

@@ -28,6 +28,8 @@ import {
   Activity,
   Send,
   BookOpen,
+  MessagesSquare,
+  CalendarCheck,
 } from "lucide-react";
 
 const NAV = [
@@ -64,7 +66,9 @@ const NAV = [
       { key: "sales-research", label: "3. Research", href: "/dashboard/sales/research", icon: UserCheck },
       { key: "sales-messages", label: "4. Messages", href: "/dashboard/sales/messages", icon: MessageSquare },
       { key: "sales-outreach", label: "5. Outreach", href: "/dashboard/sales/outreach", icon: Send },
-      { key: "sales-results", label: "6. Results", href: "/dashboard/sales/results", icon: TrendingUp },
+      { key: "sales-conversations", label: "6. Conversations", href: "/dashboard/sales/conversations", icon: MessagesSquare },
+      { key: "sales-meetings", label: "7. Meetings", href: "/dashboard/sales/meetings", icon: CalendarCheck },
+      { key: "sales-results", label: "8. Results", href: "/dashboard/sales/results", icon: TrendingUp },
       { key: "sales-knowledge", label: "Knowledge base", href: "/dashboard/sales/knowledge", icon: BookOpen },
       { key: "sales-agent", label: "Sales agent", href: "/dashboard/agents", icon: Bot },
       { key: "sales-setup", label: "Setup guide", href: "/dashboard/sales/setup", icon: Activity },

@@ -43,7 +43,7 @@ export function activityLine(run) {
   const c = r.counts || {};
   if (run.status === "failed") return run.errorMessage || "Stopped after an error.";
   if (run.status === "cancelled") return run.errorMessage || "Stopped.";
-  if (run.status === "completed") return `Finished: ${c.done || 0} contacted, ${c.skipped || 0} skipped.`;
+  if (run.status === "completed") return `Finished: ${c.done || 0} contacted, ${c.skipped || 0} skipped${r.conversations?.meetings ? `, ${r.conversations.meetings} meeting${r.conversations.meetings === 1 ? "" : "s"} booked` : ""}.`;
   if (run.status === "paused") return "Paused. Nothing happens until you resume.";
   if (run.status === "queued") return "Starting…";
   const parts = [];
@@ -53,6 +53,8 @@ export function activityLine(run) {
   if (c.awaiting_acceptance) parts.push(`waiting for ${c.awaiting_acceptance} to accept on LinkedIn`);
   if (r.deferred) parts.push(`${r.deferred} waiting for tomorrow's limit`);
   if (c.blocked) parts.push(`${c.blocked} blocked: ${r.blocked}`);
+  const conv = r.conversations || {};
+  if (conv.open) parts.push(`${conv.open} conversation${conv.open === 1 ? "" : "s"} open (watching for replies)`);
   return parts.length ? `${parts.join(" · ")}.` : `${c.done || 0} contacted so far. Watching for new work.`;
 }
 
@@ -148,6 +150,15 @@ export default function SalesRunCard({ run, stepLabels, onChanged, onOpenApprova
             <span key={k} className={`badge badge-sm ${cls}`}>{counts[k]} {label}</span>
           ))}
         </div>
+      )}
+
+      {run.results?.conversations?.total > 0 && (
+        <p className="text-xs text-base-content/70">
+          Conversations: {run.results.conversations.replied} replied of {run.results.conversations.total} emailed
+          {run.results.conversations.meetings > 0 && <> · <span className="text-success font-medium">{run.results.conversations.meetings} meeting{run.results.conversations.meetings === 1 ? "" : "s"} booked</span></>}
+          {run.results.conversations.open > 0 && <> · {run.results.conversations.open} still open</>}
+          {" · "}<a className="link link-primary" href="/dashboard/sales/conversations">Open conversations</a>
+        </p>
       )}
 
       {run.results?.lastDone?.length > 0 && (

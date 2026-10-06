@@ -66,7 +66,7 @@ function Funnel({ campaignId, platform }) {
   );
 }
 
-// Step 6: what worked.
+// Step 8: what worked.
 export default function ResultsPage() {
   return (
     <SalesStageShell stageKey="results">

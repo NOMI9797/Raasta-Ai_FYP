@@ -5,7 +5,7 @@ import Link from "next/link";
 import toast from "react-hot-toast";
 import { AlertTriangle, Bot, Check, Hand, Loader2, Mail, Play, Search } from "lucide-react";
 
-const OUTREACH = ["send_email", "send_invite", "send_linkedin_message"];
+const OUTREACH = ["send_email", "send_invite", "send_linkedin_message", "send_reply", "send_follow_up"];
 const MODES = [
   { value: "semi_auto", key: "assisted", label: "Semi-auto", hint: "Asks you before anything is sent" },
   { value: "full_auto", key: "autopilot", label: "Auto", hint: "Sends on its own, within the daily limits" },
@@ -150,6 +150,7 @@ export default function LaunchSalesAgent({ setup, policy, defaults, onStarted })
             </li>
           ))}
           <li className="flex items-center gap-1"><AlertTriangle className="h-3 w-3 text-warning" /> Always asks when there&apos;s no address, the fit is borderline or the lead was contacted before</li>
+          <li className="flex items-center gap-1"><AlertTriangle className="h-3 w-3 text-warning" /> Always asks before answering when the knowledge base doesn&apos;t cover it, the client is unhappy, or it&apos;s about discounts or contract terms</li>
         </ul>
       </div>
 

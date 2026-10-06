@@ -11,6 +11,8 @@ export const NOTIFICATION_TYPES = {
   AGENT_RUN_FINISHED: "agent_run_finished",
   AGENT_RUN_FAILED: "agent_run_failed",
   AGENT_NEEDS_APPROVAL: "agent_needs_approval",
+  SALES_REPLY: "sales_reply",
+  MEETING_BOOKED: "meeting_booked",
 };
 
 const MAX_TITLE = 200;

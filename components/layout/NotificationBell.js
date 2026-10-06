@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, Bot, CheckCheck, Gauge, Mic, UserPlus, AlertTriangle, PauseCircle } from "lucide-react";
+import { Bell, Bot, CheckCheck, Gauge, Mic, UserPlus, AlertTriangle, PauseCircle, MessagesSquare, CalendarCheck } from "lucide-react";
 
 const QUERY_KEY = ["notifications"];
 
@@ -14,6 +14,8 @@ const TYPE_ICONS = {
   agent_run_finished: { icon: Bot, tone: "text-primary bg-primary/10" },
   agent_run_failed: { icon: AlertTriangle, tone: "text-error bg-error/10" },
   agent_needs_approval: { icon: PauseCircle, tone: "text-warning bg-warning/10" },
+  sales_reply: { icon: MessagesSquare, tone: "text-info bg-info/10" },
+  meeting_booked: { icon: CalendarCheck, tone: "text-success bg-success/10" },
 };
 
 function timeAgo(date) {

@@ -37,8 +37,22 @@ export const SALES_STAGES = [
     summary: "Send LinkedIn invites and messages, or email companies, and track who responds.",
   },
   {
-    key: "results",
+    key: "conversations",
     step: 6,
+    label: "Conversations",
+    href: "/dashboard/sales/conversations",
+    summary: "Replies from leads: the agent answers questions from your knowledge base and follows up.",
+  },
+  {
+    key: "meetings",
+    step: 7,
+    label: "Meetings",
+    href: "/dashboard/sales/meetings",
+    summary: "Meetings leads agreed to: offered times, confirmed calls and their outcomes.",
+  },
+  {
+    key: "results",
+    step: 8,
     label: "Results",
     href: "/dashboard/sales/results",
     summary: "See how each campaign and platform performed.",

@@ -30,7 +30,7 @@ export default function SalesSetupPage() {
         <div>
           <h1 className="text-2xl font-bold">Sales setup guide</h1>
           <p className="text-sm text-base-content/70 mt-1">
-            Sales runs in six steps, from a campaign to results. The checklist shows where you are; the first step not done yet is highlighted.
+            Sales runs in eight steps, from a campaign to meetings and results. The checklist shows where you are; the first step not done yet is highlighted.
           </p>
         </div>
 

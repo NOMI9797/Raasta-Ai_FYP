@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { db } from "@/libs/db";
 import { withAuth } from "@/libs/auth-middleware";
-import { agentActions, campaigns, leads, messages } from "@/libs/schema";
+import { agentActions, campaigns, conversationMessages, leads, messages } from "@/libs/schema";
 import { ACTION_STATUS } from "@/libs/agent/actions";
 import { SALES_ESCALATION_LABELS, SALES_POLICY } from "@/libs/sales/agent/policy";
 
@@ -24,6 +24,10 @@ export const GET = withAuth(async (request, { user }) => {
     const messageIds = rows.map((r) => r.action.payload?.messageId).filter(Boolean);
     const msgs = messageIds.length ? await db.select().from(messages).where(inArray(messages.id, messageIds)) : [];
     const byId = new Map(msgs.map((m) => [m.id, m]));
+    // Replies and follow-ups are drafts in the lead's thread
+    const draftIds = rows.map((r) => r.action.payload?.draftId).filter(Boolean);
+    const drafts = draftIds.length ? await db.select().from(conversationMessages).where(inArray(conversationMessages.id, draftIds)) : [];
+    const draftById = new Map(drafts.map((d) => [d.id, { id: d.id, kind: "conversation", draftKind: d.kind, recipient: d.toAddress, subject: d.subject, content: d.body, meta: d.meta }]));
 
     const items = rows.map(({ action, lead, campaignName }) => ({
       id: action.id,
@@ -37,7 +41,10 @@ export const GET = withAuth(async (request, { user }) => {
       campaignId: action.campaignId,
       campaignName,
       lead: { id: lead.id, name: lead.name, company: lead.company, title: lead.title, source: lead.source, url: lead.url },
-      message: byId.get(action.payload?.messageId) || null,
+      message: action.payload?.draftId ? draftById.get(action.payload.draftId) || null : byId.get(action.payload?.messageId) || null,
+      conversation: action.payload?.draftId
+        ? { theyWrote: action.evidence?.theyWrote || null, intent: action.evidence?.intent || null, passages: action.evidence?.passages || [], slots: action.evidence?.slots || [], plan: action.evidence?.plan || null }
+        : null,
     }));
     return NextResponse.json({ success: true, items });
   } catch (error) {

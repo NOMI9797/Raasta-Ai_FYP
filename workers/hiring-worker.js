@@ -20,6 +20,8 @@ import { finalizeCandidate } from "../libs/hiring/finalize";
 import { sendOutcomeEmail } from "../libs/hiring/decisions";
 import { advanceRun } from "../libs/agent/recruiter-agent";
 import { advanceSalesRun } from "../libs/sales/agent/sales-agent";
+import { syncSalesInbox } from "../libs/sales/inbox/sync";
+import { inboxConfigured } from "../libs/sales/inbox/imap";
 import { RUN_STATUS, isJobManagedByAgent, listActiveRuns } from "../libs/agent/runs";
 import { AGENT_ADVANCE_JOB, requestAgentTick, requestAgentTickForJob } from "../libs/agent/triggers";
 
@@ -34,6 +36,7 @@ const DELAYED_INTERVAL_MS = 5000;
 const RECLAIM_INTERVAL_MS = 60 * 1000;
 const RECLAIM_IDLE_MS = 5 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 15 * 60 * 1000;
+const INBOX_INTERVAL_MS = Math.max(30, Number(process.env.SALES_INBOX_INTERVAL_SECONDS) || 120) * 1000; // replies to sales emails
 const DEFAULT_TIMEOUT_MS = 60 * 1000;
 const SHORTLIST_DEBOUNCE_MS = 30 * 1000;
 const AGENT_SCREEN_DEBOUNCE_MS = 8 * 1000; // applicants screened close together share one agent tick, but nobody waits half a minute
@@ -406,6 +409,15 @@ async function main() {
   };
   every(SWEEP_INTERVAL_MS, "sweep", runSweeps);
   runSweeps(); // once at start-up, so a restarted worker catches up immediately
+
+  if (inboxConfigured()) {
+    const checkInbox = async () => {
+      const result = await syncSalesInbox({ redis });
+      if (result.replies) log("info", { msg: "sales replies received", count: result.replies });
+    };
+    every(INBOX_INTERVAL_MS, "sales inbox", checkInbox);
+    checkInbox().catch((error) => log("error", { msg: "sales inbox failed", error: error.message }));
+  }
 
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));

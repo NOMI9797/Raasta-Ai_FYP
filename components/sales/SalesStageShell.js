@@ -32,7 +32,7 @@ export function campaignPlatforms(campaign) {
   return PLATFORM_ORDER.filter((id) => sources.includes(id));
 }
 
-/** The six steps in a row; the current one is highlighted. Links keep the selected campaign. */
+/** The steps in a row; the current one is highlighted. Links keep the selected campaign. */
 function StepBar({ current, campaignId }) {
   return (
     <ol className="flex flex-wrap gap-1.5" aria-label="Sales steps">

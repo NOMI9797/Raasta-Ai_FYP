@@ -2,16 +2,19 @@
 
 import { useCallback, useEffect, useState } from "react";
 import toast from "react-hot-toast";
-import { AlertTriangle, Building2, Check, Linkedin, Loader2, Mail, User, X } from "lucide-react";
+import { AlertTriangle, BookOpen, Building2, CalendarClock, Check, Linkedin, Loader2, Mail, MessageSquareReply, User, X } from "lucide-react";
+import { INTENT_LABELS } from "@/libs/sales/conversation/status";
 
-const ACTION_ICON = { send_email: Mail, send_invite: Linkedin, send_linkedin_message: Linkedin };
+const ACTION_ICON = { send_email: Mail, send_invite: Linkedin, send_linkedin_message: Linkedin, send_reply: MessageSquareReply, send_follow_up: Mail };
+const EMAIL_ACTIONS = ["send_email", "send_reply", "send_follow_up"];
 const isEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || "").trim());
 
 function ApprovalCard({ item, onDone }) {
   const { message } = item;
   const [draft, setDraft] = useState({ recipient: message?.recipient || "", subject: message?.subject || "", content: message?.content || "" });
   const [busy, setBusy] = useState(false);
-  const isEmailAction = item.action === "send_email";
+  const isEmailAction = EMAIL_ACTIONS.includes(item.action);
+  const isConversation = message?.kind === "conversation";
   const dirty = message && (draft.recipient !== (message.recipient || "") || draft.subject !== (message.subject || "") || draft.content !== (message.content || ""));
   const canApprove = draft.content.trim() && (!isEmailAction || isEmail(draft.recipient));
   const Icon = ACTION_ICON[item.action] || Mail;
@@ -22,10 +25,11 @@ function ApprovalCard({ item, onDone }) {
     try {
       // Edits go into the message first, so what is approved is exactly what gets sent
       if (decision === "approve" && dirty) {
-        const res = await fetch(`/api/sales/messages/${message.id}`, {
+        // Replies and follow-ups live in the lead's thread; first emails on the Messages step
+        const res = await fetch(isConversation ? `/api/sales/conversations/drafts/${message.id}` : `/api/sales/messages/${message.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(draft),
+          body: JSON.stringify(isConversation ? { toAddress: draft.recipient, subject: draft.subject, body: draft.content } : draft),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Could not save the message");
@@ -73,6 +77,21 @@ function ApprovalCard({ item, onDone }) {
         </div>
       )}
 
+      {item.conversation?.theyWrote && (
+        <div className="rounded-lg bg-base-200/70 p-3 text-sm space-y-1">
+          <p className="text-xs font-semibold text-base-content/60">
+            They wrote{item.conversation.intent && <span className="badge badge-ghost badge-xs ml-2">{INTENT_LABELS[item.conversation.intent] || item.conversation.intent}</span>}
+          </p>
+          <p className="whitespace-pre-line line-clamp-6">{item.conversation.theyWrote}</p>
+        </div>
+      )}
+      {item.conversation?.slots?.length > 0 && (
+        <p className="text-xs text-base-content/60 flex items-center gap-1"><CalendarClock className="h-3.5 w-3.5" /> Offers {item.conversation.slots.length} meeting times; the meeting is listed once they pick one.</p>
+      )}
+      {item.conversation?.plan === "confirm" && (
+        <p className="text-xs text-success flex items-center gap-1"><CalendarClock className="h-3.5 w-3.5" /> Approving books the meeting and sends a calendar invite.</p>
+      )}
+
       {message ? (
         <div className="space-y-2">
           <label className="form-control">
@@ -89,6 +108,17 @@ function ApprovalCard({ item, onDone }) {
         </div>
       ) : (
         <p className="text-sm text-base-content/60">{item.summary}</p>
+      )}
+
+      {item.conversation?.passages?.length > 0 && (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-base-content/60 flex items-center gap-1"><BookOpen className="h-3.5 w-3.5" /> From your knowledge base: {item.conversation.passages.map((p) => p.title).join(", ")}</summary>
+          <ul className="mt-2 space-y-1.5">
+            {item.conversation.passages.map((p) => (
+              <li key={p.id} className="rounded border border-base-300 p-2"><span className="font-medium">{p.title}</span><p className="text-base-content/70 whitespace-pre-line">{p.excerpt}</p></li>
+            ))}
+          </ul>
+        </details>
       )}
 
       <div className="flex flex-wrap justify-end gap-2">

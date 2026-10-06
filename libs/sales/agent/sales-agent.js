@@ -16,9 +16,13 @@ import { importLeadProfiles } from "../import-leads";
 import { researchCompanyLead, topPosts, writeLeadMessage } from "../lead-actions";
 import { sendSalesEmail, isEmailAddress } from "../send/email";
 import { checkAcceptances, getLinkedInAccount, linkedInAllowance, sendInvites, sendLinkedInMessage } from "../send/linkedin";
-import { DEFAULTS, ROUTE, SALES_ACTION, SALES_PIPELINE, normaliseMode } from "./policy";
+import { CONVERSATION_SENDS, DEFAULTS, ROUTE, SALES_ACTION, SALES_PIPELINE, normaliseMode } from "./policy";
 import { LEAD_STAGE, acceptanceCheckDue, buildSalesPlan, isCampaignFinished, keyFor } from "./plan";
 import { scoreLead } from "./scoring";
+import { recordOutbound } from "../conversation/thread";
+import { CLOSED_STATUSES, CONVERSATION_STATUS } from "../conversation/status";
+import { getSalesSettings } from "../meetings/settings";
+import { conversationDeps, executeConversationSend, handleConversations } from "./conversations";
 
 export const SALES_AGENT_LINK = "/dashboard/agents";
 export const SALES_APPROVALS_LINK = "/dashboard/agents?tab=approvals";
@@ -35,7 +39,7 @@ export const SALES_STEPS = [
   { key: "write_messages", label: "Write messages" },
   { key: "approvals", label: "Your approvals" },
   { key: "outreach", label: "Outreach" },
-  { key: "follow_up", label: "Wait for replies" },
+  { key: "follow_up", label: "Replies & follow-ups" },
 ];
 
 const STEP = { PENDING: "pending", RUNNING: "running", WAITING: "waiting", AWAITING_APPROVAL: "awaiting_approval", COMPLETED: "completed", SKIPPED: "skipped" };
@@ -52,6 +56,8 @@ function defaults(deps = {}) {
     writeFn: deps.writeFn || writeLeadMessage,
     emailFn: deps.emailFn || sendSalesEmail,
     linkedin: deps.linkedin || { getLinkedInAccount, linkedInAllowance, sendInvites, checkAcceptances, sendLinkedInMessage },
+    settingsFn: deps.settingsFn || getSalesSettings,
+    conversation: conversationDeps(deps.conversation),
   };
 }
 
@@ -89,6 +95,9 @@ export async function advanceSalesRun(runId, deps = {}) {
   ctx.campaign = campaign;
   const [sender] = await d.database.select({ name: users.name }).from(users).where(eq(users.id, run.userId)).limit(1);
   ctx.senderName = sender?.name || null;
+  ctx.settings = await d.settingsFn(run.userId, { database: d.database });
+  ctx.c = d.conversation;
+  ctx.emailAllowance = async () => (await allowance(ctx)).email;
 
   await ensureSteps(ctx);
   if (run.status === RUN_STATUS.QUEUED) {
@@ -100,6 +109,8 @@ export async function advanceSalesRun(runId, deps = {}) {
     await findLeads(ctx);
     await executeApproved(ctx);
     await maybeCheckAcceptance(ctx);
+    // Replies first: a client waiting for an answer matters more than a new lead
+    const conversationsLeft = await handleConversations(ctx);
 
     let state = await loadState(ctx);
     let plan = buildSalesPlan(state, { mode: ctx.mode, config: ctx.config });
@@ -115,16 +126,19 @@ export async function advanceSalesRun(runId, deps = {}) {
     // Research leads to scoring, scoring to writing: keep going straight away while this tick got
     // something done. When nothing moved (an outage, say), the 15-minute sweep tries again.
     const moreToPrepare = plan.research.length + plan.score.length + plan.write.length > 0;
+    const moreWork = moreToPrepare || conversationsLeft;
+    ctx.conversations = await conversationCounts(ctx);
     await updateSteps(ctx, plan, moreToPrepare);
 
     // The AI's rate limit (Groq free tier) resets within a minute: come back then rather than at the sweep
-    if (moreToPrepare && ctx.out.rateLimited) await d.tick(run.id, { delayMs: 60 * 1000 });
-    else if (moreToPrepare && ctx.out.progress > 0) await d.tick(run.id, { delayMs: 1000 });
-    const finished = !moreToPrepare && isCampaignFinished(plan) && !ctx.config.repeatSearch;
+    if (moreWork && ctx.out.rateLimited) await d.tick(run.id, { delayMs: 60 * 1000 });
+    else if (moreWork && ctx.out.progress > 0) await d.tick(run.id, { delayMs: 1000 });
+    // Done when every lead is dealt with and no conversation can still need an answer or a follow-up
+    const finished = !moreWork && isCampaignFinished(plan) && !ctx.config.repeatSearch && ctx.conversations.open === 0 && !ctx.pendingApprovals;
     await saveRun(ctx, finished ? RUN_STATUS.COMPLETED : RUN_STATUS.WAITING, plan);
     await notifyApprovals(ctx);
     if (finished) await notifyFinished(ctx, plan);
-    return { runId, counts: plan.counts, more: moreToPrepare, ...ctx.out };
+    return { runId, counts: plan.counts, more: moreWork, ...ctx.out };
   } catch (error) {
     await finishRun(ctx, RUN_STATUS.FAILED, error.message);
     throw error;
@@ -176,7 +190,8 @@ async function countExecutedToday(ctx, action) {
 
 /** Sends left today: the run's caps minus what it already sent, and the LinkedIn account's own limits. */
 async function allowance(ctx) {
-  const emailsToday = await countExecutedToday(ctx, SALES_ACTION.SEND_EMAIL);
+  // Follow-ups are cold emails too, so they share the daily email limit (answers to replies don't)
+  const emailsToday = (await countExecutedToday(ctx, SALES_ACTION.SEND_EMAIL)) + (await countExecutedToday(ctx, SALES_ACTION.SEND_FOLLOW_UP));
   const out = { email: Math.max(0, ctx.config.dailyEmailCap - emailsToday), invite: 0, linkedinMessage: 0 };
   if (ctx.account) {
     const account = await ctx.d.linkedin.linkedInAllowance(ctx.account.id).catch(() => ({ invites: 0, messages: 0 }));
@@ -347,6 +362,14 @@ async function executeApproved(ctx) {
   const left = await allowance(ctx);
   const capOf = { [SALES_ACTION.SEND_EMAIL]: "email", [SALES_ACTION.SEND_INVITE]: "invite", [SALES_ACTION.SEND_LINKEDIN_MESSAGE]: "linkedinMessage" };
   for (const action of approved) {
+    if (CONVERSATION_SENDS.includes(action.action)) {
+      if (action.action === SALES_ACTION.SEND_FOLLOW_UP) {
+        if (left.email <= 0) continue;
+        left.email--;
+      }
+      await executeConversationSend(ctx, action);
+      continue;
+    }
     const cap = capOf[action.action];
     if (!cap) {
       await markExecuted(action.id, action.result || null, { database: ctx.d.database, now: ctx.d.now() });
@@ -372,7 +395,9 @@ async function executeSend(ctx, action) {
       if (!isEmailAddress(message.recipient)) throw new Error("No valid email address: add one on the Messages step");
       const sent = await d.emailFn({ to: message.recipient, subject: message.subject, body: message.content, senderName: ctx.senderName });
       await markMessageSent(ctx, lead, message);
-      await markExecuted(action.id, { delivered: sent.delivered, to: sent.to, intendedTo: sent.intendedTo, redirected: sent.redirected }, opts);
+      // Starts the lead's thread: replies are matched to it, follow-ups are timed from it
+      await recordOutbound({ lead, kind: "outreach", subject: message.subject, body: message.content, toAddress: message.recipient, sent, followUpDays: ctx.settings.followUpDays }, opts);
+      await markExecuted(action.id, { delivered: sent.delivered, to: sent.to, intendedTo: sent.intendedTo, redirected: sent.redirected, messageId: sent.messageId }, opts);
       ctx.out.done.push(`Emailed ${labelOf(lead)}${sent.redirected ? ` (test: sent to ${sent.to})` : ""}`);
       return;
     }
@@ -422,6 +447,20 @@ async function maybeCheckAcceptance(ctx) {
   }
 }
 
+/** How the campaign's conversations stand, for the run card and the finish check. */
+async function conversationCounts(ctx) {
+  const rows = await ctx.d.database.select({ status: leads.conversationStatus }).from(leads).where(eq(leads.campaignId, ctx.campaign.id));
+  const out = { total: 0, open: 0, replied: 0, meetings: 0 };
+  for (const { status } of rows) {
+    if (!status) continue;
+    out.total++;
+    if (!CLOSED_STATUSES.includes(status)) out.open++;
+    if (![CONVERSATION_STATUS.AWAITING_REPLY, CONVERSATION_STATUS.NO_RESPONSE].includes(status)) out.replied++;
+    if (status === CONVERSATION_STATUS.MEETING_BOOKED) out.meetings++;
+  }
+  return out;
+}
+
 // ─── Bookkeeping ───
 
 async function ensureSteps(ctx) {
@@ -435,7 +474,7 @@ async function ensureSteps(ctx) {
 }
 
 /** Step statuses for the run card, from where the leads are. */
-export function stepStatuses(plan, { searched, hasSearch, moreToPrepare, pendingApprovals }) {
+export function stepStatuses(plan, { searched, hasSearch, moreToPrepare, pendingApprovals, conversations = { open: 0, total: 0 } }) {
   const c = plan.counts || {};
   const n = (...stages) => stages.reduce((sum, s) => sum + (c[s] || 0), 0);
   const total = Object.values(c).reduce((a, b) => a + b, 0);
@@ -447,7 +486,10 @@ export function stepStatuses(plan, { searched, hasSearch, moreToPrepare, pending
     write_messages: { status: prepDone([LEAD_STAGE.RESEARCH, LEAD_STAGE.SCORE, LEAD_STAGE.WRITE]), output: { left: n(LEAD_STAGE.WRITE) } },
     approvals: { status: pendingApprovals ? STEP.AWAITING_APPROVAL : total ? STEP.COMPLETED : STEP.PENDING, output: { pending: pendingApprovals } },
     outreach: { status: n(LEAD_STAGE.SEND) ? STEP.RUNNING : n(LEAD_STAGE.DONE) ? STEP.COMPLETED : STEP.PENDING, output: { sent: n(LEAD_STAGE.DONE), queued: n(LEAD_STAGE.SEND) } },
-    follow_up: { status: n(LEAD_STAGE.AWAITING_ACCEPTANCE) ? STEP.WAITING : STEP.PENDING, output: { waiting: n(LEAD_STAGE.AWAITING_ACCEPTANCE) } },
+    follow_up: {
+      status: conversations.open || n(LEAD_STAGE.AWAITING_ACCEPTANCE) ? STEP.WAITING : conversations.total ? STEP.COMPLETED : STEP.PENDING,
+      output: { waiting: n(LEAD_STAGE.AWAITING_ACCEPTANCE), ...conversations },
+    },
   };
 }
 
@@ -461,6 +503,7 @@ async function updateSteps(ctx, plan, moreToPrepare) {
     hasSearch: Boolean(ctx.config.search?.query || ctx.config.search?.location),
     moreToPrepare,
     pendingApprovals,
+    conversations: ctx.conversations,
   });
   for (const [key, { status, output }] of Object.entries(statuses)) {
     await d.database.update(agentSteps).set({ status, output }).where(and(eq(agentSteps.agentRunId, run.id), eq(agentSteps.stepKey, key)));
@@ -482,6 +525,7 @@ async function saveRun(ctx, status, plan) {
     blocked: plan.blocked.length ? plan.blocked[0].reason : null,
     lastTickAt: d.now().toISOString(),
     lastDone: ctx.out.done.slice(-5),
+    conversations: ctx.conversations,
     ...(ctx.findAt ? { lastFindAt: ctx.findAt } : {}),
     ...(ctx.acceptanceCheckAt ? { lastAcceptanceCheckAt: ctx.acceptanceCheckAt } : {}),
   };
