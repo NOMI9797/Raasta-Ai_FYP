@@ -22,6 +22,7 @@ import { enrichRozeeLeadInDb } from "@/libs/lead-rozee-enrichment";
  *       url: string,
  *       name?: string,
  *       title?: string,
+ *       company?: string,
  *       source?: "linkedin" | "rozee" | "indeed",
  *       sourceData?: object
  *     }>
@@ -81,6 +82,7 @@ export const POST = withAuth(async (request, { user }) => {
         url,
         name: p?.name?.trim() || null,
         title: p?.title?.trim() || null,
+        company: p?.company?.trim() || null,
         source,
         sourceData: p?.sourceData && typeof p.sourceData === "object" ? p.sourceData : {},
         status: "completed",

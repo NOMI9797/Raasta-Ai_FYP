@@ -50,6 +50,7 @@ public/sitemap-0.xml
 # AI hiring pipeline
 .storage/
 services/ai-engine/.venv/
+services/indeed-search/.venv/
 services/ai-engine/.models/
 __pycache__/
 

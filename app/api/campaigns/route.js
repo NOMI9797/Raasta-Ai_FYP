@@ -4,6 +4,7 @@ import { campaigns, leads, messages } from "@/libs/schema";
 import { desc, eq, count, and, sql } from "drizzle-orm";
 import { withAuth } from "@/libs/auth-middleware";
 import getRedisClient from "@/libs/redis";
+import { isPlatformAvailable } from "@/libs/platforms/meta";
 
 // GET /api/campaigns - Get all campaigns for authenticated user (Redis-first, DB fallback)
 export const GET = withAuth(async (request, { user }) => {
@@ -210,7 +211,7 @@ export const POST = withAuth(async (request, { user }) => {
         description: description?.trim() || null,
         icpConfig: icpConfig && (icpConfig.targetRole || icpConfig.industry || icpConfig.serviceType) ? icpConfig : null,
         sources: Array.isArray(sources) && sources.length > 0
-          ? sources.filter((s) => ['linkedin', 'rozee'].includes(s))
+          ? sources.filter(isPlatformAvailable)
           : ['linkedin'],
         status: "draft",
       })

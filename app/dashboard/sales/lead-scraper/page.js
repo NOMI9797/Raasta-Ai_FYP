@@ -36,7 +36,8 @@ export default function LeadScraperPage() {
     query: "",
     location: "",
     limit: 25,
-    indeedCountry: "",
+    indeedCountry: "pk",
+    indeedHoursOld: "",
   });
   const [results, setResults] = useState([]);
   const [selected, setSelected] = useState(new Set());
@@ -115,8 +116,11 @@ export default function LeadScraperPage() {
             query: filters.query.trim(),
             location: filters.location.trim(),
             limit: Number(filters.limit) || 25,
-            ...(platform === "indeed" && filters.indeedCountry.trim()
-              ? { country: filters.indeedCountry.trim() }
+            ...(platform === "indeed"
+              ? {
+                  country: filters.indeedCountry,
+                  ...(filters.indeedHoursOld ? { hoursOld: Number(filters.indeedHoursOld) } : {}),
+                }
               : {}),
           },
         }),
@@ -333,10 +337,29 @@ export default function LeadScraperPage() {
                         setFilters({ ...filters, indeedCountry: e.target.value })
                       }
                     >
-                      <option value="">Auto</option>
-                      <option value="pk">pk</option>
-                      <option value="us">us</option>
-                      <option value="uk">uk</option>
+                      <option value="pk">Pakistan</option>
+                      <option value="ae">United Arab Emirates</option>
+                      <option value="sa">Saudi Arabia</option>
+                      <option value="uk">United Kingdom</option>
+                      <option value="us">United States</option>
+                    </select>
+                  </div>
+                  <div className="form-control w-full max-w-xs">
+                    <label className="label py-1">
+                      <span className="label-text text-xs">Posted within</span>
+                    </label>
+                    <select
+                      className="select select-bordered select-sm w-full"
+                      value={filters.indeedHoursOld}
+                      onChange={(e) =>
+                        setFilters({ ...filters, indeedHoursOld: e.target.value })
+                      }
+                    >
+                      <option value="">Any time</option>
+                      <option value="24">Last 24 hours</option>
+                      <option value="72">Last 3 days</option>
+                      <option value="168">Last 7 days</option>
+                      <option value="720">Last 30 days</option>
                     </select>
                   </div>
                 </div>
@@ -385,7 +408,7 @@ export default function LeadScraperPage() {
                 <p className="text-sm text-base-content/70">
                   {platform === "indeed" ? (
                     <>
-                      Searching Indeed… This can take a couple of minutes when there are many results.
+                      Searching Indeed… This usually takes a few seconds.
                     </>
                   ) : (
                     <>
@@ -489,7 +512,26 @@ export default function LeadScraperPage() {
                               {r.url}
                             </div>
                           </td>
-                          <td className="text-sm">{r.name || "—"}</td>
+                          <td className="text-sm">
+                            <div>{r.name || "—"}</div>
+                            {r.sourceData?.company && (
+                              <div className="text-xs text-base-content/50">
+                                {[r.sourceData.company.industry, r.sourceData.company.employees && `${r.sourceData.company.employees} staff`]
+                                  .filter(Boolean)
+                                  .join(" · ")}
+                                {r.sourceData.company.website && (
+                                  <a
+                                    href={r.sourceData.company.website}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="link link-primary ml-1"
+                                  >
+                                    website
+                                  </a>
+                                )}
+                              </div>
+                            )}
+                          </td>
                           <td className="text-sm text-base-content/70">{r.location || "—"}</td>
                           <td className="text-sm text-success">{r.salary || "—"}</td>
                           <td>

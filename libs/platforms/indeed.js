@@ -1,5 +1,5 @@
 /**
- * Indeed — job search via hosted Indeed scraper (Lead Scraper).
+ * Indeed — job search via JobSpy (Lead Scraper). A hiring company is the lead.
  */
 
 import { searchIndeedJobs, isIndeedJobSearchConfigured } from "../indeed-job-search";
@@ -18,7 +18,7 @@ async function search(_account, filters = {}) {
     return {
       success: false,
       error:
-        "Indeed job search isn’t enabled on this server yet. Ask your administrator to configure scraping.",
+        "Indeed job search isn’t set up on this server yet. Run npm run setup:indeed.",
       results: [],
     };
   }
@@ -38,20 +38,20 @@ async function search(_account, filters = {}) {
   }
 
   try {
-    const { jobs, countryLabel } = await searchIndeedJobs({
+    const { jobs, country } = await searchIndeedJobs({
       query,
       location,
       limit: filters.limit ?? 25,
       country: filters.country,
+      hoursOld: filters.hoursOld,
     });
-
-    const cc = String(countryLabel || "PK").toLowerCase();
 
     const results = (jobs || [])
       .filter((j) => j?.url)
       .map((j) => ({
         url: j.url,
         name: j.company || null,
+        company: j.company || null,
         title: j.title || null,
         location: j.location || null,
         salary: j.salary || null,
@@ -59,9 +59,23 @@ async function search(_account, filters = {}) {
         sourceData: {
           salary: j.salary || null,
           location: j.location || null,
-          description: j.snippet || "",
-          indeedCountry: cc,
-          indeedRaw: j.indeedRaw || null,
+          description: j.description || "",
+          jobType: j.jobType || null,
+          isRemote: j.isRemote || false,
+          datePosted: j.datePosted || null,
+          emails: j.emails || [],
+          indeedCountry: country,
+          // Company details Indeed already shows, so enrichment can skip what is known
+          company: {
+            indeedUrl: j.companyIndeedUrl || null,
+            website: j.companyWebsite || null,
+            industry: j.companyIndustry || null,
+            employees: j.companyEmployees || null,
+            revenue: j.companyRevenue || null,
+            addresses: j.companyAddresses || null,
+            description: j.companyDescription || null,
+            logo: j.companyLogo || null,
+          },
         },
       }));
 
