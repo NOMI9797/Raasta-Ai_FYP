@@ -263,7 +263,7 @@ Unit · AI message writing: recipient choice, channel, prompts
 
 ## Manual end-to-end tests
 
-These were run by hand on the running app (local Postgres, Redis, the background worker, real Gmail
+These were run by hand on the running app (newest at the bottom; every new check is added here) (local Postgres, Redis, the background worker, real Gmail
 and Groq). Emails were redirected to the test inbox with `SALES_EMAIL_TEST_RECIPIENT`. The last column names the
 automated test that now repeats it.
 
@@ -278,6 +278,8 @@ automated test that now repeats it.
 | 7 | Reading the mailbox | Logged in to Gmail over IMAP | Mailbox read in about 3.6 s (counts only) | `live-services` (IMAP), `conversation-flow` (inbox) |
 | 8 | Reply → answer → meeting | A reply to the Zoho email: "Price? NDA? Monday 3pm?" | Agent answered from the knowledge base, recognised Monday 3 pm as free, asked for approval (Semi-auto); after approval sent the answer in the same Gmail thread with a calendar invite; meeting booked; lead "Meeting booked"; run finished | `conversation-flow` (Semi-auto booking) |
 | 9 | Screens | Opened Conversations, Meetings and Knowledge base in the browser | All render with live data: thread, meeting banner, booked meeting card, knowledge entries and Ask box | (visual check) |
+| 10 | Sales agent page redesign | Opened Sales agent in the browser with one paused Auto run and one finished run | Summary strip (1 working, 17 awaiting you, 2 contacted, 1 reply, 1 meeting), approval callout with Review button, step tracker, stat tiles; the earlier run shows as one row and expands on click | (visual check) |
+| 11 | Outreach › Indeed (companies) | Opened Outreach for "Indeed Test Campaign" (20 companies) | Stats (0 ready, 0 / 2 sent today, 1 waiting), test-mode and agent notices, filters "Not approved yet 19" and "Waiting for reply 1", 19 rows marked "Needs an address" with "Agent is asking you" | `outreach.integration` (board statuses) + visual check |
 
 ## Problems the tests found and fixed
 
