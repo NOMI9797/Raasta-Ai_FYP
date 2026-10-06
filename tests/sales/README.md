@@ -4,7 +4,7 @@ Automated tests for the Client Acquisition (Sales) module: lead collection, rese
 agent, the knowledge base (RAG), replies, follow-ups and meetings. Every check that was first done
 by hand during development is also kept here as a repeatable test.
 
-**139 test cases in 20 files. Latest run: 134 passed, 0 failed, 5 live checks skipped by default (they pass when run with `npm run test:sales:live`).**
+**141 test cases in 21 files. Latest run: 136 passed, 0 failed, 5 live checks skipped by default (they pass when run with `npm run test:sales:live`).**
 
 ## How to run
 
@@ -30,6 +30,7 @@ npm run test:sales:live          # real Gmail, Groq, Indeed and the embedding mo
 |---|---|---|---|
 | `agent-plan.test.js` | Unit | 10 | Agent planner and approval policy |
 | `agent-scoring.test.js` | Unit | 3 | AI fit scoring |
+| `campaign-overview.test.js` | Unit | 2 | Numbers on each campaign card |
 | `companies.test.js` | Unit | 5 | One lead per company, duplicates |
 | `company-research.test.js` | Unit | 6 | Website, contacts and decision-makers |
 | `conversation.test.js` | Unit | 22 | Reply matching, reading, decisions, writing, threading |
@@ -48,7 +49,7 @@ npm run test:sales:live          # real Gmail, Groq, Indeed and the embedding mo
 | `outreach.integration.test.js` | Integration | 3 | Sending company emails by hand: limit, thread, agent hand-off |
 | `results.integration.test.js` | Integration | 1 | Results from a campaign's real emails, replies and meetings |
 | `live-services.test.js` | Live | 5 | Gmail SMTP/IMAP, Groq, Indeed, embedding model |
-| **Total** | | **139** | |
+| **Total** | | **141** | |
 
 ## Every test case
 
@@ -83,6 +84,13 @@ Unit · AI fit scoring of leads (prompt and score handling)
 - the prompt for a company carries its roles, size, website text and the offer
 - scores are clamped to 0-100 and a missing score is an error
 - scoreLead reads the model's JSON
+
+### `campaign-overview.test.js` (2)
+
+Unit · The numbers on each campaign card (step 1)
+
+- each campaign card gets leads by platform, contacted, replied and meetings
+- the newest active agent run is the campaign's agent; finished runs are ignored
 
 ### `companies.test.js` (5)
 
@@ -314,6 +322,7 @@ automated test that now repeats it.
 | 13 | Results page redesign | Opened Results › Indeed for "Agent Test - Indeed Semi-auto" (dark theme) | 6 KPIs (4 companies, 1 contacted, 100% reply rate, 1 meeting, 57 min to reply, 0 follow-ups), funnel Found 4 → Researched 2 → Good fit 1 → … → Meeting 1 with step conversion, 14-day activity chart, reply intents, outcomes, lead quality. Found and fixed: the "Poor" fit bar had no colour (class name defined outside Tailwind's scanned folders) | `results.test`, `results.integration` + visual check |
 | 14 | Find leads redesign + live Indeed search | Opened Find leads › Indeed for "Agent Test - Indeed Semi-auto", then ran the "Flutter developer" quick search for real (nothing added to the campaign) | Search card with icon inputs, country, "Posted" chips, results count and quick searches; real results: 25 job posts from 19 companies with logos/initials, role, location, posted date, salary and job type; nameless posts left unticked. Campaign table with stage pills: "Fit 30", "Meeting booked", "No company". Colours checked in the page | `lead-stage.test` + visual check |
 | 15 | Knowledge base redesign + real question | Opened Knowledge base (sample data), opened the Add dialog, filtered by topic, and asked "Can you sign an NDA?" for real | Stats (6 entries, 22 passages, 6/6 topics covered, last updated), subtle sample notice, topic list with counts and "missing" flags, searchable entry list, Add dialog with Write / Upload / Web page. The answer came from the knowledge base ("Yes, we can sign an NDA…") using the FAQ passage, which now matches at 0.67 (0.56 before the FAQ chunking fix) | `knowledge-search.integration` + visual check |
+| 16 | Campaigns page redesign | Opened Campaigns with the two test campaigns | Totals (2 campaigns · 1 active · 1 with an agent, 26 leads, 2 contacted, 1 replied · 50%, 1 meeting), status filter and search, cards with status, platform chips with lead counts, Leads / Contacted / Replied / Meetings, outreach bar ("1 of 22 contacted") and "Agent Auto · paused". Found and fixed: the Indeed "Id" badge had no colour on every page (its class lives in `libs/platforms/`, not scanned by Tailwind) | `campaign-overview.test` + visual check |
 
 ## Problems the tests found and fixed
 
@@ -329,6 +338,7 @@ automated test that now repeats it.
   companies were left for tomorrow depended on database order. Emails now go out in the order chosen.
 - **Missing chart colours.** The Results browser check showed an empty "Poor" bar: the colour class
   was written in `libs/`, which Tailwind doesn't scan, so it was never generated. Tailwind now also
-  scans `libs/sales/`, and the Find leads check confirmed the stage colours from there render.
+  scans `libs/sales/` and `libs/platforms/`; the Campaigns check found the same problem had hidden the
+  Indeed badge colour on every page.
 - **Reply subjects** could keep the "[TEST]" tag ("Re: [TEST] …"), and a removed placeholder left a
   double space. Both were fixed when the unit tests caught them.
