@@ -9,7 +9,7 @@ import { notify, NOTIFICATION_TYPES } from "../../notifications";
 import { ACTION_STATUS, markExecuted, markFailed, proposeAction, supersedeActions } from "../../agent/actions";
 import { FINISHED_RUN_STATUSES, RUN_STATUS } from "../../agent/runs";
 import { requestAgentTick } from "../../agent/triggers";
-import { indeedAdapter } from "../../platforms/indeed";
+import { getAdapter, PLATFORM_META } from "../../platforms";
 import { PLATFORM_KIND } from "../stages";
 import { companyNameOf } from "../companies";
 import { importLeadProfiles } from "../import-leads";
@@ -51,7 +51,8 @@ function defaults(deps = {}) {
     now: deps.now || (() => new Date()),
     notifyFn: deps.notifyFn || notify,
     tick: deps.tick || ((runId, opts) => requestAgentTick(runId, opts)),
-    searchFn: deps.searchFn || ((filters) => indeedAdapter.search(null, filters)),
+    // Job boards that need no account for lead search: Indeed (JobSpy) and Rozee.pk (search engine)
+    searchFn: deps.searchFn || ((filters) => getAdapter(filters.platform || "indeed").search(null, filters)),
     researchFn: deps.researchFn || researchCompanyLead,
     scoreFn: deps.scoreFn || scoreLead,
     writeFn: deps.writeFn || writeLeadMessage,
@@ -206,7 +207,7 @@ async function allowance(ctx) {
 
 // ─── Act: find, prepare ───
 
-/** Run the campaign's saved Indeed search once (and daily, with repeatSearch). */
+/** Run the campaign's saved job-board search (Indeed or Rozee.pk) once, and daily with repeatSearch. */
 async function findLeads(ctx) {
   const { d, run, config, campaign } = ctx;
   const search = config.search;
@@ -225,7 +226,7 @@ async function findLeads(ctx) {
     action: SALES_ACTION.FIND_LEADS,
     route: ROUTE.AUTO,
     status: ACTION_STATUS.EXECUTED,
-    summary: `Searched Indeed for "${[search.query, search.location].filter(Boolean).join(" in ")}": ${imported.message}`,
+    summary: `Searched ${PLATFORM_META[search.platform || "indeed"]?.label || "Indeed"} for "${[search.query, search.location].filter(Boolean).join(" in ")}": ${imported.message}`,
     result: { found: (result.results || []).length, companies: imported.companiesInserted, addedToExisting: imported.jobsAddedToExisting, skipped: imported.skipped.length },
     dedupeKey: `${SALES_ACTION.FIND_LEADS}:${run.id}:${ctx.findAt.slice(0, 10)}`,
   }, { database: d.database, now: d.now() });

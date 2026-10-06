@@ -44,7 +44,7 @@ export const POST = withAuth(async (request, { user }) => {
 
     // Platforms without linked accounts (e.g. Indeed server scrape) skip DB account lookup.
     let account = null;
-    if (adapter.accountsTable) {
+    if (adapter.accountsTable && adapter.searchNeedsAccount !== false) {
       const table = adapter.accountsTable;
       const [row] = await db
         .select()

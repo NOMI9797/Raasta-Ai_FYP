@@ -21,6 +21,7 @@ const text = (value, max = 120) => (typeof value === "string" && value.trim() ? 
 export function sanitiseSalesConfig(config = {}) {
   const search = config.search && typeof config.search === "object"
     ? {
+        platform: ["indeed", "rozee"].includes(config.search.platform) ? config.search.platform : "indeed",
         query: text(config.search.query),
         location: text(config.search.location),
         country: text(config.search.country, 20),
@@ -50,8 +51,9 @@ export async function startSalesRun({ user, agentConfigId = null, mode, config }
     .where(isAdmin ? eq(campaigns.id, snapshot.campaignId) : and(eq(campaigns.id, snapshot.campaignId), eq(campaigns.userId, user.id)))
     .limit(1);
   if (!campaign) throw new RunError("Campaign not found", { status: 404, code: "campaign_not_found" });
-  if (snapshot.search && !(campaign.sources || []).includes("indeed")) {
-    throw new RunError("This campaign doesn't take Indeed leads: add Indeed to its platforms or remove the search", { code: "indeed_not_allowed" });
+  if (snapshot.search && !(campaign.sources || []).includes(snapshot.search.platform)) {
+    const board = snapshot.search.platform === "rozee" ? "Rozee.pk" : "Indeed";
+    throw new RunError(`This campaign doesn't take ${board} leads: add ${board} to its platforms or remove the search`, { code: "board_not_allowed" });
   }
   if (await findActiveSalesRun(campaign.id, { database })) {
     throw new RunError("An agent is already working on this campaign. Stop it before starting another.", { status: 409, code: "already_running" });

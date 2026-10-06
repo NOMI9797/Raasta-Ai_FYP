@@ -68,6 +68,7 @@ npm run check:branding # fails if the legacy source name appears anywhere
 | Public apply form | `app/apply/[jobId]/page.js`, `app/api/hiring/apply/[jobId]/route.js` |
 | Recruiter UI | `app/dashboard/recruiter/**`, sidebar `components/layout/Sidebar.js` |
 | Sales conversations & meetings | Replies read over IMAP (`libs/sales/inbox/`), answered from the knowledge base (`libs/sales/conversation/`: read, decide, compose, reply), follow-ups and meeting booking (`libs/sales/meetings/`: slots, ICS, settings); agent step `libs/sales/agent/conversations.js`; pages `app/dashboard/sales/{conversations,meetings}/` |
+| Rozee.pk lead search | `libs/sales/rozee-search.js`: job posts through a web search engine (Serper / DuckDuckGo), because Rozee.pk blocks automated browsers; used by `libs/platforms/rozee.js` `search()` and the sales agent |
 | Sales knowledge base (RAG) | `libs/sales/knowledge/` (chunk, local embeddings, pgvector + keyword hybrid search, grounded answers); page `app/dashboard/sales/knowledge/` |
 | Sales agent | `libs/sales/agent/` (policy, planner, scoring, tick `advanceSalesRun`, launch). Same supervised engine as the hiring agent (`libs/agent/`), run by the hiring worker |
 | Schema / DB | `libs/schema.{js,ts}`, `libs/db.ts`, `drizzle/` |

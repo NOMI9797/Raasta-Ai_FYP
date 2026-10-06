@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { searchProviderName } from "@/libs/sales/company-research";
 import { and, count, eq, or, sql } from "drizzle-orm";
 import { db } from "@/libs/db";
 import { withAuth } from "@/libs/auth-middleware";
@@ -45,7 +46,7 @@ export const GET = withAuth(async (request, { user }) => {
         contactedLeads,
         salesAgents,
       },
-      { indeedReady: isIndeedJobSearchConfigured() }
+      { indeedReady: isIndeedJobSearchConfigured(), searchProvider: searchProviderName() }
     );
     return NextResponse.json({ success: true, guidance });
   } catch (error) {

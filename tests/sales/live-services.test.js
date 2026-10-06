@@ -50,3 +50,13 @@ test("the local embedding model turns text into 384 numbers", { skip, timeout: 3
   assert.equal(a.length, 384);
   assert.ok(dot(a, b) > dot(a, c) + 0.3, "a pricing question is closest to the pricing answer");
 });
+
+test("Rozee.pk job posts through the configured web search (reliable with SERPER_API_KEY)", { skip, timeout: 60000 }, async (t) => {
+  const { searchRozeeJobPosts } = await import("../../libs/sales/rozee-search");
+  const { searchProviderName } = await import("../../libs/sales/company-research");
+  if (searchProviderName() !== "serper") return t.skip("SERPER_API_KEY not set: the free fallback is rate-limited");
+  const posts = await searchRozeeJobPosts({ query: "react developer", location: "Lahore", limit: 10 });
+  assert.ok(posts.length > 0, "found Rozee.pk job posts");
+  assert.ok(posts.some((p) => p.company), "with company names");
+  assert.ok(posts.every((p) => /^https:\/\/www\.rozee\.pk\/.+-jobs-\d+$/.test(p.url)));
+});

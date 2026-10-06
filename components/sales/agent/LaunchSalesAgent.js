@@ -22,7 +22,7 @@ export default function LaunchSalesAgent({ setup, policy, defaults, onStarted })
     minFitScore: defaults?.minFitScore ?? 50,
     accountId: "",
     searchOn: false,
-    search: { query: "", location: "", country: "pk", hoursOld: "", limit: 15 },
+    search: { platform: "", query: "", location: "", country: "pk", hoursOld: "", limit: 15 },
     repeatSearch: false,
   });
   const [starting, setStarting] = useState(false);
@@ -39,7 +39,11 @@ export default function LaunchSalesAgent({ setup, policy, defaults, onStarted })
   }, []);
 
   const campaign = campaigns.find((c) => c.id === form.campaignId);
-  const takesIndeed = (campaign?.sources || []).includes("indeed");
+  // Job boards the agent can search on its own (no account needed): Indeed and Rozee.pk
+  const boards = ["indeed", "rozee"].filter((b) => (campaign?.sources || []).includes(b));
+  const board = boards.includes(form.search.platform) ? form.search.platform : boards[0];
+  const takesBoard = boards.length > 0;
+  const isIndeed = board === "indeed";
   const modeKey = MODES.find((m) => m.value === form.mode)?.key;
   const outreachPolicy = useMemo(() => (policy?.[modeKey] || []).filter((p) => OUTREACH.includes(p.action)), [policy, modeKey]);
 
@@ -52,9 +56,15 @@ export default function LaunchSalesAgent({ setup, policy, defaults, onStarted })
         dailyEmailCap: Number(form.dailyEmailCap),
         minFitScore: Number(form.minFitScore),
         ...(form.accountId ? { accountId: form.accountId } : {}),
-        ...(form.searchOn && takesIndeed
+        ...(form.searchOn && takesBoard
           ? {
-              search: { ...form.search, limit: Number(form.search.limit) || 15, ...(form.search.hoursOld ? { hoursOld: Number(form.search.hoursOld) } : { hoursOld: undefined }) },
+              search: {
+                ...form.search,
+                platform: board,
+                limit: Number(form.search.limit) || 15,
+                ...(isIndeed && form.search.hoursOld ? { hoursOld: Number(form.search.hoursOld) } : { hoursOld: undefined }),
+                ...(isIndeed ? {} : { country: undefined }),
+              },
               repeatSearch: form.repeatSearch,
             }
           : {}),
@@ -155,26 +165,42 @@ export default function LaunchSalesAgent({ setup, policy, defaults, onStarted })
       </div>
 
       <div className="rounded-lg border border-base-300 p-3 space-y-3">
-        <label className={`flex items-center gap-2 text-sm ${takesIndeed ? "cursor-pointer" : "opacity-50"}`}>
-          <input type="checkbox" className="checkbox checkbox-sm" disabled={!takesIndeed} checked={form.searchOn && takesIndeed} onChange={(e) => set("searchOn", e.target.checked)} />
-          <Search className="h-4 w-4" /> Find new companies on Indeed first
-          {!takesIndeed && <span className="text-xs">(this campaign doesn&apos;t take Indeed leads)</span>}
+        <label className={`flex items-center gap-2 text-sm ${takesBoard ? "cursor-pointer" : "opacity-50"}`}>
+          <input type="checkbox" className="checkbox checkbox-sm" disabled={!takesBoard} checked={form.searchOn && takesBoard} onChange={(e) => set("searchOn", e.target.checked)} />
+          <Search className="h-4 w-4" /> Find new companies that are hiring first
+          {!takesBoard && <span className="text-xs">(this campaign doesn&apos;t take Indeed or Rozee.pk leads)</span>}
         </label>
-        {form.searchOn && takesIndeed && (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <input className="input input-bordered input-sm" placeholder="Job title, e.g. React developer" value={form.search.query} onChange={(e) => setSearch("query", e.target.value)} />
-            <input className="input input-bordered input-sm" placeholder="City, e.g. Lahore" value={form.search.location} onChange={(e) => setSearch("location", e.target.value)} />
-            <select className="select select-bordered select-sm" value={form.search.hoursOld} onChange={(e) => setSearch("hoursOld", e.target.value)}>
-              <option value="">Posted any time</option>
-              <option value="24">Last 24 hours</option>
-              <option value="72">Last 3 days</option>
-              <option value="168">Last 7 days</option>
-              <option value="720">Last 30 days</option>
-            </select>
-            <input type="number" min={1} max={100} className="input input-bordered input-sm" title="How many job posts" value={form.search.limit} onChange={(e) => setSearch("limit", e.target.value)} />
-            <label className="flex items-center gap-2 text-xs cursor-pointer">
-              <input type="checkbox" className="checkbox checkbox-xs" checked={form.repeatSearch} onChange={(e) => set("repeatSearch", e.target.checked)} /> Search again every day
-            </label>
+        {form.searchOn && takesBoard && (
+          <div className="space-y-3">
+            {boards.length > 1 && (
+              <div className="join">
+                {boards.map((b) => (
+                  <button key={b} type="button" onClick={() => setSearch("platform", b)} className={`btn join-item btn-xs ${board === b ? "btn-primary" : "btn-ghost border border-base-300"}`}>
+                    {b === "rozee" ? "Rozee.pk" : "Indeed"}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              <input className="input input-bordered input-sm" placeholder="Job title, e.g. React developer" value={form.search.query} onChange={(e) => setSearch("query", e.target.value)} />
+              <input className="input input-bordered input-sm" placeholder="City, e.g. Lahore" value={form.search.location} onChange={(e) => setSearch("location", e.target.value)} />
+              {isIndeed && (
+                <select className="select select-bordered select-sm" value={form.search.hoursOld} onChange={(e) => setSearch("hoursOld", e.target.value)}>
+                  <option value="">Posted any time</option>
+                  <option value="24">Last 24 hours</option>
+                  <option value="72">Last 3 days</option>
+                  <option value="168">Last 7 days</option>
+                  <option value="720">Last 30 days</option>
+                </select>
+              )}
+              <input type="number" min={1} max={100} className="input input-bordered input-sm" title="How many job posts" value={form.search.limit} onChange={(e) => setSearch("limit", e.target.value)} />
+              <label className="flex items-center gap-2 text-xs cursor-pointer">
+                <input type="checkbox" className="checkbox checkbox-xs" checked={form.repeatSearch} onChange={(e) => set("repeatSearch", e.target.checked)} /> Search again every day
+              </label>
+            </div>
+            {!isIndeed && research?.searchProvider !== "serper" && (
+              <p className="text-xs text-warning">Rozee.pk is searched through a search engine. Without SERPER_API_KEY the free fallback stops after a few searches.</p>
+            )}
           </div>
         )}
       </div>

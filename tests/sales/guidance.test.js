@@ -23,9 +23,11 @@ test("the first unfinished required step is next", () => {
   assert.equal(next.id, "leads");
 });
 
-test("job boards are done only when Indeed is set up and Rozee is connected", () => {
-  const step = (opts, rozee) => buildSalesGuidance({ ...empty, rozeeAccounts: rozee }, opts).steps.find((s) => s.id === "job-boards");
-  assert.equal(step({ indeedReady: true }, 1).done, true);
-  assert.equal(step({ indeedReady: true }, 0).done, false);
-  assert.equal(step({ indeedReady: false }, 1).done, false);
+test("job boards are done when Indeed is set up and Rozee.pk can be searched reliably (Serper)", () => {
+  const step = (opts) => buildSalesGuidance(empty, opts).steps.find((s) => s.id === "job-boards");
+  assert.equal(step({ indeedReady: true, searchProvider: "serper" }).done, true);
+  assert.equal(step({ indeedReady: true, searchProvider: "duckduckgo" }).done, false);
+  assert.match(step({ indeedReady: true, searchProvider: "duckduckgo" }).detail, /SERPER_API_KEY/);
+  assert.equal(step({ indeedReady: false, searchProvider: "serper" }).done, false);
+  assert.doesNotMatch(step({ indeedReady: true }).detail, /Connect a Rozee/, "no Rozee.pk account is needed any more");
 });

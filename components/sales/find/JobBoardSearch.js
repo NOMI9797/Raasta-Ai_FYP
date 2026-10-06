@@ -1,7 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { Briefcase, Download, ExternalLink, Globe, Loader2, MapPin, Search } from "lucide-react";
 import CompanyLogo from "@/components/sales/CompanyLogo";
@@ -41,8 +40,14 @@ export default function JobBoardSearch({ platform, campaignId, onImported }) {
   const [selected, setSelected] = useState(new Set());
   const [searching, setSearching] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [enrichAfterImport, setEnrichAfterImport] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [provider, setProvider] = useState(null);
+
+  // Rozee.pk is searched through a web search engine: say so when only the limited free one is set up
+  useEffect(() => {
+    if (isIndeed) return;
+    fetch("/api/sales/search-status").then((r) => r.json()).then((d) => setProvider(d.provider || null)).catch(() => {});
+  }, [isIndeed]);
 
   const set = (key, value) => setFilters((f) => ({ ...f, [key]: value }));
   const companies = useMemo(() => new Set(results.map((r) => (r.name || "").toLowerCase()).filter(Boolean)).size, [results]);
@@ -101,7 +106,7 @@ export default function JobBoardSearch({ platform, campaignId, onImported }) {
       const res = await fetch("/api/leads/scrape/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ campaignId, profiles, enrichInserted: enrichAfterImport && platform === "rozee" }),
+        body: JSON.stringify({ campaignId, profiles }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Import failed");
@@ -127,12 +132,21 @@ export default function JobBoardSearch({ platform, campaignId, onImported }) {
             <p className="mt-0.5 text-sm text-base-content/60">
               {isIndeed
                 ? "Search Indeed for job posts. Every company behind a post becomes a lead: hiring means growth and budget."
-                : "Search Rozee.pk for job posts. Every company behind a post becomes a lead."}
+                : "Search Rozee.pk for job posts. Every company behind a post becomes a lead. Rozee.pk blocks automated browsers, so its posts are found through a search engine."}
             </p>
           </div>
-          {!isIndeed && <Link href="/dashboard/platforms" className="btn btn-ghost btn-xs">Rozee.pk account</Link>}
+
         </div>
 
+        {!isIndeed && provider && provider !== "serper" && (
+          <div className="mb-3 flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs">
+            <Search className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+            <span>
+              Rozee.pk search is using a free search engine that stops after a few searches. For reliable results, get a free key at serper.dev and add
+              <code className="mx-1 rounded bg-base-200 px-1">SERPER_API_KEY=…</code> to .env.local, then restart the app.
+            </span>
+          </div>
+        )}
         <div className="grid gap-2 lg:grid-cols-[1.4fr_1fr_auto_auto]">
           <label className="input input-bordered flex items-center gap-2">
             <Briefcase className="h-4 w-4 opacity-50" />
@@ -192,7 +206,7 @@ export default function JobBoardSearch({ platform, campaignId, onImported }) {
         <div className="overflow-hidden rounded-xl border border-base-300 bg-base-100">
           <div className="flex items-center gap-2 border-b border-base-300 px-4 py-3 text-sm text-base-content/60">
             <Loader2 className="h-4 w-4 animate-spin text-primary" />
-            {isIndeed ? "Searching Indeed… usually a few seconds." : "Searching Rozee.pk in a browser… this can take 30–60 seconds."}
+            {isIndeed ? "Searching Indeed… usually a few seconds." : "Searching Rozee.pk job posts… usually a few seconds."}
           </div>
           {[0, 1, 2, 3].map((i) => (
             <div key={i} className="flex items-center gap-3 border-b border-base-200 px-4 py-3 last:border-0">
@@ -215,12 +229,6 @@ export default function JobBoardSearch({ platform, campaignId, onImported }) {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              {platform === "rozee" && (
-                <label className="flex cursor-pointer items-center gap-2 text-xs text-base-content/70">
-                  <input type="checkbox" className="checkbox checkbox-xs" checked={enrichAfterImport} onChange={(e) => setEnrichAfterImport(e.target.checked)} />
-                  Research companies after adding (slower)
-                </label>
-              )}
               <button className="btn btn-primary btn-sm gap-2" disabled={importing || !selected.size} onClick={handleImport}>
                 {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Add {selected.size || ""} to campaign
               </button>

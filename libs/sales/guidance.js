@@ -8,9 +8,9 @@ const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 /**
  * @param {object} counts linkedinAccounts, rozeeAccounts, campaigns, leads, researchedLeads, messages,
  *                        contactedLeads, salesAgents
- * @param {{ indeedReady?: boolean }} setup
+ * @param {{ indeedReady?: boolean, searchProvider?: "serper"|"duckduckgo" }} setup
  */
-export function buildSalesGuidance(counts, { indeedReady = false } = {}) {
+export function buildSalesGuidance(counts, { indeedReady = false, searchProvider = "duckduckgo" } = {}) {
   const steps = [
     {
       id: "linkedin",
@@ -27,9 +27,12 @@ export function buildSalesGuidance(counts, { indeedReady = false } = {}) {
       title: "Get Rozee.pk and Indeed ready",
       detail: [
         indeedReady ? "Indeed search is ready." : "Indeed search is not set up on this server (npm run setup:indeed).",
-        counts.rozeeAccounts > 0 ? "A Rozee.pk account is connected." : "Connect a Rozee.pk account to search Rozee.",
+        // Rozee.pk blocks automated browsers, so its job posts are found through a search engine
+        searchProvider === "serper"
+          ? "Rozee.pk search is ready (Google, through Serper)."
+          : "Rozee.pk search uses a free search engine that stops after a few searches: add SERPER_API_KEY.",
       ].join(" "),
-      done: indeedReady && counts.rozeeAccounts > 0,
+      done: indeedReady && searchProvider === "serper",
       optional: true,
       href: "/dashboard/platforms",
       cta: "Platforms",

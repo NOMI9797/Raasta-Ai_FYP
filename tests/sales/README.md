@@ -4,7 +4,7 @@ Automated tests for the Client Acquisition (Sales) module: lead collection, rese
 agent, the knowledge base (RAG), replies, follow-ups and meetings. Every check that was first done
 by hand during development is also kept here as a repeatable test.
 
-**141 test cases in 21 files. Latest run: 136 passed, 0 failed, 5 live checks skipped by default (they pass when run with `npm run test:sales:live`).**
+**151 test cases in 23 files. Latest run: 145 passed, 0 failed, 6 live checks skipped by default (run them with `npm run test:sales:live`; the Rozee.pk one needs `SERPER_API_KEY`).**
 
 ## How to run
 
@@ -43,13 +43,15 @@ npm run test:sales:live          # real Gmail, Groq, Indeed and the embedding mo
 | `message-writer.test.js` | Unit | 5 | AI message writing |
 | `outreach.test.js` | Unit | 3 | Where each company stands on the Outreach step |
 | `results.test.js` | Unit | 7 | Results: KPIs, funnel, activity, intents, outcomes, lead quality |
+| `rozee-search.test.js` | Unit | 7 | Reading Rozee.pk job posts from real search results |
 | `agent-flow.integration.test.js` | Integration | 4 | Agent outreach end to end |
 | `conversation-flow.integration.test.js` | Integration | 9 | Replies, answers, meetings, follow-ups end to end |
 | `knowledge-search.integration.test.js` | Integration | 13 | Retrieval quality with real embeddings and pgvector |
 | `outreach.integration.test.js` | Integration | 3 | Sending company emails by hand: limit, thread, agent hand-off |
 | `results.integration.test.js` | Integration | 1 | Results from a campaign's real emails, replies and meetings |
-| `live-services.test.js` | Live | 5 | Gmail SMTP/IMAP, Groq, Indeed, embedding model |
-| **Total** | | **141** | |
+| `rozee.integration.test.js` | Integration | 2 | The agent on a Rozee.pk campaign, and the job-board check |
+| `live-services.test.js` | Live | 6 | Gmail SMTP/IMAP, Groq, Indeed, Rozee.pk search, embedding model |
+| **Total** | | **151** | |
 
 ## Every test case
 
@@ -179,7 +181,7 @@ Unit · Sales setup guide (next step to do)
 - a new user is pointed at connecting LinkedIn first
 - optional steps never become the next step
 - the first unfinished required step is next
-- job boards are done only when Indeed is set up and Rozee is connected
+- job boards are done when Indeed is set up and Rozee.pk can be searched reliably (Serper)
 
 ### `knowledge-search.integration.test.js` (13)
 
@@ -265,6 +267,25 @@ Unit · The stage shown for each lead on the Find leads table
 - a job post without a company name can't become a lead
 - LinkedIn people: profile read or failed
 
+### `rozee-search.test.js` (7)
+
+Unit · Rozee.pk job posts read from search-engine results (fixture: real results captured on 7 Oct 2026, `tests/fixtures/sales/rozee-search-results.json`)
+
+- only real job post URLs count: not search pages, company pages, portals or the home page
+- title, cities and company are read from a full title
+- a cut-off title takes the company from the URL
+- a post with no company stays without one (it can't become a lead)
+- pages that aren't job posts are dropped
+- queries and the city filter
+- search: deduplicated across queries, filtered by city, limited, in the import shape
+
+### `rozee.integration.test.js` (2)
+
+Integration (database) · A Rozee.pk campaign end to end
+
+- the agent finds companies on Rozee.pk, adds them and emails the good fits
+- a Rozee.pk search needs a campaign that takes Rozee.pk leads
+
 ### `live-services.test.js` (5)
 
 Live (opt-in) · Real Gmail SMTP/IMAP, Groq AI, Indeed via JobSpy, embedding model
@@ -274,6 +295,7 @@ Live (opt-in) · Real Gmail SMTP/IMAP, Groq AI, Indeed via JobSpy, embedding mod
 - Groq AI answers in JSON with the configured fast model
 - Indeed search through JobSpy returns job posts with company names
 - the local embedding model turns text into 384 numbers
+- Rozee.pk job posts through the configured web search (reliable with SERPER_API_KEY)
 
 ### `meetings.test.js` (9)
 
@@ -323,7 +345,9 @@ automated test that now repeats it.
 | 14 | Find leads redesign + live Indeed search | Opened Find leads › Indeed for "Agent Test - Indeed Semi-auto", then ran the "Flutter developer" quick search for real (nothing added to the campaign) | Search card with icon inputs, country, "Posted" chips, results count and quick searches; real results: 25 job posts from 19 companies with logos/initials, role, location, posted date, salary and job type; nameless posts left unticked. Campaign table with stage pills: "Fit 30", "Meeting booked", "No company". Colours checked in the page | `lead-stage.test` + visual check |
 | 15 | Knowledge base redesign + real question | Opened Knowledge base (sample data), opened the Add dialog, filtered by topic, and asked "Can you sign an NDA?" for real | Stats (6 entries, 22 passages, 6/6 topics covered, last updated), subtle sample notice, topic list with counts and "missing" flags, searchable entry list, Add dialog with Write / Upload / Web page. The answer came from the knowledge base ("Yes, we can sign an NDA…") using the FAQ passage, which now matches at 0.67 (0.56 before the FAQ chunking fix) | `knowledge-search.integration` + visual check |
 | 16 | Campaigns page redesign | Opened Campaigns with the two test campaigns | Totals (2 campaigns · 1 active · 1 with an agent, 26 leads, 2 contacted, 1 replied · 50%, 1 meeting), status filter and search, cards with status, platform chips with lead counts, Leads / Contacted / Replied / Meetings, outreach bar ("1 of 22 contacted") and "Agent Auto · paused". Found and fixed: the Indeed "Id" badge had no colour on every page (its class lives in `libs/platforms/`, not scanned by Tailwind) | `campaign-overview.test` + visual check |
-| 17 | Rozee.pk job search (investigation) | Ran the existing Rozee.pk scraper ("react developer", Lahore, 5 results) without an account, then opened the search page in a headless browser to see why | **Not working:** 0 jobs. Rozee.pk answers automated browsers with Cloudflare's bot check (HTTP 403, "Just a moment… Performing security verification"), so the job list is never reached. Rozee needs a different approach from Indeed (see the Rozee.pk plan) | Not automated yet (to be added to `live-services` when Rozee search is rebuilt) |
+| 17 | Rozee.pk job search (investigation) | Ran the existing Rozee.pk scraper ("react developer", Lahore, 5 results) without an account, then opened the search page in a headless browser to see why | **Not working:** 0 jobs. Rozee.pk answers automated browsers with Cloudflare's bot check (HTTP 403, "Just a moment… Performing security verification"), so the job list is never reached. Rozee needs a different approach from Indeed: it is now searched through a search engine (rows 18-19) | `live-services` (Rozee.pk search) |
+| 18 | Rozee.pk search results (probe) | Searched `site:rozee.pk "react developer" lahore` and a Flutter search through the free search engine | 18 results with a consistent title "<Role> Job, <Cities>, <Company> - ROZEE.PK" and URL "rozee.pk/<company>-<role>-<city>-jobs-<id>"; saved as the test fixture | `rozee-search.test` |
+| 19 | Rozee.pk search in the app | Called the app's search API for Rozee.pk (no Rozee account), and opened Find leads › Rozee.pk on a temporary campaign (deleted after) | No account needed any more. The free search engine refused after earlier searches ("limiting searches… Add SERPER_API_KEY"), so live results need the Serper key. The Rozee.pk tab shows the explanation and the Serper notice; the RZ badge has its colour | `rozee.integration` + visual check; live results pending SERPER_API_KEY |
 
 ## Problems the tests found and fixed
 
@@ -341,5 +365,8 @@ automated test that now repeats it.
   was written in `libs/`, which Tailwind doesn't scan, so it was never generated. Tailwind now also
   scans `libs/sales/` and `libs/platforms/`; the Campaigns check found the same problem had hidden the
   Indeed badge colour on every page.
+- **Rozee.pk company names from URLs.** The parser test showed that "Senior React.js Developer" didn't
+  line up with the URL "senior-reactjs-developer" (Rozee drops the dot), so the company was lost when the
+  title was cut short. Titles and URLs are now compared without punctuation.
 - **Reply subjects** could keep the "[TEST]" tag ("Re: [TEST] …"), and a removed placeholder left a
   double space. Both were fixed when the unit tests caught them.
