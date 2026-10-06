@@ -3,6 +3,8 @@ module.exports = {
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
+    // Shared sales logic that names colour classes (e.g. lead stages)
+    "./libs/sales/**/*.js",
     "./styles/globals.css",
   ],
   theme: {

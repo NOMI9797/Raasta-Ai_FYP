@@ -42,6 +42,7 @@ export const GET = withAuth(async (request, { params, user }) => {
         inviteSentAt: leads.inviteSentAt,
         messageSent: leads.messageSent,
         messageSentAt: leads.messageSentAt,
+        conversationStatus: leads.conversationStatus,
         createdAt: leads.createdAt
       })
       .from(leads)
