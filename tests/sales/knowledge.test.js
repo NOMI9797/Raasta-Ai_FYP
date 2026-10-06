@@ -124,3 +124,11 @@ test("an empty knowledge base answers without calling the AI", async () => {
   assert.equal(out.covered, false);
   assert.match(out.answer, /nothing/);
 });
+
+test("each FAQ answer gets its own focused passage (found by the retrieval test)", () => {
+  const faq = Array.from({ length: 6 }, (_, i) => `Question number ${i} about our service?\nAnswer ${i}: ${"we explain this clearly in a few words. ".repeat(4)}`).join("\n\n");
+  const chunks = chunkText(faq, { title: "FAQ" });
+  assert.ok(chunks.length >= 3, `expected several passages, got ${chunks.length}`);
+  for (const c of chunks) assert.ok(c.content.startsWith("Question number"), "a passage starts at a question");
+  assert.ok(chunks.every((c) => c.heading?.endsWith("?")));
+});

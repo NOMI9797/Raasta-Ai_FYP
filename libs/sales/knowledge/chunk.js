@@ -12,8 +12,11 @@ export function normaliseText(text) {
     .trim();
 }
 
-// A short line on its own ("## Pricing", "Web development:") starts a section
-const HEADING = /^(#{1,6}\s+.+|[A-Z][^.!?\n]{1,60}:)$/;
+// A short line on its own starts a section: "## Pricing", "Web development:", or an FAQ question
+// ("Can you sign an NDA?"), so each answer gets a passage of its own
+const HEADING = /^(#{1,6}\s+.+|[A-Z][^.!?\n]{1,60}:|[A-Z][^\n]{3,120}\?)$/;
+// A new section starts a new passage once the current one has this much text
+const MIN_SECTION = 150;
 
 function headingOf(paragraph) {
   const first = paragraph.split("\n")[0].trim();
@@ -82,7 +85,11 @@ export function chunkText(text, { title = "", target = CHUNK.target, max = CHUNK
     current = null;
   };
   for (const piece of pieces) {
-    if (current && current.text.length + 2 + piece.text.length > target) {
+    const newSection = current && piece.heading !== current.heading && headingOf(piece.text) && current.text.length >= MIN_SECTION;
+    if (newSection) {
+      flush();
+      current = { text: piece.text, heading: piece.heading };
+    } else if (current && current.text.length + 2 + piece.text.length > target) {
       const carry = tailOf(current.text, overlap);
       flush();
       // A new section starts clean; inside a section, repeat a little context

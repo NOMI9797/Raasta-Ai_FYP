@@ -20,6 +20,9 @@
     "check:branding": "bash scripts/check-branding.sh",
     "test:hiring": "tsx --test tests/hiring/*.test.js",
     "test:sales": "tsx --test tests/sales/*.test.js",
+    "test:sales:unit": "tsx --test $(ls tests/sales/*.test.js | grep -v -e integration -e live-services)",
+    "test:sales:integration": "tsx --test tests/sales/*.integration.test.js",
+    "test:sales:live": "RUN_LIVE_TESTS=1 tsx --test tests/sales/live-services.test.js",
     "setup:indeed": "python3 -m venv services/indeed-search/.venv && services/indeed-search/.venv/bin/pip install -r services/indeed-search/requirements.txt"
   },
   "dependencies": {
