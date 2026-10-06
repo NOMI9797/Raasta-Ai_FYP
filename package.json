@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3000",
+    "dev": "next dev -p 8085",
     "build": "next build",
     "postbuild": "next-sitemap",
     "postinstall": "npx playwright install chromium --with-deps || true",
-    "start": "next start",
+    "start": "next start -p 8085",
     "lint": "next lint",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
