@@ -4,7 +4,7 @@ Automated tests for the Client Acquisition (Sales) module: lead collection, rese
 agent, the knowledge base (RAG), replies, follow-ups and meetings. Every check that was first done
 by hand during development is also kept here as a repeatable test.
 
-**121 test cases in 15 files. Latest run: 116 passed, 0 failed, 5 live checks skipped by default (they pass when run with `npm run test:sales:live`).**
+**127 test cases in 17 files. Latest run: 122 passed, 0 failed, 5 live checks skipped by default (they pass when run with `npm run test:sales:live`).**
 
 ## How to run
 
@@ -39,11 +39,13 @@ npm run test:sales:live          # real Gmail, Groq, Indeed and the embedding mo
 | `knowledge.test.js` | Unit | 18 | Knowledge base chunking, search, grounded answers |
 | `meetings.test.js` | Unit | 9 | Time zones, free slots, calendar invites |
 | `message-writer.test.js` | Unit | 5 | AI message writing |
+| `outreach.test.js` | Unit | 3 | Where each company stands on the Outreach step |
 | `agent-flow.integration.test.js` | Integration | 4 | Agent outreach end to end |
 | `conversation-flow.integration.test.js` | Integration | 9 | Replies, answers, meetings, follow-ups end to end |
 | `knowledge-search.integration.test.js` | Integration | 13 | Retrieval quality with real embeddings and pgvector |
+| `outreach.integration.test.js` | Integration | 3 | Sending company emails by hand: limit, thread, agent hand-off |
 | `live-services.test.js` | Live | 5 | Gmail SMTP/IMAP, Groq, Indeed, embedding model |
-| **Total** | | **121** | |
+| **Total** | | **127** | |
 
 ## Every test case
 
@@ -209,6 +211,22 @@ Unit · Knowledge base: chunking, hybrid search fusion, web/file extraction, gro
 - an empty knowledge base answers without calling the AI
 - each FAQ answer gets its own focused passage (found by the retrieval test)
 
+### `outreach.test.js` (3)
+
+Unit · Where each company stands on the Outreach step, and the filters
+
+- before sending: not written, needs an address, draft, ready, failed
+- after sending, the conversation decides the status
+- every status belongs to exactly one filter (besides All)
+
+### `outreach.integration.test.js` (3)
+
+Integration (database) · Sending first emails by hand on the Outreach step
+
+- the board shows where every company stands
+- sending by hand: approves drafts, starts the thread, stops at the daily limit
+- a failed send is recorded, and an email without an address isn't tried
+
 ### `live-services.test.js` (5)
 
 Live (opt-in) · Real Gmail SMTP/IMAP, Groq AI, Indeed via JobSpy, embedding model
@@ -271,5 +289,7 @@ automated test that now repeats it.
   packed into one passage. Each FAQ question now starts its own passage, and the test passes.
 - **Re-contacting the same company.** While writing `agent-flow`, the agent correctly refused to
   email a company already emailed from another campaign without asking. This is now a test of its own.
+- **Bulk sending order.** The outreach test showed that when the daily limit cut a batch short, which
+  companies were left for tomorrow depended on database order. Emails now go out in the order chosen.
 - **Reply subjects** could keep the "[TEST]" tag ("Re: [TEST] …"), and a removed placeholder left a
   double space. Both were fixed when the unit tests caught them.

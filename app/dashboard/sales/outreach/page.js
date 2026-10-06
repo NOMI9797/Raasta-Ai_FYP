@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import SalesStageShell from "@/components/sales/SalesStageShell";
-import StageNotReady from "@/components/sales/StageNotReady";
 import LinkedInOutreachBoard from "@/components/sales/outreach/LinkedInOutreachBoard";
+import CompanyOutreachBoard from "@/components/sales/outreach/CompanyOutreachBoard";
 import { stageHref } from "@/libs/sales/stages";
 
-// Step 5: reach out and track it. LinkedIn: invite → connected → message. Companies: email or the decision-maker on LinkedIn.
+// Step 5: reach out and track it. LinkedIn: invite → connected → message. Companies: send the approved emails and follow each one.
 export default function OutreachPage() {
   return (
     <SalesStageShell stageKey="outreach">
@@ -23,14 +23,7 @@ export default function OutreachPage() {
             <LinkedInOutreachBoard key={campaign.id} campaignId={campaign.id} />
           </div>
         ) : (
-          <StageNotReady
-            title="Company outreach is being built"
-            points={[
-              "Email the company using the address found in Research.",
-              "Or send the decision-maker into the LinkedIn invite and message flow.",
-              "Track sent, opened and replied.",
-            ]}
-          />
+          <CompanyOutreachBoard key={`${campaign.id}-${platform}`} campaignId={campaign.id} platform={platform} />
         )
       }
     </SalesStageShell>

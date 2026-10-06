@@ -20,6 +20,7 @@ import { CONVERSATION_SENDS, DEFAULTS, ROUTE, SALES_ACTION, SALES_PIPELINE, norm
 import { LEAD_STAGE, acceptanceCheckDue, buildSalesPlan, isCampaignFinished, keyFor } from "./plan";
 import { scoreLead } from "./scoring";
 import { recordOutbound } from "../conversation/thread";
+import { emailsSentToday } from "../outreach";
 import { CLOSED_STATUSES, CONVERSATION_STATUS } from "../conversation/status";
 import { getSalesSettings } from "../meetings/settings";
 import { conversationDeps, executeConversationSend, handleConversations } from "./conversations";
@@ -190,8 +191,9 @@ async function countExecutedToday(ctx, action) {
 
 /** Sends left today: the run's caps minus what it already sent, and the LinkedIn account's own limits. */
 async function allowance(ctx) {
-  // Follow-ups are cold emails too, so they share the daily email limit (answers to replies don't)
-  const emailsToday = (await countExecutedToday(ctx, SALES_ACTION.SEND_EMAIL)) + (await countExecutedToday(ctx, SALES_ACTION.SEND_FOLLOW_UP));
+  // First emails and follow-ups, sent by the agent or by hand on the Outreach step, share the
+  // daily email limit (answers to replies don't count)
+  const emailsToday = await emailsSentToday(ctx.campaign.id, { database: ctx.d.database, now: ctx.d.now() });
   const out = { email: Math.max(0, ctx.config.dailyEmailCap - emailsToday), invite: 0, linkedinMessage: 0 };
   if (ctx.account) {
     const account = await ctx.d.linkedin.linkedInAllowance(ctx.account.id).catch(() => ({ invites: 0, messages: 0 }));
