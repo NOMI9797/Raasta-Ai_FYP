@@ -1,3 +1,4 @@
+/* global globalThis */
 // Shared set-up for the sales integration tests: a throw-away user with campaigns and leads in the
 // real (local) database, fakes for the AI, email and mailbox, and clean-up afterwards.
 // Nothing here sends real email or calls the real AI.
