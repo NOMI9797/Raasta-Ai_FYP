@@ -7,9 +7,57 @@ module.exports = {
   ],
   theme: {
     extend: {
+      // raasta.*: landing page tokens (app/landing-tokens.css). The dashboard keeps the DaisyUI theme.
+      colors: {
+        raasta: {
+          cobalt: "rgb(var(--raasta-cobalt) / <alpha-value>)",
+          cobaltDeep: "rgb(var(--raasta-cobalt-deep) / <alpha-value>)",
+          wash: "rgb(var(--raasta-cobalt-wash) / <alpha-value>)",
+          cobaltSoft: "rgb(var(--raasta-cobalt-soft) / <alpha-value>)",
+          navy: "rgb(var(--raasta-navy) / <alpha-value>)",
+          navyDeep: "rgb(var(--raasta-navy-deep) / <alpha-value>)",
+          slate: "rgb(var(--raasta-slate) / <alpha-value>)",
+          mist: "rgb(var(--raasta-mist) / <alpha-value>)",
+          line: "rgb(var(--raasta-line) / <alpha-value>)",
+          white: "rgb(var(--raasta-white) / <alpha-value>)",
+          success: "rgb(var(--raasta-success) / <alpha-value>)",
+          successWash: "rgb(var(--raasta-success-wash) / <alpha-value>)",
+          danger: "rgb(var(--raasta-danger) / <alpha-value>)",
+          dangerWash: "rgb(var(--raasta-danger-wash) / <alpha-value>)",
+        },
+        // App UI kit (login, signup, components/ui): values live in app/globals.css
+        "primary": "var(--primary)",
+        "primary-soft": "var(--primary-soft)",
+        "bg": "var(--bg)",
+        "surface": "var(--surface)",
+        "border": "var(--border)",
+        "ink": "var(--ink)",
+        "muted": "var(--muted)",
+        "dark": "var(--dark)",
+        "on-primary": "var(--on-primary)",
+        "on-dark": "var(--on-dark)",
+      },
+      fontFamily: {
+        display: ["var(--font-display)", "var(--font-sans)", "system-ui", "sans-serif"],
+        mono: ["var(--font-mono)", "ui-monospace", "SFMono-Regular", "monospace"],
+      },
+      // Radius follows hierarchy: chip < control < card < window
+      borderRadius: {
+        chip: "4px",
+        control: "8px",
+        card: "12px",
+        window: "20px",
+      },
+      // Elevation: e1 selected control, e2 featured plan, e3 product window
+      boxShadow: {
+        e1: "var(--raasta-e1)",
+        e2: "var(--raasta-e2)",
+        e3: "var(--raasta-e3)",
+        e4: "var(--raasta-e4)",
+      },
       backgroundImage: {
         gradient:
-          "linear-gradient(60deg, #6366F1, #4F46E5, #4338CA, #a166ab, #5073b8, #1098ad, #07b39b, #6fba82)",
+          "linear-gradient(60deg, var(--primary), var(--primary-soft), var(--primary))",
       },
       animation: {
         opacity: "opacity 0.25s ease-in-out",
@@ -17,8 +65,13 @@ module.exports = {
         wiggle: "wiggle 1.5s ease-in-out infinite",
         popup: "popup 0.25s ease-in-out",
         shimmer: "shimmer 3s ease-out infinite alternate",
+        marquee: "marquee 30s linear infinite",
       },
       keyframes: {
+        marquee: {
+          "0%": { transform: "translateX(0)" },
+          "100%": { transform: "translateX(-50%)" },
+        },
         opacity: {
           "0%": { opacity: 0 },
           "100%": { opacity: 1 },
@@ -61,11 +114,11 @@ module.exports = {
   daisyui: {
     themes: [
       {
-        reachly: {
+        "raasta-ai": {
           "primary": "#6366F1",        // Electric Indigo - main brand color
           "primary-focus": "#4F46E5",  // Darker Indigo for focus states
           "primary-content": "#ffffff", // White text on primary
-          "secondary": "#F9B095",      // No Way Rosé - softer accent
+          "secondary": "#F9B095",      // No Way RosÃ© - softer accent
           "secondary-focus": "#f7a285", // Darker shade for focus
           "secondary-content": "#2F3035", // Dark text on secondary
           "accent": "#E6E4E6",         // Violet Essence - subtle highlight
@@ -96,11 +149,11 @@ module.exports = {
         },
       },
       {
-        "reachly-dark": {
+        "raasta-ai-dark": {
           "primary": "#6366F1",        // Electric Indigo - main brand color
           "primary-focus": "#4F46E5",  // Darker Indigo for focus states
           "primary-content": "#ffffff", // White text on primary
-          "secondary": "#F9B095",      // Keep same No Way Rosé - softer accent
+          "secondary": "#F9B095",      // Keep same No Way RosÃ© - softer accent
           "secondary-focus": "#f7a285", // Darker shade for focus
           "secondary-content": "#1a1a1a", // Dark text on secondary
           "accent": "#E6E4E6",         // Keep same Violet Essence - subtle highlight
@@ -133,3 +186,5 @@ module.exports = {
     ],
   },
 };
+
+

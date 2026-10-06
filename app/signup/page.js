@@ -4,314 +4,78 @@ import Link from "next/link";
 import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import { m } from "framer-motion";
+import { Check, Eye, EyeOff, LoaderCircle } from "lucide-react";
 import config from "@/config";
+import { AuthShell, GoogleIcon, SecureNote } from "@/components/auth/AuthShell";
+
+const initialForm = { firstName: "", lastName: "", email: "", password: "", confirmPassword: "", agreeToTerms: false, receiveUpdates: false };
+const fieldMotion = { hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0 } };
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function Checkbox({ checked, onChange, children, name }) {
+  return <label className="flex cursor-pointer items-start gap-3 text-sm leading-6 text-muted"><span className="relative mt-0.5 grid size-5 shrink-0 place-items-center"><input aria-label={name} checked={checked} className="peer size-5 appearance-none rounded-[5px] border border-border bg-surface checked:border-primary checked:bg-primary" onChange={onChange} type="checkbox"/><Check className="pointer-events-none absolute size-3.5 text-white opacity-0 peer-checked:opacity-100" strokeWidth={3}/></span><span>{children}</span></label>;
+}
 
 export default function SignUp() {
-  const [formData, setFormData] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    password: "",
-    confirmPassword: "",
-    agreeToTerms: false,
-    receiveUpdates: false,
-  });
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState(false);
+  const [form, setForm] = useState(initialForm);
+  const [errors, setErrors] = useState({});
+  const [formError, setFormError] = useState("");
+  const [status, setStatus] = useState("idle");
+  const [showPassword, setShowPassword] = useState(false);
+  const [shake, setShake] = useState(0);
   const router = useRouter();
-
-  const handleChange = (field, value) => {
-    setFormData((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
+  const rules = [
+    { label: "At least 8 characters", met: form.password.length >= 8 },
+    { label: "One uppercase letter", met: /[A-Z]/.test(form.password) },
+    { label: "One number", met: /\d/.test(form.password) },
+  ];
+  const strength = rules.filter((rule) => rule.met).length;
+  const setValue = (field, value) => { setForm((current) => ({ ...current, [field]: value })); setErrors((current) => ({ ...current, [field]: "" })); };
+  const validateField = (field) => {
+    let message = ""; const value = form[field];
+    if ((field === "firstName" || field === "lastName") && !value.trim()) message = `${field === "firstName" ? "First" : "Last"} name is required`;
+    if (field === "email" && !emailPattern.test(value)) message = "Enter a valid email address";
+    if (field === "password" && !rules.every((rule) => rule.met)) message = "Password does not meet all requirements";
+    if (field === "confirmPassword" && value !== form.password) message = "Passwords do not match";
+    setErrors((current) => ({ ...current, [field]: message })); return !message;
   };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setError("");
-
-    // Validation
-    if (formData.password !== formData.confirmPassword) {
-      setError("Passwords do not match");
-      setIsLoading(false);
-      return;
-    }
-
-    if (formData.password.length < 6) {
-      setError("Password must be at least 6 characters long");
-      setIsLoading(false);
-      return;
-    }
-
-    if (!formData.agreeToTerms) {
-      setError("You must agree to the Terms of Service");
-      setIsLoading(false);
-      return;
-    }
-
+  const fail = (message) => { setFormError(message); setShake((value) => value + 1); setStatus("idle"); };
+  const handleSubmit = async (event) => {
+    event.preventDefault(); setFormError("");
+    const valid = ["firstName", "lastName", "email", "password", "confirmPassword"].map(validateField).every(Boolean);
+    if (!valid) return fail("Please correct the highlighted fields");
+    if (!form.agreeToTerms) { setErrors((current) => ({ ...current, agreeToTerms: "You must agree to the Terms of Service" })); return fail("Please accept the terms to continue"); }
+    setStatus("loading");
     try {
-      // Register user
-      const response = await fetch("/api/auth/register", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          firstName: formData.firstName,
-          lastName: formData.lastName,
-          email: formData.email,
-          password: formData.password,
-        }),
-      });
-
+      const response = await fetch("/api/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ firstName: form.firstName, lastName: form.lastName, email: form.email, password: form.password }) });
       const data = await response.json();
-
-      if (!response.ok) {
-        setError(data.error || "Registration failed");
-        return;
-      }
-
-      // Auto sign in after successful registration
-      const signInResult = await signIn("credentials", {
-        email: formData.email,
-        password: formData.password,
-        redirect: false,
-      });
-
-      if (signInResult?.error) {
-        setSuccess(true);
-        setTimeout(() => router.push("/signin"), 2000);
-      } else {
-        router.push("/onboarding");
-      }
-    } catch (error) {
-      setError("Something went wrong. Please try again.");
-    } finally {
-      setIsLoading(false);
-    }
+      if (!response.ok) return fail(data.error || "Registration failed");
+      const result = await signIn("credentials", { email: form.email, password: form.password, redirect: false });
+      setStatus("success");
+      await new Promise((resolve) => window.setTimeout(resolve, 650));
+      router.push(result?.error ? "/login" : "/onboarding");
+    } catch { fail("Something went wrong. Please try again."); }
   };
-
-  const handleGoogleSignUp = () => {
-    signIn("google", { callbackUrl: config.auth.callbackUrl });
-  };
-
-  return (
-    <div className="min-h-screen bg-base-100 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        {/* Logo/Brand Section */}
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-primary mb-2">Raasta-AI</h1>
-          <p className="text-neutral/70">Create your account and start reaching out</p>
-        </div>
-
-        {/* Sign Up Card */}
-        <div className="card bg-base-100 shadow-xl border border-base-300">
-          <div className="card-body p-8">
-            <h2 className="card-title text-2xl font-bold text-neutral mb-6 justify-center">
-              Sign Up
-            </h2>
-
-            <form onSubmit={handleSubmit} className="space-y-5">
-              {/* Error/Success Messages */}
-              {error && (
-                <div className="alert alert-error">
-                  <span>{error}</span>
-                </div>
-              )}
-              {success && (
-                <div className="alert alert-success">
-                  <span>Account created successfully! Redirecting to sign in...</span>
-                </div>
-              )}
-
-              {/* Name Fields */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="form-control">
-                  <label className="label">
-                    <span className="label-text font-medium text-neutral">First Name</span>
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="John"
-                    className="input input-bordered w-full focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 border-base-300"
-                    value={formData.firstName}
-                    onChange={(e) => handleChange("firstName", e.target.value)}
-                    required
-                  />
-                </div>
-                <div className="form-control">
-                  <label className="label">
-                    <span className="label-text font-medium text-neutral">Last Name</span>
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Doe"
-                    className="input input-bordered w-full focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 border-base-300"
-                    value={formData.lastName}
-                    onChange={(e) => handleChange("lastName", e.target.value)}
-                    required
-                  />
-                </div>
-              </div>
-
-              {/* Email Field */}
-              <div className="form-control">
-                <label className="label">
-                  <span className="label-text font-medium text-neutral">Email</span>
-                </label>
-                <input
-                  type="email"
-                  placeholder="john@example.com"
-                  className="input input-bordered w-full focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 border-base-300"
-                  value={formData.email}
-                  onChange={(e) => handleChange("email", e.target.value)}
-                  required
-                />
-              </div>
-
-              {/* Password Fields */}
-              <div className="form-control">
-                <label className="label">
-                  <span className="label-text font-medium text-neutral">Password</span>
-                </label>
-                <input
-                  type="password"
-                  placeholder="Create a strong password"
-                  className="input input-bordered w-full focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 border-base-300"
-                  value={formData.password}
-                  onChange={(e) => handleChange("password", e.target.value)}
-                  required
-                />
-              </div>
-
-              <div className="form-control">
-                <label className="label">
-                  <span className="label-text font-medium text-neutral">Confirm Password</span>
-                </label>
-                <input
-                  type="password"
-                  placeholder="Confirm your password"
-                  className="input input-bordered w-full focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 border-base-300"
-                  value={formData.confirmPassword}
-                  onChange={(e) => handleChange("confirmPassword", e.target.value)}
-                  required
-                />
-              </div>
-
-              {/* Checkboxes */}
-              <div className="space-y-3">
-                <label className="label cursor-pointer justify-start">
-                  <input
-                    type="checkbox"
-                    className="checkbox checkbox-primary checkbox-sm mr-3"
-                    checked={formData.agreeToTerms}
-                    onChange={(e) => handleChange("agreeToTerms", e.target.checked)}
-                    required
-                  />
-                  <span className="label-text text-neutral/80 text-sm">
-                    I agree to the{" "}
-                    <Link href="/tos" className="link link-primary">
-                      Terms of Service
-                    </Link>{" "}
-                    and{" "}
-                    <Link href="/privacy-policy" className="link link-primary">
-                      Privacy Policy
-                    </Link>
-                  </span>
-                </label>
-
-                <label className="label cursor-pointer justify-start">
-                  <input
-                    type="checkbox"
-                    className="checkbox checkbox-primary checkbox-sm mr-3"
-                    checked={formData.receiveUpdates}
-                    onChange={(e) => handleChange("receiveUpdates", e.target.checked)}
-                  />
-                  <span className="label-text text-neutral/80 text-sm">
-                    I&apos;d like to receive product updates and marketing emails
-                  </span>
-                </label>
-              </div>
-
-              {/* Sign Up Button */}
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="btn btn-primary w-full text-white font-medium hover:scale-105 transition-transform mt-6"
-              >
-                {isLoading ? (
-                  <>
-                    <span className="loading loading-spinner loading-sm"></span>
-                    Creating Account...
-                  </>
-                ) : (
-                  "Create Account"
-                )}
-              </button>
-            </form>
-
-            {/* Divider */}
-            <div className="divider text-neutral/50">or</div>
-
-            {/* Social Sign Up */}
-            <div className="space-y-3">
-              <button 
-                type="button"
-                onClick={handleGoogleSignUp}
-                className="btn btn-outline w-full border-base-300 hover:bg-base-200 hover:border-base-300"
-              >
-                <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
-                  <path
-                    fill="currentColor"
-                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                  />
-                  <path
-                    fill="currentColor"
-                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                  />
-                  <path
-                    fill="currentColor"
-                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-                  />
-                  <path
-                    fill="currentColor"
-                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                  />
-                </svg>
-                Continue with Google
-              </button>
-
-              <button className="btn btn-outline w-full border-base-300 hover:bg-base-200 hover:border-base-300">
-                <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12.017 0C5.396 0 .029 5.367.029 11.987c0 5.079 3.158 9.417 7.618 11.024-.105-.949-.199-2.403.041-3.439.219-.937 1.406-5.957 1.406-5.957s-.359-.719-.359-1.781c0-1.663.967-2.911 2.168-2.911 1.024 0 1.518.769 1.518 1.688 0 1.029-.653 2.567-.992 3.992-.285 1.193.6 2.165 1.775 2.165 2.128 0 3.768-2.245 3.768-5.487 0-2.861-2.063-4.869-5.008-4.869-3.41 0-5.409 2.562-5.409 5.199 0 1.033.394 2.143.889 2.741.097.118.112.221.083.345-.09.375-.293 1.199-.334 1.363-.053.225-.172.271-.402.165-1.495-.69-2.433-2.878-2.433-4.646 0-3.776 2.748-7.252 7.92-7.252 4.158 0 7.392 2.967 7.392 6.923 0 4.135-2.607 7.462-6.233 7.462-1.214 0-2.357-.629-2.746-1.378l-.748 2.853c-.271 1.043-1.002 2.35-1.492 3.146C9.57 23.812 10.763 24.009 12.017 24c6.624 0 11.99-5.367 11.99-12C24.007 5.367 18.641.001 12.017.001z"/>
-                </svg>
-                Continue with LinkedIn
-              </button>
-            </div>
-
-            {/* Sign In Link */}
-            <div className="text-center mt-6">
-              <p className="text-neutral/70">
-                Already have an account?{" "}
-                <Link
-                  href="/signin"
-                  className="link link-primary font-medium hover:text-primary/80"
-                >
-                  Sign in
-                </Link>
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Additional Info */}
-        <div className="text-center mt-6 text-neutral/50 text-sm">
-          <p>🔒 Your data is secure and encrypted</p>
-        </div>
-      </div>
-    </div>
-  );
+  const inputClass = "h-11 w-full rounded-[10px] border border-border bg-surface px-3 text-sm text-ink outline-none placeholder:text-muted/70 focus:border-primary focus:ring-2 focus:ring-primary/25";
+  return <AuthShell>
+    <div><h1 className="text-[clamp(32px,4vw,44px)]">Create your account</h1><p className="mt-2 text-sm leading-[1.6] text-muted">Start automating outreach and hiring in minutes.</p></div>
+    <m.form animate={shake ? { x: [0, -4, 4, -4, 4, 0] } : {}} className="mt-8 space-y-4" key={shake} noValidate onSubmit={handleSubmit} transition={{ duration: 0.3 }}>
+      <m.div animate="visible" className="grid gap-4 sm:grid-cols-2" initial="hidden" transition={{ staggerChildren: 0.06 }}>
+        {[['firstName','First name','First name'],['lastName','Last name','Last name']].map(([field,label,placeholder]) => <m.label className="block" key={field} variants={fieldMotion}><span className="mb-1.5 block text-[13px] font-medium">{label}</span><input aria-invalid={Boolean(errors[field])} className={inputClass} onBlur={() => validateField(field)} onChange={(event) => setValue(field,event.target.value)} placeholder={placeholder} value={form[field]}/>{errors[field] ? <span className="mt-1 block text-[13px] text-red-600">{errors[field]}</span> : null}</m.label>)}
+      </m.div>
+      <m.label animate="visible" className="block" initial="hidden" transition={{ delay: 0.12 }} variants={fieldMotion}><span className="mb-1.5 block text-[13px] font-medium">Email</span><input aria-invalid={Boolean(errors.email)} className={inputClass} onBlur={() => validateField("email")} onChange={(event) => setValue("email",event.target.value)} placeholder="you@example.com" type="email" value={form.email}/>{errors.email ? <span className="mt-1 block text-[13px] text-red-600">{errors.email}</span> : null}</m.label>
+      <m.div animate="visible" initial="hidden" transition={{ delay: 0.18 }} variants={fieldMotion}><label className="block"><span className="mb-1.5 block text-[13px] font-medium">Password</span><span className="relative block"><input aria-invalid={Boolean(errors.password)} className={`${inputClass} pr-11`} onBlur={() => validateField("password")} onChange={(event) => setValue("password",event.target.value)} placeholder="Create a strong password" type={showPassword ? "text" : "password"} value={form.password}/><button aria-label={showPassword ? "Hide password" : "Show password"} className="absolute inset-y-0 right-0 grid w-11 place-items-center text-muted hover:text-ink" onClick={() => setShowPassword((value) => !value)} type="button">{showPassword ? <EyeOff size={17}/> : <Eye size={17}/>}</button></span>{errors.password ? <span className="mt-1 block text-[13px] text-red-600">{errors.password}</span> : null}</label>
+        <div className="mt-3 grid grid-cols-3 gap-1.5" aria-label="Password strength">{[0,1,2].map((segment) => <span className={`h-1.5 rounded-full ${strength > segment ? "bg-emerald-500" : "bg-border"}`} key={segment}/>)}</div>
+        <div className="mt-2 grid gap-1">{rules.map((rule) => <span className={`flex items-center gap-2 text-[13px] ${rule.met ? "text-emerald-700" : "text-muted"}`} key={rule.label}><span className={`grid size-4 place-items-center rounded-full ${rule.met ? "bg-emerald-100" : "bg-bg"}`}><Check size={11}/></span>{rule.label}</span>)}</div>
+      </m.div>
+      <m.label animate="visible" className="block" initial="hidden" transition={{ delay: 0.24 }} variants={fieldMotion}><span className="mb-1.5 block text-[13px] font-medium">Confirm password</span><input aria-invalid={Boolean(errors.confirmPassword)} className={inputClass} onBlur={() => validateField("confirmPassword")} onChange={(event) => setValue("confirmPassword",event.target.value)} placeholder="Repeat your password" type={showPassword ? "text" : "password"} value={form.confirmPassword}/>{errors.confirmPassword ? <span className="mt-1 block text-[13px] text-red-600">{errors.confirmPassword}</span> : null}</m.label>
+      <m.div animate="visible" className="space-y-2" initial="hidden" transition={{ delay: 0.3 }} variants={fieldMotion}><Checkbox checked={form.agreeToTerms} name="Agree to terms" onChange={(event) => setValue("agreeToTerms",event.target.checked)}>I agree to the <Link className="font-medium text-primary underline underline-offset-4" href="/tos">Terms of Service</Link> and <Link className="font-medium text-primary underline underline-offset-4" href="/privacy-policy">Privacy Policy</Link></Checkbox>{errors.agreeToTerms ? <span className="block text-[13px] text-red-600">{errors.agreeToTerms}</span> : null}<Checkbox checked={form.receiveUpdates} name="Product updates" onChange={(event) => setValue("receiveUpdates",event.target.checked)}>Send me occasional product updates</Checkbox></m.div>
+      {formError ? <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-[13px] text-red-700" role="alert">{formError}</p> : null}
+      <button className="flex h-11 w-full items-center justify-center gap-2 rounded-[10px] bg-primary px-5 text-sm font-medium text-on-primary transition-transform hover:-translate-y-px disabled:opacity-60" disabled={status !== "idle"} type="submit">{status === "loading" ? <><LoaderCircle className="size-4 animate-spin"/>Creating account...</> : status === "success" ? <m.span animate={{ scale: 1 }} initial={{ scale: 0 }}><Check className="size-5"/></m.span> : "Create account"}</button>
+    </m.form>
+    <div className="my-5 flex items-center gap-3 text-[13px] text-muted"><span className="h-px flex-1 bg-border"/>or<span className="h-px flex-1 bg-border"/></div>
+    <button className="flex h-11 w-full items-center justify-center gap-3 rounded-[10px] border border-border bg-surface px-5 text-sm font-medium text-ink hover:bg-bg" onClick={() => signIn("google", { callbackUrl: config.auth.callbackUrl })} type="button"><GoogleIcon/>Continue with Google</button>
+    <p className="mt-6 text-center text-sm text-muted">Already have an account? <Link className="font-medium text-primary underline-offset-4 hover:underline" href="/login">Sign in</Link></p><SecureNote/>
+  </AuthShell>;
 }

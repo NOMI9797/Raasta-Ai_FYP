@@ -13,20 +13,20 @@ import {
 
 export default function TopBar({ title = "Campaigns", showStatus = true }) {
   const { data: session } = useSession();
-  const [theme, setTheme] = useState("reachly");
+  const [theme, setTheme] = useState("raasta-ai");
   const [showUserMenu, setShowUserMenu] = useState(false);
 
   useEffect(() => {
     // Get theme from localStorage or use our custom theme
     const savedTheme = localStorage.getItem("theme");
-    const currentTheme = savedTheme || "reachly";
+    const currentTheme = savedTheme || "raasta-ai";
     
     setTheme(currentTheme);
     document.documentElement.setAttribute("data-theme", currentTheme);
   }, []);
 
   const toggleTheme = () => {
-    const newTheme = theme === "reachly" ? "reachly-dark" : "reachly";
+    const newTheme = theme === "raasta-ai" ? "raasta-ai-dark" : "raasta-ai";
     setTheme(newTheme);
     localStorage.setItem("theme", newTheme);
     document.documentElement.setAttribute("data-theme", newTheme);
@@ -63,7 +63,7 @@ export default function TopBar({ title = "Campaigns", showStatus = true }) {
           className="btn btn-ghost btn-sm btn-circle"
           aria-label="Toggle theme"
         >
-          {theme === "reachly" ? (
+          {theme === "raasta-ai" ? (
             <Moon className="h-4 w-4" />
           ) : (
             <Sun className="h-4 w-4" />
@@ -133,4 +133,5 @@ export default function TopBar({ title = "Campaigns", showStatus = true }) {
     </header>
   );
 }
+
 
