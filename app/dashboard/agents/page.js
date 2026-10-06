@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Bot, Loader2, Plus } from "lucide-react";
+import { Activity, Bot, CalendarCheck, Hand, Loader2, MailCheck, MessagesSquare, Plus, X } from "lucide-react";
 import DashboardShell from "@/components/layout/DashboardShell";
 import LaunchSalesAgent from "@/components/sales/agent/LaunchSalesAgent";
 import SalesRunCard from "@/components/sales/agent/SalesRunCard";
@@ -66,58 +66,97 @@ function SalesAgentPage() {
   const active = data.runs.filter((r) => ACTIVE.includes(r.status));
   const past = data.runs.filter((r) => !ACTIVE.includes(r.status));
   const launchOpen = showLaunch || data.runs.length === 0;
+  const sum = (fn) => data.runs.reduce((n, r) => n + (fn(r) || 0), 0);
+  const totals = [
+    { icon: Activity, label: "Agents working", value: active.length, tone: active.length ? "text-primary" : "" },
+    { icon: Hand, label: "Awaiting you", value: pending, tone: pending ? "text-warning" : "", onClick: pending ? () => setTab("approvals") : null },
+    { icon: MailCheck, label: "Contacted", value: sum((r) => r.results?.counts?.done) },
+    { icon: MessagesSquare, label: "Replies", value: sum((r) => r.results?.conversations?.replied) },
+    { icon: CalendarCheck, label: "Meetings booked", value: sum((r) => r.results?.conversations?.meetings), tone: "text-success" },
+  ];
 
   return (
     <DashboardShell title="Sales agent" activeSection="sales-agent">
-      <div className="p-4 md:p-6 space-y-5 max-w-5xl">
-        <header className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2"><Bot className="h-6 w-6 text-primary" /> Sales agent</h1>
-            <p className="text-sm text-base-content/70 mt-1 max-w-2xl">
-              The agent works a campaign for you: it finds and researches leads, scores how well they fit, writes the messages and sends them.
-              In Semi-auto it asks you before sending; in Auto it sends on its own within your daily limits.
-            </p>
+      <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
+        <header className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary"><Bot className="h-6 w-6" /></span>
+            <div>
+              <h1 className="text-2xl font-bold leading-tight">Sales agent</h1>
+              <p className="text-sm text-base-content/60">Finds, researches and contacts leads, answers their replies and books meetings.</p>
+            </div>
           </div>
           {!launchOpen && (
-            <button className="btn btn-primary btn-sm gap-1" onClick={() => setShowLaunch(true)}><Plus className="h-4 w-4" /> Start on a campaign</button>
+            <button className="btn btn-primary btn-sm gap-1" onClick={() => setShowLaunch(true)}><Plus className="h-4 w-4" /> New agent run</button>
           )}
         </header>
 
-        <div role="tablist" className="tabs tabs-boxed w-fit">
-          <button role="tab" className={`tab ${tab === "runs" ? "tab-active" : ""}`} onClick={() => setTab("runs")}>Agent</button>
-          <button role="tab" className={`tab gap-2 ${tab === "approvals" ? "tab-active" : ""}`} onClick={() => setTab("approvals")}>
-            Approvals {pending > 0 && <span className="badge badge-warning badge-sm">{pending}</span>}
-          </button>
+        {data.runs.length > 0 && (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            {totals.map((t) => {
+              const Tag = t.onClick ? "button" : "div";
+              return (
+                <Tag key={t.label} onClick={t.onClick || undefined} className={`rounded-xl border border-base-300 bg-base-100 px-4 py-3 text-left ${t.onClick ? "transition-colors hover:border-warning" : ""}`}>
+                  <p className="flex items-center gap-1.5 text-xs font-medium text-base-content/55"><t.icon className="h-3.5 w-3.5" /> {t.label}</p>
+                  <p className={`mt-1 text-2xl font-semibold tabular-nums ${t.tone}`}>{t.value}</p>
+                </Tag>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="flex items-center justify-between border-b border-base-300">
+          <div role="tablist" className="flex gap-6">
+            {[
+              { key: "runs", label: "Runs" },
+              { key: "approvals", label: "Approvals", badge: pending },
+            ].map((t) => (
+              <button
+                key={t.key}
+                role="tab"
+                onClick={() => setTab(t.key)}
+                className={`-mb-px flex items-center gap-2 border-b-2 px-1 pb-2.5 text-sm font-medium transition-colors ${tab === t.key ? "border-primary text-primary" : "border-transparent text-base-content/60 hover:text-base-content"}`}
+              >
+                {t.label}
+                {t.badge > 0 && <span className="rounded-full bg-warning px-1.5 py-0.5 text-[11px] font-semibold leading-none text-warning-content">{t.badge}</span>}
+              </button>
+            ))}
+          </div>
         </div>
 
         {tab === "approvals" ? (
           <SalesApprovals onCountChange={setPending} />
         ) : (
-          <div className="space-y-5">
+          <div className="space-y-6">
             {launchOpen && (
-              <LaunchSalesAgent
-                setup={data.setup}
-                policy={data.policy}
-                defaults={data.defaults}
-                onStarted={() => {
-                  setShowLaunch(false);
-                  load();
-                }}
-              />
+              <div className="relative">
+                {data.runs.length > 0 && (
+                  <button className="btn btn-ghost btn-xs btn-circle absolute right-3 top-3 z-10" title="Close" onClick={() => setShowLaunch(false)}><X className="h-4 w-4" /></button>
+                )}
+                <LaunchSalesAgent
+                  setup={data.setup}
+                  policy={data.policy}
+                  defaults={data.defaults}
+                  onStarted={() => {
+                    setShowLaunch(false);
+                    load();
+                  }}
+                />
+              </div>
             )}
             {active.length > 0 && (
               <section className="space-y-3">
-                <h2 className="font-semibold">Working now</h2>
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-base-content/50">Working now</h2>
                 {active.map((run) => (
                   <SalesRunCard key={run.id} run={run} stepLabels={data.stepLabels} onChanged={load} onOpenApprovals={() => setTab("approvals")} />
                 ))}
               </section>
             )}
             {past.length > 0 && (
-              <section className="space-y-3">
-                <h2 className="font-semibold text-base-content/70">Earlier runs</h2>
+              <section className="space-y-2">
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-base-content/50">Earlier runs</h2>
                 {past.map((run) => (
-                  <SalesRunCard key={run.id} run={run} stepLabels={data.stepLabels} onChanged={load} />
+                  <SalesRunCard key={run.id} run={run} stepLabels={data.stepLabels} onChanged={load} compact />
                 ))}
               </section>
             )}
