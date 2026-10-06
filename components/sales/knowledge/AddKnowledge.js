@@ -12,9 +12,9 @@ const TABS = [
 ];
 
 /** Add to the knowledge base: a written entry, a file, or a web page. */
-export default function AddKnowledge({ onAdded }) {
+export default function AddKnowledge({ onAdded, bare = false, defaultCategory }) {
   const [tab, setTab] = useState("note");
-  const [category, setCategory] = useState("services");
+  const [category, setCategory] = useState(defaultCategory || "services");
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [url, setUrl] = useState("");
@@ -70,9 +70,9 @@ export default function AddKnowledge({ onAdded }) {
   const ready = tab === "note" ? title.trim() && content.trim().length >= 20 : tab === "file" ? Boolean(file) : url.trim();
 
   return (
-    <form onSubmit={submit} className="rounded-xl border border-base-300 bg-base-100 p-4 space-y-3">
+    <form onSubmit={submit} className={bare ? "space-y-4" : "rounded-xl border border-base-300 bg-base-100 p-4 space-y-3"}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="font-semibold flex items-center gap-2"><Plus className="h-4 w-4" /> Add information</h2>
+        {bare ? <p className="text-sm text-base-content/60">How do you want to add it?</p> : <h2 className="font-semibold flex items-center gap-2"><Plus className="h-4 w-4" /> Add information</h2>}
         <div role="tablist" className="tabs tabs-boxed tabs-sm">
           {TABS.map((t) => (
             <button key={t.key} type="button" role="tab" className={`tab gap-1 ${tab === t.key ? "tab-active" : ""}`} onClick={() => setTab(t.key)}>
@@ -98,7 +98,7 @@ export default function AddKnowledge({ onAdded }) {
 
       {tab === "note" && (
         <textarea
-          className="textarea textarea-bordered w-full text-sm min-h-[9rem]"
+          className={`textarea textarea-bordered w-full text-sm ${bare ? "min-h-[16rem]" : "min-h-[9rem]"}`}
           placeholder={"Write it the way you'd explain it to a client. Headings on their own line help, e.g.\n\n## Mobile apps\nWe build iOS and Android apps with Flutter. A typical app takes 8-14 weeks..."}
           value={content}
           onChange={(e) => setContent(e.target.value)}

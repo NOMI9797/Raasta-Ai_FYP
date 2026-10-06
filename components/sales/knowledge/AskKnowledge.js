@@ -34,7 +34,7 @@ export default function AskKnowledge({ disabled }) {
   };
 
   return (
-    <section className="rounded-xl border border-base-300 bg-base-100 p-4 space-y-3">
+    <section className="rounded-xl border border-base-300 bg-base-100 p-4 shadow-sm space-y-3">
       <div>
         <h2 className="font-semibold flex items-center gap-2"><MessageCircleQuestion className="h-4 w-4 text-primary" /> Ask the knowledge base</h2>
         <p className="text-xs text-base-content/60 mt-0.5">Ask what a client might ask, and see what the agent would answer.</p>
