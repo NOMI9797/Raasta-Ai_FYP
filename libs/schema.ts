@@ -354,6 +354,7 @@ export const agentRuns = pgTable('agent_runs', {
   userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   pipelineType: varchar('pipeline_type', { length: 30 }).notNull(),
   jobId: uuid('job_id').references(() => jobs.id, { onDelete: 'set null' }), // recruiter runs: the job the agent manages
+  campaignId: uuid('campaign_id').references(() => campaigns.id, { onDelete: 'set null' }), // sales runs: the campaign the agent works
   mode: varchar('mode', { length: 20 }).notNull(),
   status: varchar('status', { length: 30 }).notNull().default('queued'),
   currentStep: varchar('current_step', { length: 50 }),
@@ -392,6 +393,8 @@ export const agentActions = pgTable('agent_actions', {
   userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   jobId: uuid('job_id').references(() => jobs.id, { onDelete: 'cascade' }),
   candidateId: uuid('candidate_id').references(() => candidates.id, { onDelete: 'cascade' }),
+  campaignId: uuid('campaign_id').references(() => campaigns.id, { onDelete: 'cascade' }), // sales actions
+  leadId: uuid('lead_id').references(() => leads.id, { onDelete: 'cascade' }),
   action: varchar('action', { length: 40 }).notNull(),   // libs/agent/policy.js AGENT_ACTION
   route: varchar('route', { length: 10 }).notNull(),     // auto | ask | human
   status: varchar('status', { length: 20 }).notNull().default('pending'), // pending | approved | rejected | executed | failed | superseded
