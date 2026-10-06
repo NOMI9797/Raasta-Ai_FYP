@@ -212,6 +212,7 @@ const LeadsColumn = memo(function LeadsColumn({
   onOpenSettings,
   scrapingSettings,
   setScrapingSettings,
+  singleSource = false, // the page already shows one platform: no source filter
 }) {
   const { addLeads } = useLeads();
   const { checkConnections, isChecking } = require("../hooks/useConnectionCheck").useConnectionCheck();
@@ -574,20 +575,22 @@ const LeadsColumn = memo(function LeadsColumn({
         </div>
 
         {/* Source Filter */}
-        <div className="mb-2">
-          <select
-            className="select select-bordered select-sm w-full"
-            value={sourceFilter}
-            onChange={(e) => setSourceFilter(e.target.value)}
-          >
-            <option value="all">All sources</option>
-            {AVAILABLE_PLATFORMS.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label} only
-              </option>
-            ))}
-          </select>
-        </div>
+        {!singleSource && (
+          <div className="mb-2">
+            <select
+              className="select select-bordered select-sm w-full"
+              value={sourceFilter}
+              onChange={(e) => setSourceFilter(e.target.value)}
+            >
+              <option value="all">All sources</option>
+              {AVAILABLE_PLATFORMS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label} only
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Action Buttons */}
         <div className="grid grid-cols-2 gap-2 mb-2">

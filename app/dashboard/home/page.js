@@ -105,7 +105,7 @@ export default function HomePage() {
                 description="Run outreach campaigns, collect leads, and track conversations."
                 links={[
                   { href: "/dashboard/sales/campaigns", label: "Campaigns" },
-                  { href: "/dashboard/sales/leads", label: "Leads" },
+                  { href: "/dashboard/sales/find-leads", label: "Find leads" },
                   { href: "/dashboard/sales/outreach", label: "Outreach" },
                 ]}
               />

@@ -143,7 +143,7 @@ export default function AgentsPage() {
       <Sidebar
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
-        activeSection="agents"
+        activeSection="sales-agent"
       />
       <div
         className={`flex-1 min-w-0 transition-all duration-300 ${
