@@ -58,5 +58,10 @@ test("Rozee.pk job posts through the configured web search (reliable with SERPER
   const posts = await searchRozeeJobPosts({ query: "react developer", location: "Lahore", limit: 10 });
   assert.ok(posts.length > 0, "found Rozee.pk job posts");
   assert.ok(posts.some((p) => p.company), "with company names");
-  assert.ok(posts.every((p) => /^https:\/\/www\.rozee\.pk\/.+-jobs-\d+$/.test(p.url)));
+  // Job posts link to the post; companies named on a listing page link to that page (#company)
+  for (const p of posts) {
+    if (p.sourceData.rozeeFoundOn === "post") assert.match(p.url, /^https:\/\/www\.rozee\.pk\/.+-jobs-\d+$/);
+    else assert.match(p.url, /^https:\/\/www\.rozee\.pk\/.+#[a-z0-9-]+$/);
+  }
+  assert.ok(posts.every((p) => p.company), "every result names its company");
 });

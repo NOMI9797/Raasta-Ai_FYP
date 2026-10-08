@@ -37,13 +37,20 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = PAGE_TIMEOUT_MS) 
   }
 }
 
-async function serperSearch(query, num) {
+// Serper's free plan refuses more than 10 results per search ("Query pattern not allowed for free
+// accounts"); more results come from the next page instead
+export const SERPER_MAX_RESULTS = Number(process.env.SERPER_MAX_RESULTS) || 10;
+
+async function serperSearch(query, num, page = 1) {
   const res = await fetchWithTimeout("https://google.serper.dev/search", {
     method: "POST",
     headers: { "X-API-KEY": process.env.SERPER_API_KEY, "Content-Type": "application/json" },
-    body: JSON.stringify({ q: query, gl: "pk", num }),
+    body: JSON.stringify({ q: query, gl: "pk", num: Math.min(num, SERPER_MAX_RESULTS), ...(page > 1 ? { page } : {}) }),
   });
-  if (!res.ok) throw new Error(`Serper search failed (${res.status})`);
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    throw new Error(`Serper search failed (${res.status}${detail?.message ? `: ${detail.message}` : ""})`);
+  }
   const data = await res.json();
   return (data.organic || []).map((r) => ({ title: r.title || "", link: r.link || "", snippet: r.snippet || "" }));
 }
@@ -73,9 +80,10 @@ async function duckDuckGoSearch(query) {
   return results;
 }
 
-/** Web search through the configured provider. Returns [{ title, link, snippet }]. */
-export async function webSearch(query, { num = 8 } = {}) {
-  return process.env.SERPER_API_KEY ? serperSearch(query, num) : duckDuckGoSearch(query);
+/** Web search through the configured provider. Returns [{ title, link, snippet }]. `page` is Serper only. */
+export async function webSearch(query, { num = 8, page = 1 } = {}) {
+  if (process.env.SERPER_API_KEY) return serperSearch(query, num, page);
+  return page > 1 ? [] : duckDuckGoSearch(query);
 }
 
 export function hostOf(url) {

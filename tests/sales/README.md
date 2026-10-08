@@ -4,7 +4,7 @@ Automated tests for the Client Acquisition (Sales) module: lead collection, rese
 agent, the knowledge base (RAG), replies, follow-ups and meetings. Every check that was first done
 by hand during development is also kept here as a repeatable test.
 
-**151 test cases in 23 files. Latest run: 145 passed, 0 failed, 6 live checks skipped by default (run them with `npm run test:sales:live`; the Rozee.pk one needs `SERPER_API_KEY`).**
+**158 test cases in 23 files. Latest run: 152 passed, 0 failed, 6 live checks skipped by default. With `npm run test:sales:live` all 6 live checks pass (9 Oct 2026, with `SERPER_API_KEY`).**
 
 ## How to run
 
@@ -43,7 +43,7 @@ npm run test:sales:live          # real Gmail, Groq, Indeed and the embedding mo
 | `message-writer.test.js` | Unit | 5 | AI message writing |
 | `outreach.test.js` | Unit | 3 | Where each company stands on the Outreach step |
 | `results.test.js` | Unit | 7 | Results: KPIs, funnel, activity, intents, outcomes, lead quality |
-| `rozee-search.test.js` | Unit | 7 | Reading Rozee.pk job posts from real search results |
+| `rozee-search.test.js` | Unit | 14 | Reading Rozee.pk job posts and listing pages from real DuckDuckGo and Google results |
 | `agent-flow.integration.test.js` | Integration | 4 | Agent outreach end to end |
 | `conversation-flow.integration.test.js` | Integration | 9 | Replies, answers, meetings, follow-ups end to end |
 | `knowledge-search.integration.test.js` | Integration | 13 | Retrieval quality with real embeddings and pgvector |
@@ -51,7 +51,7 @@ npm run test:sales:live          # real Gmail, Groq, Indeed and the embedding mo
 | `results.integration.test.js` | Integration | 1 | Results from a campaign's real emails, replies and meetings |
 | `rozee.integration.test.js` | Integration | 2 | The agent on a Rozee.pk campaign, and the job-board check |
 | `live-services.test.js` | Live | 6 | Gmail SMTP/IMAP, Groq, Indeed, Rozee.pk search, embedding model |
-| **Total** | | **151** | |
+| **Total** | | **158** | |
 
 ## Every test case
 
@@ -267,9 +267,9 @@ Unit · The stage shown for each lead on the Find leads table
 - a job post without a company name can't become a lead
 - LinkedIn people: profile read or failed
 
-### `rozee-search.test.js` (7)
+### `rozee-search.test.js` (14)
 
-Unit · Rozee.pk job posts read from search-engine results (fixture: real results captured on 7 Oct 2026, `tests/fixtures/sales/rozee-search-results.json`)
+Unit · Rozee.pk job posts read from search-engine results (fixtures: real results captured live, DuckDuckGo on 7 Oct 2026 in `tests/fixtures/sales/rozee-search-results.json`, Google through Serper on 9 Oct 2026 in `rozee-serper-results.json`)
 
 - only real job post URLs count: not search pages, company pages, portals or the home page
 - title, cities and company are read from a full title
@@ -278,6 +278,13 @@ Unit · Rozee.pk job posts read from search-engine results (fixture: real result
 - pages that aren't job posts are dropped
 - queries and the city filter
 - search: deduplicated across queries, filtered by city, limited, in the import shape
+- a job post inside a listing-page URL is found
+- company, role and city from a slug, using the words searched for
+- listing snippets name jobs and companies; noise is dropped
+- company and role checks
+- real Google results: job posts first, then one lead per company named in snippets
+- searching stops at the page budget and asks for 10 results at a time
+- relevance: the specific word searched for decides, generic words don't
 
 ### `rozee.integration.test.js` (2)
 
@@ -350,6 +357,9 @@ automated test that now repeats it.
 | 19 | Rozee.pk search in the app | Called the app's search API for Rozee.pk (no Rozee account), and opened Find leads › Rozee.pk on a temporary campaign (deleted after) | No account needed any more. The free search engine refused after earlier searches ("limiting searches… Add SERPER_API_KEY"), so live results need the Serper key. The Rozee.pk tab shows the explanation and the Serper notice; the RZ badge has its colour | `rozee.integration` + visual check; live results pending SERPER_API_KEY |
 | 20 | Rozee.pk campaign in the UI | Created "Rozee.pk - Software houses hiring in Lahore" (Rozee.pk only). The live search was still refused by the free search engine, so the 6 Lahore companies from the real search results captured earlier (row 18) were added through the app's normal import | Campaigns: card with the green "RZ Rozee 6" chip and 6 leads. Find leads › Rozee.pk: Tecaudex, Veysel Enterprises, Alphabet Global, Systems Ltd, Terasols, Dextrologix with roles, cities and "New" stage. Research › Rozee.pk: "0 of 6 companies researched" with Research buttons and the Serper notice. Results was loading when the user took over the browser | `rozee.integration` + visual check |
 | 21 | Merge of hiring and sales into `main` | Merged `feature/ai-hiring-pipeline` (fast-forward) and `sales-pipeline` into `main`, resolved 7 conflicts, renumbered the sales migrations to 0016-0020, applied the hiring migrations 0014-0015 locally, then ran everything | Hiring tests 436/436, sales tests 145 passed / 0 failed (6 live skipped), branding check passed, production build succeeded (222 routes), no new lint errors. The app started on the merged code with the worker; Home, Recruiter jobs, Recruiter agent, Sales campaigns, Conversations, Sales agent and the sales/notification APIs all answered 200 | `npm run test:hiring`, `npm run test:sales`, build + smoke check |
+| 22 | Serper key and Google results (probe) | Added `SERPER_API_KEY`, searched `site:rozee.pk` for React developers in Lahore through Serper directly, and tried several query shapes | The key works (10 results, 1 credit). Found: **the free plan refuses more than 10 results per search** ("Query pattern not allowed for free accounts"), page 2 is allowed; **Google returns mostly Rozee search-listing pages**, not individual job posts, whose snippets name jobs and companies. Saved as the Google fixture | `rozee-search.test` (Google fixture) |
+| 23 | Live Rozee.pk search in the app (with Serper) | Searched Rozee.pk for "flutter developer" in Lahore through the app, before and after fixing what the first run showed (search only, nothing added) | First run: 22 results in 13 s, but slug-based posts split badly ("Innovative Software Solution Angularjs \| Developer") and listing pages added off-topic jobs ("Business Development Manager"). After the fix: 8 results, all real Lahore companies hiring Flutter developers (4xp Tech, IR-Tech Solutions, Nexsoll, BrightBench Labs, InventorX, Naseeb Enterprise, Joblogic, RFZ Digital) | `rozee-search.test` (relevance, slug split) + `live-services` |
+| 24 | Live company research (with Serper) | Researched Systems Ltd (Rozee.pk campaign) through the app | Done in about 7 s: website systemsltd.com, 2 email addresses, 4 decision-makers including Talent Acquisition staff | `live-services` (search) |
 
 ## Problems the tests found and fixed
 
@@ -370,5 +380,10 @@ automated test that now repeats it.
 - **Rozee.pk company names from URLs.** The parser test showed that "Senior React.js Developer" didn't
   line up with the URL "senior-reactjs-developer" (Rozee drops the dot), so the company was lost when the
   title was cut short. Titles and URLs are now compared without punctuation.
+- **Serper's free plan and Google's results.** Live checks showed the free plan refuses more than 10
+  results per search, and that Google returns Rozee search-listing pages rather than job posts. Searches
+  now ask for 10 at a time (with a second page), read companies from listing snippets, and only keep
+  slug and snippet results that mention the specific word searched for (so "developer" alone no longer
+  splits "...-angularjs-developer" into a company "...Angularjs" and the role "Developer").
 - **Reply subjects** could keep the "[TEST]" tag ("Re: [TEST] …"), and a removed placeholder left a
   double space. Both were fixed when the unit tests caught them.
