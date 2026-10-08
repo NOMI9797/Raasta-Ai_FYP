@@ -20,7 +20,7 @@ export const DEFAULT_HIRING_CONFIG = {
   questionCount: 8,          // base questions in the bank
   personalisedQuestions: 0,  // extra per-candidate questions (0-2)
   maxFollowUps: 2,
-  interviewMaxMinutes: 25,
+  interviewMaxMinutes: 25,   // 5-120; the interviewer plans its questions and follow-ups around it (09, Time budget)
   resumeWindowMinutes: 15,   // reconnect window after disconnect
   recordVideo: true,
   finalWeights: { resume: 0.3, interview: 0.5, communication: 0.2 },
@@ -34,7 +34,7 @@ export function getHiringConfig(job) {
   return c;
 }
 ```
-Validate on save: thresholds 0–100, weights ≥ 0 and normalised to sum 1, `questionCount` 3–15, `interviewMaxMinutes` 5–60.
+Validate on save: thresholds 0–100, weights ≥ 0 and normalised to sum 1, `questionCount` 3–15 (the question pool), `interviewMaxMinutes` 5–120.
 
 ## 2. `candidates`: add columns
 

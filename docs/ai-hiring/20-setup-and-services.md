@@ -11,7 +11,7 @@ The hiring pipeline runs on four programs plus Postgres and Redis. The **Setup g
 | Interview engine | `GET /health` at the host of `NEXT_PUBLIC_INTERVIEW_WS_URL` (default `http://localhost:8090/health`) |
 | AI engine | `GET <AI_ENGINE_URL>/health` (default `http://localhost:8000/health`) |
 | Postgres, Redis | A query and a `PING`, each with a short timeout |
-| Settings | Only yes or no for `GROQ_API_KEY`, `AI_ENGINE_TOKEN`, `INTERVIEW_TICKET_SECRET` and `MAILGUN_API_KEY` (optional). Values never leave the server |
+| Settings | Only yes or no for `GROQ_API_KEY`, `AI_ENGINE_TOKEN`, `INTERVIEW_TICKET_SECRET`, and `MAILGUN_API_KEY` with `MAILGUN_DOMAIN` (optional). Values never leave the server |
 
 Each program card shows a state (running, starting, stopped, stopped unexpectedly, not responding), what the program is for in plain words, the buttons that make sense now, and the last lines it printed when it is down.
 

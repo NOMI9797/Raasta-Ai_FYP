@@ -26,7 +26,7 @@ test("validateHiringConfig reports out-of-range values and drops unknown keys", 
   const { config, errors } = validateHiringConfig({
     minFitScore: 120,
     questionCount: 2,
-    interviewMaxMinutes: 90,
+    interviewMaxMinutes: 150,
     maxShortlist: 0,
     autoInvite: "yes",
     finalWeights: { resume: 0, interview: 0, communication: 0 },

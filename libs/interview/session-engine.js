@@ -17,14 +17,17 @@
 import { randomUUID } from "crypto";
 import { stripEchoes } from "./echo-guard";
 import { detectEndRequest, isDecline } from "./intent";
+import { languageNoticeText, languageReminderText } from "./language";
+import { DEFAULT_INTERVIEW_MINUTES, QUESTION_MIN_MS, describeLength, followUpAffordable, planInterview, warningThresholds } from "./time-plan";
 
 export const READY_WORDS = /\b(yes|ready|sure|okay|ok|yeah|let'?s|start|begin)\b/i;
 export const GUARD_CHARS = 10;            // candidate kept talking → don't speak over them
-export const FOLLOW_UP_MIN_MS = 3 * 60 * 1000;
-export const QUESTION_MIN_MS = 1.5 * 60 * 1000;
 export const TIME_UP_GRACE_MS = 60 * 1000;
-export const WARN_AT_MINUTES = [5, 1];
+export { QUESTION_MIN_MS };
 export const MAX_REPEATS = 2;
+export const LANGUAGE_NOTICE_COOLDOWN_MS = 20 * 1000;  // a notice and the candidate's reply to it take about this long
+export const MAX_LANGUAGE_NOTICES = 5;                  // after this many the interviewer stops interrupting (it is still recorded)
+const KEEP_ANSWER_WORDS = 25;                           // a long English answer is not cut off by one sentence in another language
 export const SKIP_MIN_REMAINING = 6;      // skip heuristic is off when fewer questions remain
 const ACK_SLACK_MS = 4000;                // client never sent ai_done_speaking → continue anyway
 const TICK_MS = 1000;
@@ -35,8 +38,9 @@ const RECENT_SPOKEN = 4;
 const INTEGRITY_EVENTS = new Set(["tab_hidden", "tab_visible", "mic_muted", "mic_unmuted", "net_offline", "net_online", "fullscreen_exit"]);
 const MAX_INTEGRITY_EVENTS = 200;
 
-export function greetingText({ firstName, jobTitle, total }) {
-  return `Hello ${firstName}! I'm the Raasta AI Interviewer for the ${jobTitle} role. I'll ask you about ${total} questions; take your time, and press 'I've finished my answer' when you're done. Are you ready to begin?`;
+export function greetingText({ firstName, jobTitle, total, minutes }) {
+  const scope = minutes ? `I'll ask you ${describeLength({ minutes, questionCount: total })}` : `I'll ask you about ${total} questions`;
+  return `Hello ${firstName}! I'm the Raasta AI Interviewer for the ${jobTitle} role. ${scope}, and the interview is conducted in English. Take your time, and press 'I've finished my answer' when you're done. Are you ready to begin?`;
 }
 
 export function closingText({ firstName, jobTitle }) {
@@ -71,7 +75,8 @@ export class InterviewSession {
    * @param p.job        jobs row
    * @param p.candidate  candidates row
    * @param p.questions  frozen question snapshot (session question shape)
-   * @param p.config     { maxFollowUps, interviewMaxMinutes, silenceMs, interviewerName }
+   * @param p.config     { maxFollowUps, interviewMaxMinutes, silenceMs, interviewerName }; the interview length
+   *                     decides how many of the questions are asked (libs/interview/time-plan.js)
    * @param p.candidateContext / p.roleContext  from mappers.js
    * @param p.state      serialized state to resume from (interviews.state)
    * @param p.deps       { analyze, score, followUp, tts, repo, publish, send, enqueue, onEnded, now, setTimeout, clearTimeout, log }
@@ -84,12 +89,19 @@ export class InterviewSession {
     this.questionById = new Map(questions.map((q) => [q.id, q]));
     this.candidateContext = candidateContext;
     this.roleContext = roleContext;
+    // The recruiter's interview length shapes the plan: how many questions fit, which ones, and when to warn
+    this.plan = planInterview({
+      minutes: config?.interviewMaxMinutes ?? DEFAULT_INTERVIEW_MINUTES,
+      questions,
+      maxFollowUps: config?.maxFollowUps ?? 2,
+    });
     this.config = {
       maxFollowUps: config?.maxFollowUps ?? 2,
-      maxMs: (config?.interviewMaxMinutes ?? 25) * 60 * 1000,
+      maxMs: this.plan.maxMs,
       silenceMs: config?.silenceMs ?? 8000,
       interviewerName: config?.interviewerName || "Raasta AI Interviewer",
     };
+    this.warnAt = warningThresholds(this.plan.minutes);
     this.deps = {
       now: () => Date.now(),
       setTimeout: (fn, ms) => setTimeout(fn, ms),
@@ -100,7 +112,7 @@ export class InterviewSession {
       ...deps,
     };
 
-    this.state = state ? { ...InterviewSession.initialState(questions), ...state } : InterviewSession.initialState(questions);
+    this.state = state ? { ...InterviewSession.initialState(questions), ...state } : InterviewSession.initialState(questions, this.plan);
     // Speech in the middle of an answer is never resumed: the question is asked again
     this.state.currentAnswerBuffer = "";
 
@@ -121,12 +133,13 @@ export class InterviewSession {
     this.processing = null;
   }
 
-  static initialState(questions) {
+  static initialState(questions, plan = null) {
+    const queue = plan ? plan.questionIds : questions.map((q) => q.id);
     return {
       stage: "waiting",
       hasGreeted: false,
       begun: false,
-      questionQueue: questions.map((q) => q.id),
+      questionQueue: queue,
       questionsAsked: [],
       questionsAnswered: [],
       currentQuestionId: null,
@@ -140,7 +153,7 @@ export class InterviewSession {
       startedAt: null,
       pausedMs: 0,
       questionIndex: 0,
-      totalQuestions: questions.length,
+      totalQuestions: queue.length,
       seq: 0,
       skipped: [],
       warningsSent: [],
@@ -149,6 +162,9 @@ export class InterviewSession {
       repeatCount: 0,
       timeUpAt: null,
       endedByCandidate: false,
+      languageNotices: 0,
+      languageNoticeAt: null,
+      languageReminderPending: false,
     };
   }
 
@@ -251,6 +267,58 @@ export class InterviewSession {
     this.sideBuffer = "";
     this.appendToBuffer(clean, timing);
     this.scheduleSilence();
+  }
+
+  /**
+   * The candidate spoke something other than English (Urdu, mostly). The interview is English only, so the
+   * words are never part of an answer: the interviewer says so and asks the question again. A long
+   * English answer in progress is not interrupted; the reminder comes with the next question instead.
+   * @param {{ language?: string|null }} p language: "urdu" when known
+   */
+  async onNonEnglishSpeech({ language = null } = {}) {
+    if (this.ended || this.paused || !this.state.hasGreeted || this.isAiSpeaking || this.isProcessingAnswer) return;
+    if (!["greeting", "listening", "asking"].includes(this.state.stage)) return;
+    const now = this.deps.now();
+    if (this.state.languageNoticeAt && now - this.state.languageNoticeAt < LANGUAGE_NOTICE_COOLDOWN_MS) return;
+
+    this.state.languageNotices += 1;
+    this.state.languageNoticeAt = now;
+    this.deps.repo.recordIntegrityEvent(this.interview.id, { type: "non_english_speech", at: new Date(now).toISOString() })
+      .catch((error) => this.deps.log("warn", { msg: "language event not saved", error: error.message }));
+    this.publish({ type: "language_notice", count: this.state.languageNotices });
+    this.deps.log("info", { msg: "candidate spoke a language other than English", interviewId: this.interview.id, count: this.state.languageNotices });
+    if (this.state.languageNotices > MAX_LANGUAGE_NOTICES) return;
+
+    const heard = `${this.state.currentAnswerBuffer} ${this.sideBuffer}`.trim();
+    const words = heard ? heard.split(/\s+/).length : 0;
+    if (this.state.begun && words >= KEEP_ANSWER_WORDS) {
+      this.state.languageReminderPending = true;
+      return;
+    }
+
+    const notice = languageNoticeText({ firstName: this.textVars().firstName, count: this.state.languageNotices, language });
+    this.clearTimer("silence");
+    this.clearTimer("ack");
+    this.state.currentAnswerBuffer = "";
+    this.sideBuffer = "";
+    if (!this.state.begun) {
+      // Before the first question: they cannot say "ready" in Urdu
+      await this.speak({ kind: "system", text: `${notice} Are you ready to begin?` });
+    } else if (this.state.currentQuestionText) {
+      await this.persistState();
+      await this.speak({
+        kind: this.state.currentKind || "question",
+        text: `${notice} Let me ask the question again. ${this.state.currentQuestionText}`,
+        questionText: this.state.currentQuestionText,
+      });
+    }
+  }
+
+  /** The one-line reminder owed from a mid-answer switch of language, once; "" when none is due. */
+  takeLanguageReminder() {
+    if (!this.state.languageReminderPending) return "";
+    this.state.languageReminderPending = false;
+    return `${languageReminderText()} `;
   }
 
   onAiDoneSpeaking(turnId) {
@@ -377,7 +445,7 @@ export class InterviewSession {
     const partial = reason === "abandoned" || reason === "error";
     // Someone who ends the interview before answering anything has nothing to evaluate
     const leftBeforeAnswering = reason === "candidate_ended" && this.state.questionsAnswered.length === 0;
-    if (leftBeforeAnswering || (partial && answeredBase < Math.ceil(this.questions.length * 0.5))) {
+    if (leftBeforeAnswering || (partial && answeredBase < Math.ceil(this.state.totalQuestions * 0.5))) {
       await this.deps.repo.abandon(this.interview, { state });
       if (reason === "candidate_ended") this.deps.send("interview_complete", { reason: "ended_by_candidate" });
       this.publish({ type: "status", status: "abandoned" });
@@ -386,7 +454,7 @@ export class InterviewSession {
       return { status: "abandoned" };
     }
 
-    const stats = await this.deps.repo.complete(this.interview, { questions: this.questions, state });
+    const stats = await this.deps.repo.complete(this.interview, { questions: this.questions, state, totalQuestions: this.state.totalQuestions });
     if (!partial) {
       const wire = { time_up: "time_up", finished: "finished", candidate_ended: "ended_by_candidate" };
       this.deps.send("interview_complete", { reason: wire[reason] || "ended_by_system" });
@@ -543,11 +611,11 @@ export class InterviewSession {
         this.state.followUpContext = { reason: plan.reason?.condition || null, fallback: plan.fallback };
         this.state.repeatCount = 0;
         await this.persistState();
-        await this.speak({ kind: "follow_up", text: plan.text, questionText: plan.text });
+        await this.speak({ kind: "follow_up", text: `${this.takeLanguageReminder()}${plan.text}`, questionText: plan.text });
       } else if (plan.type === "question") {
         this.commitQuestion(plan.next);
         await this.persistState();
-        await this.speak({ kind: "question", text: plan.next.question.question, questionText: plan.next.question.question });
+        await this.speak({ kind: "question", text: `${this.takeLanguageReminder()}${plan.next.question.question}`, questionText: plan.next.question.question });
       } else {
         await this.close();
       }
@@ -564,7 +632,7 @@ export class InterviewSession {
     if (force || this.state.timeUpAt) return { type: force ? "closing_forced" : "closing" };
 
     // A refusal or "I don't know" gets no follow-up: asking again only repeats the question
-    if (answer && !declined && snap.depth < this.config.maxFollowUps && this.remainingMs() >= FOLLOW_UP_MIN_MS) {
+    if (answer && !declined && snap.depth < this.config.maxFollowUps && this.canAffordFollowUp()) {
       const questionForAnalysis = snap.kind === "follow_up"
         ? { question: snap.questionText, category: null, expectedKeywords: [] }
         : base || { question: snap.questionText, expectedKeywords: [] };
@@ -586,6 +654,11 @@ export class InterviewSession {
     if (this.remainingMs() < QUESTION_MIN_MS) return { type: "closing" };
     const next = this.peekNextQuestion();
     return next ? { type: "question", next } : { type: "closing" };
+  }
+
+  /** A follow-up is only asked while every question still to come keeps its minimum time. */
+  canAffordFollowUp() {
+    return followUpAffordable({ remainingMs: this.remainingMs(), questionsLeft: this.state.questionQueue.length });
   }
 
   /** Rule 8, without side effects: the next base question plus the ones it would skip. */
@@ -759,11 +832,11 @@ export class InterviewSession {
 
   checkTime() {
     const remaining = this.remainingMs();
-    const crossed = WARN_AT_MINUTES.filter((m) => remaining <= m * 60 * 1000 && !this.state.warningsSent.includes(m));
+    const crossed = this.warnAt.filter((m) => remaining <= m * 60 * 1000 && !this.state.warningsSent.includes(m));
     if (crossed.length && remaining > 0) {
       // Only the most urgent warning if several thresholds were crossed at once (e.g. after a reconnect)
       const minutes = Math.min(...crossed);
-      for (const m of WARN_AT_MINUTES) if (m >= minutes && !this.state.warningsSent.includes(m)) this.state.warningsSent.push(m);
+      for (const m of this.warnAt) if (m >= minutes && !this.state.warningsSent.includes(m)) this.state.warningsSent.push(m);
       this.deps.send("time_warning", { minutesLeft: minutes });
     }
     if (remaining > 0) return;
@@ -800,6 +873,7 @@ export class InterviewSession {
       firstName: this.candidateContext?.firstName || "there",
       jobTitle: this.job.title,
       total: this.state.totalQuestions,
+      minutes: this.plan.minutes,
     };
   }
 

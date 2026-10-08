@@ -23,9 +23,10 @@ test("integrity: tab switches counted with hidden time; an open one runs to the 
     { type: "tab_visible", at: at(22) },
     { type: "mic_muted", at: at(30) },
     { type: "tab_hidden", at: at(50) },
+    { type: "non_english_speech", at: at(55) },
   ], at(60));
-  assert.deepEqual(summary, { tabHiddenCount: 2, tabHiddenSec: 22, micMutedCount: 1, offlineCount: 0 });
-  assert.deepEqual(summariseIntegrity(null, null), { tabHiddenCount: 0, tabHiddenSec: 0, micMutedCount: 0, offlineCount: 0 });
+  assert.deepEqual(summary, { tabHiddenCount: 2, tabHiddenSec: 22, micMutedCount: 1, offlineCount: 0, languageNoticeCount: 1 });
+  assert.deepEqual(summariseIntegrity(null, null), { tabHiddenCount: 0, tabHiddenSec: 0, micMutedCount: 0, offlineCount: 0, languageNoticeCount: 0 });
 });
 
 test("recording keys", () => {

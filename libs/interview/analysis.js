@@ -182,6 +182,8 @@ export function summariseIntegrity(events, endedAt) {
     tabHiddenSec: Math.round(hiddenMs / 1000),
     micMutedCount: list.filter((e) => e.type === "mic_muted").length,
     offlineCount: list.filter((e) => e.type === "net_offline").length,
+    // Times the interviewer had to remind the candidate that the interview is English only
+    languageNoticeCount: list.filter((e) => e.type === "non_english_speech").length,
   };
 }
 

@@ -8,6 +8,7 @@ import { synthesize } from "../../libs/interview/tts-client";
 import { createStt } from "../../libs/interview/stt";
 import { publishInterviewEvent } from "../../libs/interview/events";
 import { enqueue } from "../../libs/hiring/queue";
+import { detectSpokenLanguage } from "../../libs/ai/llm";
 
 export function createEngineDeps({ log }) {
   return {
@@ -28,6 +29,8 @@ export function createEngineDeps({ log }) {
     followUp: (context) => generateFollowUp(context),
     tts: (text, options) => synthesize(text, options),
     createStt: (handlers) => createStt(handlers),
+    // Which language was spoken: only asked about speech the transcript makes doubtful (libs/interview/language.js)
+    detectLanguage: (wavBuffer) => detectSpokenLanguage({ wavBuffer }),
     publish: (interviewId, event) => publishInterviewEvent(interviewId, event),
     enqueue: (type, payload) => enqueue(type, payload),
     log,

@@ -60,7 +60,7 @@ Text frames are JSON `{ type, ...payload }`. Binary frames are **only** candidat
 | `caption_partial` | `{ text }` |
 | `caption_final` | `{ text }` |
 | `processing` | – ("Thinking…" between answer and next question) |
-| `time_warning` | `{ minutesLeft }` (sent at 5 and 1 minutes left) |
+| `time_warning` | `{ minutesLeft }` (a quarter of the interview length, at most 5, and 1 minute left; see Time budget) |
 | `interview_complete` | `{ reason: 'finished'|'time_up'|'ended_by_candidate'|'ended_by_system' }` |
 | `error` | `{ code, message, retryable }`, codes: `stt_unavailable`, `tts_failed`, `invalid_state`, `expired`, `duplicate_session`, `internal` |
 | `pong` | `{ t }` |
@@ -98,15 +98,18 @@ export class InterviewSession {
   onAnswerDone()
   onRepeatQuestion()
   onClientEvent(evt)
+  async onNonEnglishSpeech({ language })   // the candidate spoke Urdu: say the interview is English only
   async end(reason)                // 'finished' | 'time_up' | 'abandoned' | 'error'
   serializeState()
 }
 ```
 
-**Time budget:** `maxMs = interviewMaxMinutes × 60000`.
-- Before asking any follow-up, require ≥ 3 minutes left.
+**Time budget.** The interview length is not fixed: the recruiter sets it per job (`hiring_config.interviewMaxMinutes`, 5–120 minutes, default 25; presets and a live preview in the job's "Hiring automation" card), and the interview is planned around it (`libs/interview/time-plan.js`, pure functions the settings screen shares, so what it promises is what the interviewer does). `maxMs = interviewMaxMinutes × 60000`.
+- **How many questions.** `questionCount` is the *pool* (the bank). The interviewer asks as many as fit: `floor((length − 1 min) / 2.5 min)`, at least 1, at most the pool. 10 minutes asks 3 of 8, 25 minutes asks all 8, 60 minutes asks all 8 and spends the rest on follow-ups (the settings card says when to raise the pool). When the pool is trimmed, every topic (technical, role, behavioural) keeps a question and heavier-weighted questions win; the picks keep the bank's order. The plan is fixed when the session is created and saved in `state` (`questionQueue`, `totalQuestions`), so a resumed interview follows the same plan. `interviews.total_questions` and the final evaluation use the planned count ("answered 3 of 3"), not the size of the bank.
+- **Follow-ups.** A follow-up is asked only while every question still to come keeps 1.5 minutes, plus 20 s to say goodbye, plus the follow-up's own 75 s (`followUpAffordable`). So short interviews get few follow-ups, long ones get up to `maxFollowUps`, and a follow-up never crowds out a planned question. (It replaces the old fixed "≥ 3 minutes left".)
 - Before asking a new base question, require ≥ 1.5 minutes left; otherwise close.
-- Send `time_warning` at 5 and 1 minutes left.
+- **Warnings.** `time_warning` at a quarter of the length (at most 5 minutes) and at 1 minute: 25 min → 5 and 1; 10 min → 2 and 1; 5 min → 1. "5 minutes left" in a 5-minute interview meant nothing.
+- The greeting says what to expect ("I'll ask you 3 questions in up to 10 minutes, and the interview is conducted in English"); the invite email, the candidate's welcome screen and the room's countdown say "up to N minutes".
 - At 0, let the candidate finish the current answer (max 60s grace), then close.
 
 **Persistence calls (repository):**
@@ -173,6 +176,19 @@ A real interview transcript showed these problems; each has a fix and a test (`t
 - **Cut-off and generic follow-ups.** `openai/gpt-oss-*` models spend `max_tokens` on reasoning before answering: with 150 tokens the reply was empty or cut mid-sentence, and the generic fallback question was used instead. `libs/ai/llm.js` now retries once with a 3× budget when the reply stops at the limit, accepts `reasoningEffort` (sent to GPT-OSS models only; the interview paths ask for `low`, `LLM_REASONING_EFFORT` sets a default), the follow-up and scorer budgets are larger, a follow-up that doesn't end in punctuation is treated as cut off, and the fallback questions read sensibly on their own.
 - **Turn offsets** (`interview_turns.offset_ms`) leave out time spent disconnected, so they follow the recording after a reload.
 - Deepgram runs with `filler_words=true`, so "um" and "uh" reach the fluency measure.
+
+## English only (Urdu)
+The interview is conducted in English. `libs/interview/language.js` notices when a candidate speaks Urdu, and the interviewer says so instead of scoring a garbled transcript. Speech recognition is held to English (`language: "en"` for Deepgram), so Urdu arrives as low-confidence nonsense or as romanised Urdu words, and two checks run on every final transcript before it reaches the interview (`SessionManager.deliverFinal`):
+1. **Text rules (free).** Urdu or Hindi script, or romanised Urdu words that are not English words ("hai", "nahi", "theek", "aur", …; 3+ hits, or 2 in a very short sentence). Sure enough to act on.
+2. **Audio identification (only for doubtful ones).** A transcript whose recogniser confidence is below 0.8 (Deepgram's `confidence`; `LANGUAGE_CHECK_CONFIDENCE`), or that holds a stray Urdu word, has its audio cut out of a 30-second tail of the stream (`AudioTail`) and sent to Groq Whisper with **no language forced** (`detectSpokenLanguage` in `libs/ai/llm.js`, `verbose_json`). Urdu, Hindi, Punjabi, Sindhi, Pashto, Persian or Arabic counts. At most one call per 2 s and 30 per interview; a call that takes over 1.5 s or fails lets the words through (the interview is never blocked by it). Confident English is never sent anywhere.
+
+When either says Urdu, the words are dropped (never a caption, an answer or a score) and `onNonEnglishSpeech` runs:
+- **Before the first question:** "I noticed you spoke in Urdu. This interview is conducted in English only, so please answer in English. Are you ready to begin?"
+- **During a question:** the same notice, then "Let me ask the question again" and the question; the half answer is dropped so they answer afresh.
+- **A long English answer** (25+ words) is not cut off by one sentence in another language: the reminder is put in front of the next question instead.
+- One notice per spell (20 s cooldown), firmer wording the second and third time, and no more interruptions after five (still recorded). Nothing is said while the interviewer is speaking.
+- Each spell is an integrity event `non_english_speech` (recruiter's Integrity tab: "Spoke a language other than English", and "Reminded to use English" in the summary) and a live `language_notice` event.
+- `LANGUAGE_GUARD=off` turns it off. Limits: the first check relies on the recogniser's confidence, so a clearly recognised sentence is never audio-checked (it is English or romanised text the rules catch); Urdu with a Pakistani-English accent that Deepgram recognises with high confidence is, correctly, English. With the Whisper fallback (no confidence score) only the text rules and the stray-word check run, so detection there is weaker. Not yet tried with a real Urdu recording: the unit tests use fakes, and the one live check confirmed that Groq returns the `language` field (English audio came back as `english`).
 
 ## Security
 - The ticket JWT is verified on every connection (`typ`, `exp`, `sub`), and the interview row must match `cid`.

@@ -1,6 +1,8 @@
 // Per-job hiring automation settings (docs/ai-hiring/05-data-model.md §1).
 // Stored in jobs.hiring_config; anything missing falls back to these defaults.
 
+import { DEFAULT_INTERVIEW_MINUTES, MAX_INTERVIEW_MINUTES, MIN_INTERVIEW_MINUTES } from "../interview/time-plan";
+
 export const DEFAULT_HIRING_CONFIG = {
   autoScreen: true,          // screen on apply
   minFitScore: 70,           // stage-1 threshold (0-100)
@@ -8,10 +10,10 @@ export const DEFAULT_HIRING_CONFIG = {
   autoInvite: true,          // email interview link on shortlist
   inviteExpiryHours: 72,
   reminderAfterHours: 24,
-  questionCount: 8,          // base questions in the bank
+  questionCount: 8,          // questions in the bank; a short interview asks only as many as fit its length
   personalisedQuestions: 0,  // extra per-candidate questions (0-2)
   maxFollowUps: 2,
-  interviewMaxMinutes: 25,
+  interviewMaxMinutes: DEFAULT_INTERVIEW_MINUTES, // set per job; the interviewer plans its questions around it
   resumeWindowMinutes: 15,   // reconnect window after disconnect
   recordVideo: true,
   trackBehavior: true,       // analyse eye contact, head movement and expressions from the camera (needs recordVideo)
@@ -37,7 +39,7 @@ const INTEGER_RANGES = [
   ["minFitScore", 0, 100],
   ["finalThreshold", 0, 100],
   ["questionCount", 3, 15],
-  ["interviewMaxMinutes", 5, 60],
+  ["interviewMaxMinutes", MIN_INTERVIEW_MINUTES, MAX_INTERVIEW_MINUTES],
   ["personalisedQuestions", 0, 2],
   ["maxFollowUps", 0, 5],
   ["inviteExpiryHours", 1, 24 * 30],

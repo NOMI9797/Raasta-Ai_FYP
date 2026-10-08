@@ -129,9 +129,9 @@ export async function sendOutcomeEmail(candidateId, deps) {
   if (!outcome) return { skipped: `no outcome email for "${candidate.status}"` };
   if (candidate.finalAnalysis?.outcomeEmail?.outcome === outcome) return { skipped: "already sent" };
 
-  const [owner] = await d.database.select({ name: users.name }).from(users).where(eq(users.id, job.userId)).limit(1);
-  const message = outcomeEmail({ outcome, candidateName: candidate.name, jobTitle: job.title, hiringTeam: owner?.name || null });
-  await d.deliver({ to: candidate.email, ...message });
+  const [owner] = await d.database.select({ name: users.name, email: users.email }).from(users).where(eq(users.id, job.userId)).limit(1);
+  const message = outcomeEmail({ outcome, candidateName: candidate.name, jobTitle: job.title, hiringTeam: owner?.name || null, canReply: Boolean(owner?.email) });
+  await d.deliver({ to: candidate.email, replyTo: owner?.email || undefined, tags: ["interview-outcome", outcome], ...message });
   await d.database.update(candidates)
     .set({ finalAnalysis: { ...(candidate.finalAnalysis || {}), outcomeEmail: { outcome, sentAt: d.now().toISOString() } }, updatedAt: d.now() })
     .where(eq(candidates.id, candidateId));

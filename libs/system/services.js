@@ -208,10 +208,12 @@ export function checkConfig(env = process.env) {
     {
       id: "mail",
       label: "Email sending (Mailgun)",
-      ok: has("MAILGUN_API_KEY"),
+      ok: has("MAILGUN_API_KEY") && has("MAILGUN_DOMAIN"),
       optional: true,
-      impact: "Without it, interview invitations are saved to a local outbox folder instead of being emailed.",
-      hint: "Add MAILGUN_API_KEY to .env.local when you want real emails to go out.",
+      impact: has("MAILGUN_API_KEY") && !has("MAILGUN_DOMAIN")
+        ? "MAILGUN_API_KEY is set but the sending domain is not, so interview invitations fail to send."
+        : "Without it, interview invitations are saved to a local outbox folder instead of being emailed.",
+      hint: "Add MAILGUN_API_KEY and MAILGUN_DOMAIN (and MAILGUN_REGION=eu for an EU domain) to .env.local, restart the programs, then run npm run mail:check.",
     },
   ];
 }

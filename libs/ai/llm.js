@@ -223,6 +223,21 @@ export function isSpeechSegment(segment) {
 }
 
 /**
+ * Which language is spoken in this audio? Whisper's own language identification, with no language
+ * forced (transcribe() forces English). Returns { language, text }: language as Whisper names it
+ * ("urdu", "english", …) and what it heard, in that language.
+ */
+export async function detectSpokenLanguage({ wavBuffer, model = DEFAULT_TRANSCRIBE_MODEL }) {
+  try {
+    const file = await toFile(wavBuffer, "audio.wav", { type: "audio/wav" });
+    const result = await getClient().audio.transcriptions.create({ file, model, temperature: 0, response_format: "verbose_json" });
+    return { language: String(result?.language || "").trim().toLowerCase(), text: String(result?.text || "").trim() };
+  } catch (error) {
+    throw toLlmError(error);
+  }
+}
+
+/**
  * Speech-to-text with Groq Whisper. Returns the transcript text.
  * The language is fixed (STT_LANGUAGE, default English): auto-detection turns background noise
  * into Portuguese, Japanese or Russian. Segments Whisper itself doubts are dropped.
