@@ -10,8 +10,9 @@
 // Relative imports only (also used by the engine process).
 import { pageShowsCheck } from "../indeed-session-validator";
 import { FIELD_STATE as F, GATE } from "./run-model";
-import { chooseOption, digitsOf, escapeRegExp, isVisible, norm, numbersIn, pathOf, readValue, waitForPathChange } from "./page-tools";
+import { chooseOption, digitsOf, escapeRegExp, isVisible, norm, numbersIn, pathOf, readValue, waitForPathChange, waitVisible } from "./page-tools";
 import { closeEnough } from "./flow-indeed";
+import { pickSkills, rankSuggestions } from "./skill-match";
 
 export const ROZEE_START_URL = "https://www.rozeegpt.ai/employer/dashboard";
 
@@ -21,8 +22,11 @@ export const ROZEE_DEFAULTS = Object.freeze({
   manageEmployees: "No",
   otherRequirements: "No other requirements.",
   experienceYears: 1, // when the job gives no experience range
+  minSkills: 3, // the wizard will not go on without a skill: when the job's own skills match nothing, the closest suggestions are chosen
   maxSkills: 6,
   currency: "PKR",
+  boxWaitMs: 8000, // a page of the wizard is a React app: its boxes appear a moment after the address changes
+  dashboardWaitMs: 40 * 1000, // the dashboard shows a splash screen before its buttons
   descriptionBudgetMs: 90 * 1000, // a long description is typed faster rather than taking minutes
   generationWaitMs: 90 * 1000, // Rozee's AI writes the draft after the last question
 });
@@ -72,22 +76,37 @@ async function submitBox(page, human, input) {
 }
 
 async function typeInto(ctx, selector, value, { typos = true } = {}) {
-  const { page, human } = ctx;
+  const { page, human, options } = ctx;
   const box = page.locator(selector).first();
-  if (!(await isVisible(box))) return { box, ok: false, found: "" };
+  if (!(await waitVisible(box, options.boxWaitMs))) return { box, ok: false, found: "" };
   await human.fillIn(page, box, value, { typos });
   await human.settle();
   const found = await readValue(box);
   return { box, ok: norm(found) === norm(value), found };
 }
 
+// Presses Continue when it is there and on. Returns whether it was pressed.
+async function pressContinue({ page, human }) {
+  const next = buttonNamed(page, "Continue");
+  if (!(await waitVisible(next, 3000)) || !(await next.isEnabled())) return false;
+  await human.pause(300, 800);
+  await human.click(page, next);
+  return true;
+}
+
 // ── Steps ──
 
-async function openWizard({ page, human, sleep }) {
+// The dashboard shows a splash screen first (the page is black with the logo): the button is waited for, not given up on
+async function openWizard({ page, human, sleep, options }) {
   const button = page.getByRole("button", { name: /^post a new job$/i }).filter({ visible: true }).first();
-  if (!(await isVisible(button))) return { fields: [field("open", "Open Post A New Job", F.UNVERIFIED, 'Click "Post A New Job" yourself')], advance: "auto" };
+  const alternative = page.getByText(/^post a new job$/i).filter({ visible: true }).first();
+  const ready = (await waitVisible(button, options.dashboardWaitMs)) || (await waitVisible(alternative, 2000));
+  if (!ready) {
+    return { fields: [field("open", "Open Post A New Job", F.UNVERIFIED, 'The dashboard did not show "Post A New Job": click it yourself')], advance: "auto" };
+  }
   const from = pathOf(page.url());
-  await human.click(page, button);
+  await human.glance(page);
+  await human.click(page, (await isVisible(button)) ? button : alternative);
   const moved = await waitForPathChange(page, from, { sleep });
   return { fields: [field("open", "Open Post A New Job", moved ? F.VERIFIED : F.UNVERIFIED, moved ? "" : 'Rozee.pk did not open the wizard: click "Post A New Job" yourself')], advance: "auto" };
 }
@@ -105,46 +124,96 @@ async function stepJobTitle(ctx) {
   return { fields, advance: "auto" };
 }
 
+// The suggested skill chips, in the order Rozee shows them: the texts between the sentence that asks to select the relevant ones
+// and the Add New Skill button. A plain string, see page-tools.
+const SUGGESTED_SKILLS = `(() => {
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const stop = /^(required|nice to have|add new skill|continue)$/i;
+  let started = false;
+  const out = [];
+  while (walker.nextNode()) {
+    const text = walker.currentNode.textContent.trim();
+    if (!text) continue;
+    if (!started) { started = /select the relevant/i.test(text); continue; }
+    if (stop.test(text)) break;
+    const el = walker.currentNode.parentElement;
+    const box = el ? el.getBoundingClientRect() : null;
+    if (box && box.width > 0 && box.height > 0 && text.length <= 60 && out.indexOf(text) === -1) out.push(text);
+  }
+  return out;
+})()`;
+
+async function readSuggestions(page) {
+  try {
+    const found = await page.evaluate(SUGGESTED_SKILLS);
+    return Array.isArray(found) ? found.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+// Choose one suggested skill: click its chip, then Required or Nice to Have in the small menu that opens
+async function chooseSkill(ctx, pick) {
+  const { page, human } = ctx;
+  const key = `skill:${norm(pick.text)}`;
+  const note = (level, why) => `${level.toLowerCase()}${why ? ` (closest to ${why})` : ""}`;
+  const chip = page.getByText(new RegExp(`^${escapeRegExp(pick.text)}$`, "i")).first();
+  if (!(await isVisible(chip))) return field(key, pick.text, F.SKIPPED, "No longer on the page");
+  await human.click(page, chip);
+  const menu = page.getByRole("menu");
+  await menu.first().waitFor({ state: "visible", timeout: 2500 }).catch(() => {});
+  const level = menu.getByText(pick.level, { exact: true }).first();
+  if (!(await isVisible(level))) return field(key, pick.text, F.UNVERIFIED, `Choose ${pick.level} for it yourself`);
+  await human.click(page, level);
+  await human.settle();
+  return field(key, pick.text, F.VERIFIED, note(pick.level, pick.reason));
+}
+
+// Skills: the job's own skills are in the recruiter's words and Rozee's suggestions are in its own, so the closest suggestions are
+// chosen (libs/poster/skill-match.js): those near the job's skills as Required, and when there are none (the job lists no skills, or
+// nothing matches) the best few for the job title as Nice to Have. Rozee may show more suggestions once some are chosen, so this
+// looks again and chooses more, up to the limit.
 async function stepSkills(ctx) {
-  const { page, human, values, options } = ctx;
-  const wanted = skillList(values.skills).slice(0, options.maxSkills);
+  const { page, human, values, options, sleep } = ctx;
+  const profile = { skills: skillList(values.skills), title: values.title, description: values.description };
   const fields = [];
-  if (wanted.length === 0) {
-    return { fields: [field("skills", "Skills", F.UNVERIFIED, "The job lists no skills: choose at least one of Rozee's suggestions, then press Continue")], advance: "auto" };
-  }
-  for (const skill of wanted) {
-    // Rozee suggests skills for the title: only a suggestion that is one of the job's own skills is chosen
-    const chip = page.getByText(new RegExp(`^${escapeRegExp(skill)}$`, "i")).first();
-    if (!(await isVisible(chip))) {
-      fields.push(field(`skill:${norm(skill)}`, skill, F.SKIPPED, "Not one of Rozee's suggestions"));
-      continue;
-    }
-    await human.click(page, chip);
-    const menu = page.getByRole("menu");
-    await menu.first().waitFor({ state: "visible", timeout: 2500 }).catch(() => {});
-    const required = menu.getByText("Required", { exact: true }).first();
-    if (await isVisible(required)) {
-      await human.click(page, required);
+  const chosen = [];
+  ctx.memo.skills = chosen;
+
+  await waitVisible(page.getByText(/select the relevant/i), options.boxWaitMs);
+  for (let round = 0; round < 4 && chosen.length < options.maxSkills; round += 1) {
+    const more = page.getByRole("button", { name: /^(load|show|see) more( skills)?$/i }).first();
+    if (round === 0 && (await isVisible(more))) {
+      await human.click(page, more);
       await human.settle();
-      fields.push(field(`skill:${norm(skill)}`, skill, F.VERIFIED, "required"));
-    } else {
-      fields.push(field(`skill:${norm(skill)}`, skill, F.UNVERIFIED, "Choose Required for it yourself"));
     }
+    const suggestions = (await readSuggestions(page)).filter((text) => !chosen.some((name) => norm(name) === norm(text)));
+    if (suggestions.length === 0) break;
+    const picks = pickSkills(rankSuggestions({ suggestions, ...profile }), { chosen: chosen.length, max: options.maxSkills, min: options.minSkills });
+    if (picks.length === 0) break;
+    let added = 0;
+    for (const pick of picks) {
+      const done = await chooseSkill(ctx, pick);
+      fields.push(done);
+      if (done.state === F.VERIFIED) {
+        chosen.push(pick.text);
+        added += 1;
+      }
+    }
+    if (added === 0) break;
+    await sleep(900); // more suggestions can appear once some are chosen
+    await human.settle();
   }
-  const chosen = fields.filter((f) => f.state === F.VERIFIED).length;
-  if (chosen === 0) {
-    return {
-      fields: [...fields, field("skills", "Skills", F.UNVERIFIED, `None of Rozee's suggestions is one of this job's skills (${wanted.join(", ")}): choose the ones that fit, then press Continue`)],
-      advance: "auto",
-    };
+
+  if (chosen.length === 0) {
+    const none = readSuggestionsNote(fields);
+    return { fields: [...fields, field("skills", "Skills", F.UNVERIFIED, `No skill could be chosen${none}: choose the ones that fit, then press Continue`)], advance: "auto" };
   }
-  const next = buttonNamed(page, "Continue");
-  if ((await isVisible(next)) && (await next.isEnabled())) {
-    await human.pause(300, 800);
-    await human.click(page, next);
-  }
+  await pressContinue(ctx);
   return { fields, advance: "auto" };
 }
+
+const readSuggestionsNote = (fields) => (fields.length ? ` (${fields.map((f) => `${f.label}: ${f.note}`).slice(0, 2).join("; ")})` : " (Rozee.pk showed none)");
 
 async function stepExperience(ctx) {
   const { page, human, values, options } = ctx;
@@ -155,12 +224,24 @@ async function stepExperience(ctx) {
   return { fields, advance: "auto" };
 }
 
+// Gender preference: a drop-down that is usually already open when the question appears, so clicking the box would close it.
+// The option is chosen from the list; if the list cannot be used, the box is typed into and the first match taken.
 async function stepGender(ctx) {
-  const { page, options } = ctx;
+  const { page, human, options, sleep } = ctx;
+  const wanted = options.genderPreference;
+  const failed = { fields: [field("gender", "Gender preference", F.UNVERIFIED, `Choose "${wanted}" yourself`)], advance: "auto" };
   const box = page.locator('input[name="gender_preference"]').first();
-  if (!(await isVisible(box))) return { fields: [field("gender", "Gender preference", F.UNVERIFIED, `Choose "${options.genderPreference}" yourself`)], advance: "auto" };
-  const picked = await chooseOption(ctx, box, new RegExp(`^${escapeRegExp(options.genderPreference)}$`, "i"));
-  return { fields: [picked ? field("gender", "Gender preference", F.VERIFIED, options.genderPreference) : field("gender", "Gender preference", F.UNVERIFIED, `Choose "${options.genderPreference}" yourself`)], advance: "auto" };
+  if (!(await waitVisible(box, options.boxWaitMs))) return failed;
+  const from = pathOf(page.url());
+  if (await chooseOption(ctx, box, new RegExp(`^${escapeRegExp(wanted)}$`, "i"))) {
+    return { fields: [field("gender", "Gender preference", F.VERIFIED, wanted)], advance: "auto" };
+  }
+  // Typing to filter the list, then the keyboard
+  await human.fillIn(page, box, wanted.slice(0, 5), { typos: false });
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  const moved = await waitForPathChange(page, from, { timeoutMs: 4000, sleep });
+  return moved ? { fields: [field("gender", "Gender preference", F.VERIFIED, `${wanted} (by keyboard)`)], advance: "auto" } : failed;
 }
 
 async function stepManage(ctx) {
@@ -172,31 +253,26 @@ async function stepManage(ctx) {
 }
 
 async function stepOther(ctx) {
-  const { page, human, options } = ctx;
+  const { options } = ctx;
   const typed = await typeInto(ctx, 'textarea[name="otherRequirements"]', options.otherRequirements, { typos: false });
   const fields = [typed.ok ? field("other", "Other requirements", F.VERIFIED) : field("other", "Other requirements", F.UNVERIFIED, "Type a line yourself")];
-  const next = buttonNamed(page, "Continue");
-  if (typed.ok && (await isVisible(next)) && (await next.isEnabled())) {
-    await human.pause(300, 800);
-    await human.click(page, next);
-  }
+  if (typed.ok) await pressContinue(ctx);
   return { fields, advance: "auto" };
 }
 
 async function stepCity(ctx) {
-  const { page, human, values } = ctx;
+  const { page, human, values, options } = ctx;
   const fields = [];
   const token = norm(values.location).split(/[\s,]+/)[0];
   const box = page.locator('input[name="cityId"]').first();
   if (!token) return { fields: [field("city", "City", F.UNVERIFIED, "The job has no location: choose a city")], advance: "auto" };
-  if (!(await isVisible(box))) return { fields: [field("city", "City", F.UNVERIFIED, `Choose ${values.location} yourself`)], advance: "auto" };
+  if (!(await waitVisible(box, options.boxWaitMs))) return { fields: [field("city", "City", F.UNVERIFIED, `Choose ${values.location} yourself`)], advance: "auto" };
   await human.fillIn(page, box, values.location.split(",")[0].trim(), { typos: true });
   // The list loads from the network: "Loading" first, then the cities
-  const options = page.getByRole("option", { name: new RegExp(`${escapeRegExp(token)}.*pakistan|pakistan.*${escapeRegExp(token)}`, "i") });
-  const listed = await options.first().waitFor({ state: "visible", timeout: 8000 }).then(() => true, () => false);
-  if (listed) {
+  const cities = page.getByRole("option", { name: new RegExp(`${escapeRegExp(token)}.*pakistan|pakistan.*${escapeRegExp(token)}`, "i") });
+  if (await waitVisible(cities, 8000)) {
     await human.settle();
-    await human.click(page, options.first());
+    await human.click(page, cities.first());
     await human.settle();
   }
   const chip = page.locator(".MuiChip-root", { hasText: new RegExp(escapeRegExp(token), "i") }).first();
@@ -215,18 +291,12 @@ async function stepCity(ctx) {
       fields.push(field("workplace", "Workplace", F.UNVERIFIED, `Choose ${values.workplace} yourself`));
     }
   }
-  if (fields.every((f) => f.state !== F.UNVERIFIED)) {
-    const next = buttonNamed(page, "Continue");
-    if ((await isVisible(next)) && (await next.isEnabled())) {
-      await human.pause(300, 800);
-      await human.click(page, next);
-    }
-  }
+  if (fields.every((f) => f.state !== F.UNVERIFIED)) await pressContinue(ctx);
   return { fields, advance: "auto" };
 }
 
 async function stepBudget(ctx) {
-  const { page, human, values } = ctx;
+  const { values } = ctx;
   const max = digitsOf(values.salaryMax || values.salaryMin);
   const fields = [];
   let proceed = true;
@@ -241,13 +311,7 @@ async function stepBudget(ctx) {
     fields.push(ok ? field("budget", "Maximum monthly budget", F.VERIFIED, `PKR ${max}`) : field("budget", "Maximum monthly budget", F.UNVERIFIED, `Rozee.pk shows "${short(typed.found)}"`));
     proceed = ok;
   }
-  if (proceed) {
-    const next = buttonNamed(page, "Continue");
-    if ((await isVisible(next)) && (await next.isEnabled())) {
-      await human.pause(300, 800);
-      await human.click(page, next);
-    }
-  }
+  if (proceed) await pressContinue(ctx);
   return { fields, advance: "auto" };
 }
 
@@ -282,24 +346,38 @@ async function sectionText(page, heading) {
 
 const pageBody = async (page) => String(await page.evaluate("document.body ? document.body.innerText.slice(0, 40000) : ''").catch(() => ""));
 
-// Rich-text boxes in Rozee.pk's page open when their text is clicked, and save by themselves when the click moves away
 // The recruiter's own text can hold a line that reads like a heading ("Responsibilities:"), so the description's heading is the
-// first one on the page and a later section's heading is the last.
+// first one on the page and a later section's heading is the last. The heading may sit next to a "Draft" badge in the same element.
 const headingOf = (page, heading, which) => {
-  const all = page.getByText(new RegExp(`^${escapeRegExp(heading)}:$`));
+  const all = page.getByText(new RegExp(`^${escapeRegExp(heading)}:\\s*(draft|live|published)?$`, "i"));
   return which === "last" ? all.last() : all.first();
 };
 
+const EDITOR = '[role="textbox"][contenteditable="true"]';
+
+// Rich-text boxes in Rozee.pk's page open when their text is clicked, and save by themselves when the click moves away. Only one
+// section is open at a time, so the box that appears after the click is the section's. Returns { editor } or { stage }, where stage
+// says how far it got, so a failure on the real page says where.
 async function openEditor(ctx, heading, which = "first") {
-  const { page, human } = ctx;
+  const { page, human, options } = ctx;
   const title = headingOf(page, heading, which);
-  if (!(await isVisible(title))) return null;
-  const text = title.locator("xpath=following::p[normalize-space()][1]").first();
-  const target = (await isVisible(text)) ? text : title.locator("xpath=following::div[normalize-space()][1]").first();
-  if (!(await isVisible(target))) return null;
-  await human.click(page, target);
-  const editor = title.locator('xpath=following::*[@role="textbox" and @contenteditable="true"][1]').first();
-  return (await editor.waitFor({ state: "visible", timeout: 3000 }).then(() => true, () => false)) ? editor : null;
+  if (!(await waitVisible(title, options.boxWaitMs))) return { editor: null, stage: "its heading was not found" };
+  const targets = [
+    title.locator("xpath=following::p[normalize-space()][1]").first(),
+    title.locator("xpath=following::li[normalize-space()][1]").first(),
+    title.locator("xpath=following::div[normalize-space()][1]").first(),
+  ];
+  let clicked = false;
+  for (const target of targets) {
+    if (!(await isVisible(target))) continue;
+    clicked = true;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await human.click(page, target); // a second click is what a person would try
+      const editor = page.locator(EDITOR).first();
+      if (await waitVisible(editor, 2500)) return { editor, stage: null };
+    }
+  }
+  return { editor: null, stage: clicked ? "no text box opened when its text was clicked" : "there was no text under its heading to click" };
 }
 
 async function leaveEditor(ctx, heading, which = "first") {
@@ -311,7 +389,7 @@ async function leaveEditor(ctx, heading, which = "first") {
 
 async function dismissPublishDialog({ page, human }) {
   const keep = page.getByText("Keep as draft", { exact: true }).first();
-  if (!(await keep.waitFor({ state: "visible", timeout: 6000 }).then(() => true, () => false))) return null; // the dialog is not there
+  if (!(await waitVisible(keep, 6000))) return null; // the dialog is not there
   await human.click(page, keep); // the safe answer: nothing is published, no credit is used
   await human.settle();
   return !(await isVisible(page.getByText("Post with free Featured Job credit").first()));
@@ -347,7 +425,8 @@ async function stepDraft(ctx) {
   const yearsSeen = (body.match(/Experience:?\s*(\d+)\s*Years?/i) || [])[1];
   fields.push(yearsSeen === years ? field("experience", "Experience", F.VERIFIED, `${years} years`) : field("experience", "Experience", F.UNVERIFIED, `The draft shows ${yearsSeen ? `${yearsSeen} years` : "none"}`));
 
-  const wanted = skillList(values.skills).slice(0, options.maxSkills);
+  // The skills the wizard step chose (the closest suggestions), or the job's own when that step did not run
+  const wanted = ctx.memo.skills?.length ? ctx.memo.skills : skillList(values.skills).slice(0, options.maxSkills);
   const missing = wanted.filter((skill) => !norm(body).includes(norm(skill)));
   if (wanted.length) {
     fields.push(missing.length === wanted.length
@@ -359,11 +438,16 @@ async function stepDraft(ctx) {
   if (!values.description) {
     fields.push(field("description", "Job description", F.UNVERIFIED, "The job has no description: write one"));
   } else {
-    // What Rozee's AI wrote as Responsibilities, read before the recruiter's text is on the page (their text can look like headings)
+    // What Rozee's AI wrote, read before the recruiter's text is on the page (their text can look like headings)
     const aiResponsibilities = (await sectionText(page, "Responsibilities")).trim();
-    const editor = await openEditor(ctx, "Description", "first");
+    const aiDescription = (await sectionText(page, "Description")).trim();
+    const { editor, stage } = await openEditor(ctx, "Description", "first");
+    const aiStart = norm(aiDescription).slice(0, 30);
+    const openedRight = editor && (!aiStart || norm(await readValue(editor)).startsWith(aiStart.slice(0, 20)));
     if (!editor) {
-      fields.push(field("description", "Job description", F.UNVERIFIED, "Rozee.pk did not open the description for editing: replace Rozee's text with your post yourself"));
+      fields.push(field("description", "Job description", F.UNVERIFIED, `Rozee.pk did not open the description for editing (${stage}): replace Rozee's text with your post yourself`));
+    } else if (!openedRight) {
+      fields.push(field("description", "Job description", F.UNVERIFIED, "The box that opened is not the description: replace Rozee's text with your post yourself"));
     } else {
       await page.keyboard.press("ControlOrMeta+A");
       await human.pause(150, 400);
@@ -375,15 +459,15 @@ async function stepDraft(ctx) {
       const lines = values.description.split("\n").map((line) => line.trim()).filter(Boolean);
       const after = norm(await pageBody(page));
       const shown = after.includes(norm(lines[0])) && after.includes(norm(lines[lines.length - 1]));
-      const closed = !(await isVisible(page.locator('[role="textbox"][contenteditable="true"]').first()));
-      fields.push(closeEnough(values.description, typed) && shown && closed
+      const stillOpen = await isVisible(page.locator(EDITOR).first());
+      fields.push(closeEnough(values.description, typed) && shown && !stillOpen
         ? field("description", "Job description", F.VERIFIED)
         : field("description", "Job description", F.UNVERIFIED, "The saved text is not all of your post"));
 
       // The AI also wrote a Responsibilities section of its own, and the post already carries the responsibilities
       if (aiResponsibilities) {
         const list = await openEditor(ctx, "Responsibilities", "last");
-        if (list) {
+        if (list.editor) {
           await page.keyboard.press("ControlOrMeta+A");
           await page.keyboard.press("Backspace");
           await leaveEditor(ctx, "Responsibilities", "last");
@@ -392,7 +476,7 @@ async function stepDraft(ctx) {
         const gone = firstAi && !norm(await pageBody(page)).includes(norm(firstAi));
         fields.push(gone
           ? field("responsibilities", "Responsibilities (Rozee's own)", F.VERIFIED, "removed: the post carries them")
-          : field("responsibilities", "Responsibilities (Rozee's own)", F.UNVERIFIED, "Rozee.pk's own Responsibilities text is still there: delete it or keep it"));
+          : field("responsibilities", "Responsibilities (Rozee's own)", F.UNVERIFIED, `Rozee.pk's own Responsibilities text is still there${list.stage ? ` (${list.stage})` : ""}: delete it or keep it`));
       }
     }
   }
@@ -461,4 +545,3 @@ export const ROZEE_FLOW = Object.freeze({
 
   continueButton: (page) => page.getByRole("button", { name: "Continue", exact: true }).first(),
 });
-

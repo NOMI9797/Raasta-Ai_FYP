@@ -66,7 +66,7 @@ function PlatformCard({ job, p, text, busy, handoff, poster, onText, onSave, onG
       </div>
       <p className="text-xs text-base-content/60">{p.summary}</p>
 
-      {p.autoPost.available && p.connection.accounts.length > 1 && (
+      {p.autoPost.available && p.connection.accounts.filter((a) => a.isActive).length > 1 && (
         <label className="flex flex-wrap items-center gap-2 text-sm">
           <span className="text-base-content/70">Post with account</span>
           <select
@@ -76,8 +76,8 @@ function PlatformCard({ job, p, text, busy, handoff, poster, onText, onSave, onG
             disabled={Boolean(busy)}
           >
             {!p.connection.accountId && <option value="">Choose an account</option>}
-            {p.connection.accounts.map((a) => (
-              <option key={a.id} value={a.id}>{a.name}{a.own ? "" : " (team)"}{a.isActive ? "" : " (switched off)"}</option>
+            {p.connection.accounts.filter((a) => a.isActive).map((a) => (
+              <option key={a.id} value={a.id}>{a.name}{a.own ? "" : " (team)"}</option>
             ))}
           </select>
         </label>

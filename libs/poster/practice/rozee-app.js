@@ -6,7 +6,8 @@
    Options come from window.__OPTIONS__. The page keeps what a test needs to look at in window.__log, __S and __published. */
 (function () {
   var OPT = window.__OPTIONS__ || {};
-  var SUGGESTED = OPT.skills || ["Test Automation", "Agile Testing", "Continuous Integration", "Node.js", "React", "SQL", "Project Management"];
+  var SUGGESTED = (OPT.skills || ["Test Automation", "Agile Testing", "Continuous Integration", "Node.js", "React", "SQL", "Project Management"]).slice();
+  var RESERVE = (OPT.moreSkills || []).slice(); // suggestions that appear after some skills are chosen, as on the real page
   var S = {
     title: "", skills: [], years: "", gender: "", manage: "", other: "", city: "", workplace: "On-Site", budget: "", cityOptions: null,
     desc: "Practice Co is seeking a dedicated professional to join our team. The ideal candidate is proficient in the listed skills.",
@@ -87,7 +88,7 @@
         ["Required", "Nice to Have"].forEach(function (level) {
           var li = document.createElement("li");
           li.innerHTML = '<label style="cursor:pointer"><input type="checkbox"> <span>' + level + "</span></label>";
-          li.querySelector("label").addEventListener("click", function (e) { e.preventDefault(); S.skills.push({ name: name, level: level }); log("skill:" + name + ":" + level); menu.remove(); skills(); });
+          li.querySelector("label").addEventListener("click", function (e) { e.preventDefault(); S.skills.push({ name: name, level: level }); log("skill:" + name + ":" + level); for (var n = 0; n < 2 && RESERVE.length; n += 1) SUGGESTED.push(RESERVE.shift()); menu.remove(); skills(); });
           menu.appendChild(li);
         });
         document.body.appendChild(menu);
@@ -121,8 +122,8 @@
       });
       document.body.appendChild(ul);
     }
-    input.addEventListener("click", openList);
-    input.addEventListener("focus", openList);
+    openList(); // open when the question appears
+    input.addEventListener("click", function () { if (document.querySelector("[data-list]")) document.querySelectorAll("[data-list]").forEach(function (el) { el.remove(); }); else openList(); });
   }
 
   function manage() {
@@ -261,7 +262,13 @@
     else if (/\/postjob\/cityid/.test(p)) city();
     else if (/maximumbudget/.test(p)) budget();
     else if (/^\/employer\/job\/app\//.test(p)) job();
-    else if (/^\/employer\/dashboard\/?$/.test(p)) dashboard();
+    else if (/^\/employer\/dashboard\/?$/.test(p)) {
+      var delay = OPT.dashboardDelayMs === undefined ? 1200 : OPT.dashboardDelayMs;
+      if (!window.__splashDone && delay > 0) {
+        root.innerHTML = '<div style="background:#000;color:#fff;height:100vh;text-align:center;padding-top:25vh;font:600 28px sans-serif">rozeegpt.ai</div>';
+        setTimeout(function () { window.__splashDone = true; if (location.pathname === p) dashboard(); }, delay);
+      } else dashboard();
+    }
     else root.innerHTML = banner() + "<h1>Audit log</h1><p>Nothing to post here.</p>";
   }
   render();

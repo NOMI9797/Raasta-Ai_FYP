@@ -48,8 +48,10 @@ export const POST = withAuth(async (request, { params, user }) => {
     if (engine.up) {
       const knowsPlatform = engine.body?.platforms ? engine.body.platforms.includes(platform) : platform === "indeed";
       const knowsMode = mode !== RUN_MODE.PRACTICE || Boolean(engine.body?.modes?.includes(RUN_MODE.PRACTICE));
-      if (!knowsPlatform || !knowsMode) {
-        return NextResponse.json({ error: "The posting engine that is running is older and does not know this kind of run (a practice run could even be taken for a real post). Restart it from the Setup guide first.", code: "engine_outdated" }, { status: 409 });
+      // An engine from before runs were tied to an account opens one shared window profile, which may still be signed in to an account that was switched off or paused
+      const knowsAccounts = platform !== "indeed" || mode === RUN_MODE.PRACTICE || engine.body?.accountProfiles === true;
+      if (!knowsPlatform || !knowsMode || !knowsAccounts) {
+        return NextResponse.json({ error: "The posting engine that is running is older than this version: it does not know this kind of run, or it would open the old shared browser window (possibly signed in to an account that was switched off or paused) instead of the one for your switched-on account. Restart it from the Setup guide first.", code: "engine_outdated" }, { status: 409 });
       }
     }
 

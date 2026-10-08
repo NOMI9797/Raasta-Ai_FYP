@@ -6,7 +6,7 @@
 // Relative imports only (also used by the engine process).
 import { classifyIndeedUrl, pageShowsCheck } from "../indeed-session-validator";
 import { FIELD_STATE as F, GATE } from "./run-model";
-import { chooseOption, digitsOf, escapeRegExp, isVisible, norm, numbersIn, pathOf, readValue, squash, waitForPathChange } from "./page-tools";
+import { chooseOption, digitsOf, escapeRegExp, isVisible, labelledControl, norm, numbersIn, pathOf, pickFromControl, readValue, squash, waitForPathChange, waitVisible } from "./page-tools";
 
 export const INDEED_START_URL = "https://employers.indeed.com/jobs";
 
@@ -33,6 +33,23 @@ export function closeEnough(expected, found) {
   if (/(…|\.\.\.)\s*$/.test(String(found ?? "").trim())) return b.length >= Math.min(40, a.length) && a.startsWith(b);
   // A rich-text editor adds list markers and line breaks of its own, but shows all of the text
   return b.length >= a.length * 0.97 && b.length <= a.length * 1.05 && a.slice(0, 60) === b.slice(0, 60) && a.slice(-40) === b.slice(-40);
+}
+
+/**
+ * How much of the description a page shows: "full" (all of it, allowing for the editor's formatting), "start" (the review page shows only the
+ * beginning of a long description, with or without an ellipsis or a "Show more" link), or "different" (it is not this text).
+ */
+export function descriptionShown(expected, found) {
+  const text = String(found ?? "").replace(/(\.{3}|\u2026)?\s*(show|see|read|view)\s+(more|full description)\s*$/i, "\u2026");
+  if (closeEnough(expected, text)) return "full";
+  const a = squash(expected);
+  const b = squash(text);
+  if (b.length >= Math.min(60, a.length * 0.3) && b.length < a.length && a.startsWith(b)) return "start";
+  // The same words in the same amount: a different layout (lists turned into paragraphs, a link turned into text)
+  const words = [...new Set(a.split(" ").filter((word) => word.length >= 4))];
+  const have = new Set(b.split(" "));
+  if (words.length >= 8 && words.filter((word) => have.has(word)).length / words.length >= 0.95 && b.length >= a.length * 0.9 && b.length <= a.length * 1.1) return "full";
+  return "different";
 }
 
 const WORKPLACE = [
@@ -79,7 +96,8 @@ const isRupees = (currency) => !currency || /^(pkr|rs\.?|rupees?)$/i.test(String
 
 async function openPostAJob({ page, human, sleep }) {
   const link = page.getByRole("button", { name: /^post a job$/i }).or(page.getByRole("link", { name: /^post a job$/i })).filter({ visible: true }).first();
-  if (!(await isVisible(link))) return { fields: [field("open", "Open Post a job", F.UNVERIFIED, 'Click "Post a job" yourself')], advance: "auto" };
+  // Indeed's employer page loads for several seconds before its button appears (a live run gave up on it after one look), so it is waited for
+  if (!(await waitVisible(link, 20000))) return { fields: [field("open", "Open Post a job", F.UNVERIFIED, 'Click "Post a job" yourself')], advance: "auto" };
   const from = pathOf(page.url());
   await human.click(page, link);
   const moved = await waitForPathChange(page, from, { sleep });
@@ -89,6 +107,14 @@ async function openPostAJob({ page, human, sleep }) {
 async function chooseFromScratch({ page, human, sleep }) {
   const from = pathOf(page.url());
   const scratch = page.getByText(/from scratch/i).first();
+  // Seen on 2026-10-08: after "Post a job" this page is blank for a few seconds and then sends the browser straight on to the form, and the
+  // option is never shown. So the page is watched for a few seconds, for the option to appear or for it to move on by itself.
+  const deadline = Date.now() + 6000;
+  while (Date.now() < deadline) {
+    if (pathOf(page.url()) !== from) return { fields: [field("flow", "Start from scratch", F.VERIFIED, "Indeed opened the form by itself")], advance: "auto" };
+    if (await isVisible(scratch)) break;
+    await sleep(250);
+  }
   if (await isVisible(scratch)) {
     await human.click(page, scratch);
     await human.settle();
@@ -99,18 +125,35 @@ async function chooseFromScratch({ page, human, sleep }) {
   return { fields: [field("flow", "Start from scratch", F.UNVERIFIED, 'Choose "from scratch" yourself')], advance: "auto" };
 }
 
+// The "Job location type" box: its test id first, then whatever control the label "Job location type" belongs to (in the first live run the
+// test id was not on the page and the engine never touched the box). Returns { locator, info } or null.
+async function workplaceControl(page) {
+  const known = page.locator('[data-testid="job-location-type-selector"]').first();
+  if (await isVisible(known)) return { locator: known, info: { tag: "known test id" } };
+  return labelledControl(page, "^job location type");
+}
+
+/**
+ * Sets "Job location type" to the job's own (remote, hybrid, in person) by itself. This is never a reason to stop for the person: if the box is
+ * not found or does not offer the option, the form is left as Indeed has it, the step says so, and the run carries on (decided by the owner
+ * on 2026-10-08, who had been asked to choose by hand and left it as it was).
+ */
 async function setWorkplace(ctx) {
   const { page, values } = ctx;
   const matcher = workplaceMatcher(values.workplace);
   if (!values.workplace || !matcher) return field("workplace", "Job location type", F.SKIPPED, "The job does not say where the work is done");
-  const trigger = page.locator('[data-testid="job-location-type-selector"]').first();
-  if (!(await isVisible(trigger))) return field("workplace", "Job location type", F.UNVERIFIED, `Choose "${values.workplace}" yourself`);
-  if (matcher.test(await readValue(trigger))) return field("workplace", "Job location type", F.VERIFIED, "already set");
-  await chooseOption(ctx, trigger, matcher);
-  const found = await readValue(trigger);
+  const wanted = norm(values.workplace);
+  let control = await workplaceControl(page);
+  if (!control) return field("workplace", "Job location type", F.SKIPPED, `Left as Indeed has it: the "Job location type" box was not found, so "${wanted}" was not set`);
+  const before = await readValue(control.locator);
+  if (matcher.test(before)) return field("workplace", "Job location type", F.VERIFIED, "already set");
+  await pickFromControl(ctx, control.locator, matcher).catch(() => false);
+  // The box may be drawn again after a choice: look for it again before reading it
+  control = (await workplaceControl(page)) || control;
+  const found = await readValue(control.locator);
   return matcher.test(found)
     ? field("workplace", "Job location type", F.VERIFIED)
-    : field("workplace", "Job location type", F.UNVERIFIED, `Choose "${values.workplace}" yourself`);
+    : field("workplace", "Job location type", F.SKIPPED, `Left as "${short(found || before)}": Indeed's list did not take "${wanted}" (the box is a ${control.info.tag}${control.info.role ? ` with role ${control.info.role}` : ""})`);
 }
 
 async function setJobTitle(ctx) {
@@ -259,8 +302,9 @@ async function stepDescription(ctx) {
   await human.fillIn(page, box, values.description, { budgetMs: options.descriptionBudgetMs });
   await human.settle();
   const found = await readValue(box);
+  ctx.memo.descriptionTyped = closeEnough(values.description, found); // the review step relies on this when it can only see the start of the text
   return {
-    fields: [closeEnough(values.description, found) ? field("description", "Job description", F.VERIFIED) : field("description", "Job description", F.UNVERIFIED, "The editor does not show the whole text")],
+    fields: [ctx.memo.descriptionTyped ? field("description", "Job description", F.VERIFIED) : field("description", "Job description", F.UNVERIFIED, "The editor does not show the whole text")],
     advance: "continue",
   };
 }
@@ -298,7 +342,17 @@ async function stepReview(ctx) {
   }
 
   const description = await reviewText(page, "job-description-review-field-action");
-  fields.push(compare("description", "Job description", values.description, description, closeEnough(values.description, description)));
+  const shown = values.description && description ? descriptionShown(values.description, description) : "different";
+  if (shown === "start" && ctx.memo.descriptionTyped) {
+    // The review page shortens a long description. The whole text was read back from the editor when it was typed.
+    fields.push(field("description", "Job description", F.VERIFIED, "The review page shows the start; the whole text was read back from the editor", { found: short(description) }));
+  } else {
+    fields.push(compare("description", "Job description", values.description, description, shown === "full"));
+  }
+  // A link to this computer cannot be opened by an applicant
+  if (/https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|[\w-]+\.local)(:\d+)?[/\s]/i.test(`${values.description || ""} `)) {
+    fields.push(field("applyLink", "Apply link", F.SKIPPED, "The post's apply link points to this computer (localhost), so applicants cannot open it until Raasta-AI has a public address"));
+  }
 
   const openings = await reviewText(page, "number-of-openings-review-field-action");
   fields.push(compare("openings", "People to hire", String(options.openings), openings, digitsOf(openings) === String(options.openings)));
