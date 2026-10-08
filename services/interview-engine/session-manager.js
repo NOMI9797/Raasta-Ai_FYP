@@ -8,6 +8,8 @@ import { INTERVIEW_STATUS } from "../../libs/hiring/statuses";
 import { getHiringConfig } from "../../libs/hiring/config";
 import { toCandidateContext, toRoleContext, toSessionQuestions } from "../../libs/interview/mappers";
 import { cleanTranscript } from "../../libs/interview/stt/clean";
+import { pcmToWav } from "../../libs/interview/stt/whisper-chunked";
+import { AudioTail, DEFAULT_CHECK_CONFIDENCE, detectUrdu, isNonEnglishVerdict, noticeLanguage, worthIdentifying } from "../../libs/interview/language";
 
 export const CLOSE_CODES = {
   NORMAL: 1000,
@@ -26,6 +28,10 @@ const MAX_MESSAGES_PER_SECOND = 200;   // audio frames arrive at 10–50 per sec
 const KEEPALIVE_MS = 5000;
 const FLUSH_TIMEOUT_MS = 2500;
 const CLOSE_AFTER_COMPLETE_MS = 1500;
+const STT_SAMPLE_RATE = 16000;
+const LANGUAGE_CHECK_MS = 1500;       // longest a doubtful transcript waits for the language of its audio
+const LANGUAGE_CHECK_GAP_MS = 2000;   // least time between two audio identifications
+const MAX_LANGUAGE_CHECKS = 30;       // per interview, so a noisy room cannot run up the bill
 const CLIENT_TYPES = new Set(["ready", "begin", "ai_done_speaking", "answer_done", "repeat_question", "end_interview", "client_event", "ping"]);
 
 function sendJson(ws, type, payload = {}) {
@@ -45,11 +51,20 @@ export class SessionManager {
    * deps: {
    *   repo: { loadSessionContext, ensureQuestionSnapshot, markStarted, appendTurn, createResponse,
    *           updateResponseScore, saveState, recordIntegrityEvent, complete, abandon },
-   *   analyze, score, followUp, tts, createStt, publish(interviewId, event), enqueue(type, payload),
+   *   analyze, score, followUp, tts, createStt, detectLanguage(wavBuffer) → { language, text } (optional),
+   *   publish(interviewId, event), enqueue(type, payload),
    *   log(level, fields), now, setTimeout, clearTimeout, setInterval, clearInterval
    * }
+   * languageGuard: tell candidates who speak Urdu that the interview is English only (LANGUAGE_GUARD=off disables it)
    */
-  constructor({ deps, maxSessions = 20, interviewerName = "Raasta AI Interviewer", silenceMs = 8000 } = {}) {
+  constructor({
+    deps,
+    maxSessions = 20,
+    interviewerName = "Raasta AI Interviewer",
+    silenceMs = 8000,
+    languageGuard = process.env.LANGUAGE_GUARD !== "off",
+    languageCheckConfidence = Number(process.env.LANGUAGE_CHECK_CONFIDENCE) || DEFAULT_CHECK_CONFIDENCE,
+  } = {}) {
     this.deps = {
       now: () => Date.now(),
       setTimeout: (fn, ms) => setTimeout(fn, ms),
@@ -62,6 +77,8 @@ export class SessionManager {
     this.maxSessions = maxSessions;
     this.interviewerName = interviewerName;
     this.silenceMs = silenceMs;
+    this.languageGuard = languageGuard;
+    this.languageCheckConfidence = languageCheckConfidence;
     this.sessions = new Map(); // interviewId -> entry
     this.attaching = new Set();
   }
@@ -141,6 +158,10 @@ export class SessionManager {
         candidateId,
         ws: null,
         stt: null,
+        audioTail: null,           // recent audio of the STT stream, to identify the language of a doubtful transcript
+        finals: Promise.resolve(), // transcripts reach the interview in order, even when one waits for its language check
+        languageChecks: 0,
+        lastLanguageCheckAt: 0,
         sttReconnects: 0,
         readyOnSocket: false,
         abandonTimer: null,
@@ -246,6 +267,7 @@ export class SessionManager {
     if (isBinary) {
       if (!entry.readyOnSocket || !entry.stt || data.length > MAX_AUDIO_FRAME_BYTES || data.length % 2 !== 0) return;
       entry.stt.write(data);
+      entry.audioTail?.write(data);
       return;
     }
 
@@ -280,13 +302,17 @@ export class SessionManager {
         if (!entry.readyOnSocket) return;
         // Let STT finish the words still in flight before finalising the answer
         if (entry.stt?.flush) await this.withTimeout(entry.stt.flush(), FLUSH_TIMEOUT_MS);
+        await this.withTimeout(entry.finals, FLUSH_TIMEOUT_MS);
         session.onAnswerDone();
         return;
       case "repeat_question":
         session.onRepeatQuestion();
         return;
       case "end_interview":
-        if (entry.readyOnSocket) await session.onEndRequest({ source: "button" });
+        if (!entry.readyOnSocket) return;
+        // Words still on their way into the interview are part of what the candidate said
+        await this.withTimeout(entry.finals, FLUSH_TIMEOUT_MS);
+        await session.onEndRequest({ source: "button" });
         return;
       case "client_event":
         session.onClientEvent({ event: message.event, at: message.at });
@@ -300,10 +326,10 @@ export class SessionManager {
     const { session } = entry;
     const stt = this.deps.createStt({
       onPartial: (text) => session.onSttPartial(text),
-      // Speech models invent text on silence and noise; only real words reach the interview
       onFinal: (text, timing) => {
-        const cleaned = cleanTranscript(text);
-        if (cleaned) session.onSttFinal(cleaned, timing);
+        entry.finals = entry.finals
+          .then(() => this.deliverFinal(entry, text, timing))
+          .catch((error) => this.deps.log("warn", { msg: "transcript not delivered", interviewId: entry.interviewId, error: error?.message }));
       },
       onActivity: () => session.onSpeechActivity(),
       onError: (error) => {
@@ -323,6 +349,53 @@ export class SessionManager {
       },
     });
     entry.stt = stt;
+    entry.audioTail = new AudioTail({ sampleRate: STT_SAMPLE_RATE });
+  }
+
+  /**
+   * One final transcript, on its way into the interview. Speech in Urdu is not an answer: the
+   * interviewer says the interview is English only. Speech models also invent text on silence and
+   * noise, so only real words reach the interview.
+   */
+  async deliverFinal(entry, text, timing) {
+    const { session } = entry;
+    const verdict = await this.checkLanguage(entry, text, timing);
+    if (verdict) {
+      this.deps.log("info", { msg: "non-English speech", interviewId: entry.interviewId, via: verdict.via });
+      await session.onNonEnglishSpeech({ language: verdict.language });
+      return;
+    }
+    const cleaned = cleanTranscript(text);
+    if (cleaned) session.onSttFinal(cleaned, timing);
+  }
+
+  /**
+   * Is this transcript Urdu? Plain rules on the text first (free); a transcript they merely doubt
+   * (low recogniser confidence, a few Urdu words) has its audio identified, within a time and cost budget.
+   * @returns {Promise<{ language: string|null, via: "text"|"audio" } | null>}
+   */
+  async checkLanguage(entry, text, timing) {
+    if (!this.languageGuard) return null;
+    const rules = detectUrdu(text);
+    if (rules.urdu) return { language: "urdu", via: "text" };
+    if (!this.deps.detectLanguage || !entry.audioTail) return null;
+    if (!worthIdentifying({ text, confidence: timing?.confidence ?? null, threshold: this.languageCheckConfidence })) return null;
+
+    const now = this.deps.now();
+    if (entry.languageChecks >= MAX_LANGUAGE_CHECKS || now - entry.lastLanguageCheckAt < LANGUAGE_CHECK_GAP_MS) return null;
+    const pcm = entry.audioTail.slice(timing?.startMs ?? 0, timing?.endMs ?? 0);
+    if (!pcm) return null;
+    entry.languageChecks += 1;
+    entry.lastLanguageCheckAt = now;
+    try {
+      const heard = await this.raceTimeout(this.deps.detectLanguage(pcmToWav(pcm, STT_SAMPLE_RATE)), LANGUAGE_CHECK_MS);
+      if (heard && isNonEnglishVerdict(heard)) {
+        return { language: noticeLanguage(heard.language) || (detectUrdu(heard.text).urdu ? "urdu" : null), via: "audio" };
+      }
+    } catch (error) {
+      this.deps.log("warn", { msg: "language check failed", interviewId: entry.interviewId, error: error?.message });
+    }
+    return null;
   }
 
   closeStt(entry) {
@@ -398,6 +471,14 @@ export class SessionManager {
       if (entry.ws && entry.ws.readyState === 1) entry.ws.close(CLOSE_CODES.SERVICE_RESTART, "Engine restarting");
     }
     this.sessions.clear();
+  }
+
+  /** The promise's value, or undefined when it takes longer than `ms`. */
+  raceTimeout(promise, ms) {
+    return new Promise((resolve, reject) => {
+      const timer = this.deps.setTimeout(() => resolve(undefined), ms);
+      Promise.resolve(promise).then(resolve, reject).finally(() => this.deps.clearTimeout(timer));
+    });
   }
 
   withTimeout(promise, ms) {

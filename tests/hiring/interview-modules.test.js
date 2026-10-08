@@ -263,7 +263,7 @@ test("deepgram STT: options, partial/final routing, queued audio, keep-alive, fl
   await stt.close();
   await stt.close();
   assert.deepEqual(partials, ["hel"]);
-  assert.deepEqual(finals[0], { t: "hello world", startMs: 2000, endMs: 3500 });
+  assert.deepEqual(finals[0], { t: "hello world", startMs: 2000, endMs: 3500, confidence: null });
   assert.equal(finals[1].t, "finalised");
   assert.deepEqual(fake.socket.sent.filter((s) => s[0] === "control").map((s) => s[1]), ["KeepAlive", "Finalize", "CloseStream"]);
   assert.equal(closed, 1);

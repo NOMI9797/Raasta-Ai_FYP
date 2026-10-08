@@ -25,6 +25,8 @@ Add these to `.env.local` (dev) and the deployment environment. Also create `.en
 | `TTS_VOICE` | engine | `am_michael` | |
 | `DEEPGRAM_API_KEY` | engine | – | live captions and the best transcripts. If empty, the Whisper fallback is used (chunked, no live captions) |
 | `STT_LANGUAGE` | engine | `en` | language of the interview. Locks Whisper to it (auto-detection invents Portuguese or Japanese from noise) and turns the foreign-script filter on for English; `auto` leaves Whisper to detect |
+| `LANGUAGE_GUARD` | engine | on | `off` stops the interviewer reminding candidates who speak Urdu that the interview is English only (09) |
+| `LANGUAGE_CHECK_CONFIDENCE` | engine | `0.8` | a transcript the recogniser is less sure of than this has its audio language-checked (Groq Whisper) |
 | `LLM_REASONING_EFFORT` | web, worker, engine | – | `low`, `medium` or `high`: default reasoning effort for `openai/gpt-oss-*` models when a caller doesn't choose. The interview paths use `low` |
 | `FFMPEG_PATH` | worker | `ffmpeg` | where ffmpeg is, when it isn't on PATH. The worker joins and decodes recordings with it; without it the AI engine is used for joining |
 | `AI_ENGINE_URL` | engine, worker | `http://localhost:8000` | |

@@ -80,7 +80,9 @@ test("1. greeting → 'yes ready' → Q1 asked with an empty buffer", async () =
   await t.session.start({ resume: false });
   assert.equal(t.calls.markStarted, 1);
   assert.equal(t.lastSpeaking().kind, "greeting");
-  assert.equal(t.lastSpeaking().text, greetingText({ firstName: "Ayesha", jobTitle: "DevOps Engineer", total: 3 }));
+  assert.equal(t.lastSpeaking().text, greetingText({ firstName: "Ayesha", jobTitle: "DevOps Engineer", total: 3, minutes: 25 }));
+  assert.match(t.lastSpeaking().text, /3 questions in up to 25 minutes/);
+  assert.match(t.lastSpeaking().text, /conducted in English/);
   assert.match(t.lastSpeaking().text, /Raasta AI Interviewer/);
 
   t.session.onSttFinal("hi", {}); // during greeting playback: ignored
@@ -217,14 +219,14 @@ test("6. follow-up cap: always-follow-up analyzer → 2 follow-ups, then the nex
   assert.deepEqual(t.ofType("question").map((q) => q.index), [1, 1, 1, 2]);
 });
 
-test("7. time budget: warnings at 5 and 1 min, closing instead of a new question under 1.5 min", async () => {
-  const t = setup({ maxMinutes: 6 });
+test("7. time budget: a warning scaled to the length, closing instead of a new question under 1.5 min", async () => {
+  const t = setup({ maxMinutes: 8 });
   await toFirstQuestion(t);
-  await t.clock.advance(60 * 1000 + 500); // 5 min left
-  assert.deepEqual(t.ofType("time_warning").map((w) => w.minutesLeft), [5]);
-  await t.clock.advance(3.5 * 60 * 1000); // ~1.5 min left → under the threshold
+  await t.clock.advance(6 * 60 * 1000 + 500); // 2 min left: the first warning for an 8-minute interview
+  assert.deepEqual(t.ofType("time_warning").map((w) => w.minutesLeft), [2]);
+  await t.clock.advance(25 * 1000); // ~1.6 min left
   t.session.onSttFinal(LONG_ANSWER, {});
-  await t.clock.advance(10 * 1000); // ~1.3 min left after the silence window
+  await t.clock.advance(10 * 1000); // ~1.4 min left after the silence window → under the threshold
   assert.equal(t.calls.createResponse.length, 1);
   assert.equal(t.lastSpeaking().kind, "closing");
   assert.equal(t.ofType("question").length, 1);
@@ -236,7 +238,8 @@ test("7b. time runs out mid-answer: 60 s grace, then the answer is saved and the
   const t = setup({ maxMinutes: 5 });
   await toFirstQuestion(t);
   await t.clock.advance(4 * 60 * 1000 + 59 * 1000);
-  assert.deepEqual(t.ofType("time_warning").map((w) => w.minutesLeft), [5, 1]);
+  // "5 minutes left" would be silly in a 5-minute interview: only the last-minute warning
+  assert.deepEqual(t.ofType("time_warning").map((w) => w.minutesLeft), [1]);
   // Keep talking every few seconds so silence never finalises
   for (let i = 0; i < 25; i += 1) {
     t.session.onSttFinal(`still explaining part ${i}`, {});
@@ -476,7 +479,7 @@ test("echo: the greeting heard back does not start the interview by itself", asy
   const t = setup();
   await t.session.start({ resume: false });
   await t.ackSpeech();
-  t.session.onSttFinal(greetingText({ firstName: "Ayesha", jobTitle: "DevOps Engineer", total: 3 }), {});
+  t.session.onSttFinal(greetingText({ firstName: "Ayesha", jobTitle: "DevOps Engineer", total: 3, minutes: 25 }), {});
   await settle();
   assert.equal(t.session.state.begun, false, "'ready to begin?' in the interviewer's own voice is not a ready word");
   t.session.onSttFinal("yes I am ready", {});
@@ -557,4 +560,170 @@ test("a refusal gets no follow-up, scores zero without asking the scorer, and th
   assert.equal(scored, 0);
   assert.equal(t.calls.updateResponseScore[0].result.score, 0);
   assert.equal(t.calls.updateResponseScore[0].result.reasoning, "The candidate declined to answer.");
+});
+
+// ───────────────────────────── interview length ─────────────────────────────
+
+const mixedBank = (n) => Array.from({ length: n }, (_, i) => ({
+  id: `b${i + 1}`,
+  question: `Bank question number ${i + 1}?`,
+  category: ["role", "technical", "technical", "technical", "technical", "role", "behavioral", "behavioral"][i % 8],
+  idealAnswer: null,
+  expectedKeywords: [],
+  scoreWeight: i % 8 === 0 ? 1 : 2,
+}));
+
+test("length: a 10-minute interview asks only the questions that fit and says so in the greeting", async () => {
+  const t = setup({ questions: mixedBank(8), maxMinutes: 10 });
+  assert.equal(t.session.state.totalQuestions, 3);
+  await t.session.start({ resume: false });
+  assert.match(t.lastSpeaking().text, /3 questions in up to 10 minutes/);
+  await t.ackSpeech();
+  t.session.onSttFinal("yes ready", {});
+  await settle();
+  await t.ackSpeech();
+  for (let i = 0; i < 3; i += 1) {
+    t.session.onSttFinal(`${LONG_ANSWER} number ${i}`, {});
+    t.session.onAnswerDone();
+    await settle();
+    await t.ackSpeech();
+  }
+  assert.equal(t.calls.createResponse.length, 3);
+  assert.deepEqual(t.ofType("question").map((q) => q.total), [3, 3, 3]);
+  assert.equal(t.session.state.stage, "ended");
+  assert.equal(t.calls.complete[0].totalQuestions, 3, "the interview is complete at 3 of 3, not 3 of 8");
+  assert.equal(t.calls.complete[0].questions.length, 8, "scoring still knows the whole bank");
+});
+
+test("length: a long interview asks the whole bank", () => {
+  const t = setup({ questions: mixedBank(8), maxMinutes: 45 });
+  assert.equal(t.session.state.totalQuestions, 8);
+  assert.equal(t.session.config.maxMs, 45 * 60 * 1000);
+});
+
+test("length: follow-ups stop once the questions still to come need the remaining time", async () => {
+  const always = async () => ({ shouldFollowUp: true, reasons: ["thin"], reasonForFollowUp: "thin" });
+  const answerFirst = async (t) => {
+    t.session.onSttFinal(LONG_ANSWER, {});
+    t.session.onAnswerDone();
+    await settle();
+    return t.ofType("question").at(-1).kind;
+  };
+
+  const early = setup({ questions: mixedBank(8), maxMinutes: 10, analyze: always });
+  await toFirstQuestion(early);
+  assert.equal(await answerFirst(early), "follow_up", "plenty of time: a follow-up");
+
+  const late = setup({ questions: mixedBank(8), maxMinutes: 10, analyze: always });
+  await toFirstQuestion(late);
+  await late.clock.advance(5.5 * 60 * 1000); // about 4.5 min left for 2 more questions
+  assert.equal(await answerFirst(late), "question", "short of time: straight on to the next planned question");
+});
+
+// ───────────────────────────── English only ─────────────────────────────
+
+test("language: Urdu before the first question -> English only, and are they ready", async () => {
+  const t = setup();
+  await t.session.start({ resume: false });
+  await t.ackSpeech();
+  await t.session.onNonEnglishSpeech({ language: "urdu" });
+  const spoken = t.lastSpeaking();
+  assert.equal(spoken.kind, "system");
+  assert.equal(spoken.text, "Ayesha, I noticed you spoke in Urdu. This interview is conducted in English only, so please answer in English. Are you ready to begin?");
+  assert.equal(t.session.state.begun, false);
+  assert.deepEqual(t.calls.integrity.map((e) => e.type), ["non_english_speech"]);
+  assert.deepEqual(t.published.filter((e) => e.type === "language_notice"), [{ type: "language_notice", count: 1 }]);
+
+  await t.ackSpeech();
+  assert.equal(t.session.state.stage, "greeting");
+  t.session.onSttFinal("yes ready", {});
+  await settle();
+  assert.equal(t.ofType("question").length, 1, "an English ready still starts the interview");
+});
+
+test("language: Urdu mid-question -> nothing is saved, the notice is spoken and the question asked again", async () => {
+  const t = setup();
+  await toFirstQuestion(t);
+  const asked = t.ofType("question").at(-1).text;
+  t.session.onSttFinal("well I think", {});
+  await t.session.onNonEnglishSpeech({ language: "urdu" });
+
+  const spoken = t.lastSpeaking();
+  assert.equal(spoken.kind, "question");
+  assert.match(spoken.text, /^Ayesha, I noticed you spoke in Urdu\. This interview is conducted in English only/);
+  assert.ok(spoken.text.endsWith(`Let me ask the question again. ${asked}`));
+  assert.equal(t.session.state.currentAnswerBuffer, "", "the half answer is dropped: they answer afresh");
+  assert.equal(t.calls.createResponse.length, 0);
+  assert.equal(t.ofType("question").at(-1).text, asked, "the on-screen question is the plain question");
+
+  await t.ackSpeech();
+  t.session.onSttFinal(LONG_ANSWER, {});
+  t.session.onAnswerDone();
+  await settle();
+  assert.equal(t.calls.createResponse.length, 1);
+  assert.equal(t.calls.createResponse[0].answer, LONG_ANSWER);
+});
+
+test("language: one notice per spell, a firmer one when it happens again, none after five", async () => {
+  const t = setup();
+  await toFirstQuestion(t);
+  await t.session.onNonEnglishSpeech({ language: "urdu" });
+  const spoken = () => t.ofType("ai_speaking").length;
+  const afterFirst = spoken();
+  await t.ackSpeech();
+
+  await t.session.onNonEnglishSpeech({ language: "urdu" }); // still the same spell
+  assert.equal(spoken(), afterFirst, "within 20 s of the last notice: no second one");
+  assert.equal(t.session.state.languageNotices, 1);
+
+  await t.clock.advance(21 * 1000);
+  await t.session.onNonEnglishSpeech({ language: "urdu" });
+  assert.match(t.lastSpeaking().text, /I need to remind you again: this interview is conducted in English only/);
+
+  for (let i = 0; i < 5; i += 1) {
+    await t.ackSpeech();
+    await t.clock.advance(21 * 1000);
+    await t.session.onNonEnglishSpeech({ language: "urdu" });
+  }
+  assert.equal(t.session.state.languageNotices, 7);
+  assert.equal(t.calls.integrity.length, 7, "every spell is recorded for the recruiter");
+  const spokenNotices = t.calls.appendTurn.filter((turn) => turn.speaker === "ai" && /conducted in English only/.test(turn.text));
+  assert.equal(spokenNotices.length, 5, "the interviewer stops interrupting after five");
+});
+
+test("language: another language is named only when it is Urdu", async () => {
+  const t = setup();
+  await t.session.start({ resume: false });
+  await t.ackSpeech();
+  await t.session.onNonEnglishSpeech({ language: null });
+  assert.match(t.lastSpeaking().text, /I noticed you spoke in a language other than English\./);
+});
+
+test("language: a sentence in Urdu after a long English answer does not cut the answer off; the reminder rides on the next question", async () => {
+  const t = setup();
+  await toFirstQuestion(t);
+  t.session.onSttFinal(LONG_ANSWER, {});
+  const before = t.ofType("ai_speaking").length;
+  await t.session.onNonEnglishSpeech({ language: "urdu" });
+  assert.equal(t.ofType("ai_speaking").length, before, "no interruption");
+  assert.equal(t.session.state.currentAnswerBuffer, LONG_ANSWER);
+  assert.equal(t.session.state.languageReminderPending, true);
+
+  t.session.onAnswerDone();
+  await settle();
+  assert.match(t.lastSpeaking().text, /^A quick reminder: please keep your answers in English\. /);
+  assert.ok(!t.ofType("question").at(-1).text.startsWith("A quick reminder"), "the question on screen stays plain");
+  assert.equal(t.session.state.languageReminderPending, false);
+});
+
+test("language: nothing is said while the interviewer is speaking, or after the interview ended", async () => {
+  const t = setup();
+  await t.session.start({ resume: false });
+  const before = t.ofType("ai_speaking").length;
+  await t.session.onNonEnglishSpeech({ language: "urdu" }); // the greeting is still playing
+  assert.equal(t.ofType("ai_speaking").length, before);
+  assert.equal(t.session.state.languageNotices, 0);
+  await t.session.end("finished");
+  await t.session.onNonEnglishSpeech({ language: "urdu" });
+  assert.equal(t.session.state.languageNotices, 0);
 });

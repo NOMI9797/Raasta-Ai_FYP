@@ -7,6 +7,7 @@ import { candidates, interviewQuestions, interviews, jobs, users } from "../sche
 import { CANDIDATE_STATUS, INTERVIEW_STATUS } from "../hiring/statuses";
 import { getHiringConfig } from "../hiring/config";
 import { hashToken } from "./tokens";
+import { clampMinutes, planInterview } from "./time-plan";
 import { rateLimit } from "../hiring/rate-limit";
 import { listKeys } from "../hiring/storage";
 
@@ -121,15 +122,22 @@ export async function markOpened(interview, { database = db, now = new Date() } 
   return row || interview;
 }
 
-async function questionCount(database, interview) {
-  if (Array.isArray(interview.questionSnapshot) && interview.questionSnapshot.length) return interview.questionSnapshot.length;
-  const [{ n }] = await database.select({ n: sql`count(*)::int` }).from(interviewQuestions)
-    .where(and(
-      eq(interviewQuestions.jobId, interview.jobId),
-      eq(interviewQuestions.isActive, true),
-      sql`(${interviewQuestions.candidateId} is null or ${interviewQuestions.candidateId} = ${interview.candidateId})`,
-    ));
-  return n;
+/**
+ * How many questions this interview will ask: what the interview length allows out of the question
+ * bank (libs/interview/time-plan.js), or the plan an interview already under way is following.
+ */
+async function questionCount(database, interview, config) {
+  if (Number.isInteger(interview.state?.totalQuestions)) return interview.state.totalQuestions;
+  const pool = Array.isArray(interview.questionSnapshot) && interview.questionSnapshot.length
+    ? interview.questionSnapshot
+    : await database.select({ id: interviewQuestions.id, category: interviewQuestions.category, scoreWeight: interviewQuestions.scoreWeight })
+      .from(interviewQuestions)
+      .where(and(
+        eq(interviewQuestions.jobId, interview.jobId),
+        eq(interviewQuestions.isActive, true),
+        sql`(${interviewQuestions.candidateId} is null or ${interviewQuestions.candidateId} = ${interview.candidateId})`,
+      ));
+  return planInterview({ minutes: config.interviewMaxMinutes, questions: pool, maxFollowUps: config.maxFollowUps }).questionCount;
 }
 
 /**
@@ -165,8 +173,8 @@ export async function publicInterviewView({ interview, job, candidate }, { datab
     candidateFirstName: (candidate.name || "").trim().split(/\s+/)[0] || "there",
     jobTitle: job.title,
     companyName: owner?.name || null,
-    maxMinutes: config.interviewMaxMinutes,
-    questionCount: await questionCount(database, interview),
+    maxMinutes: clampMinutes(config.interviewMaxMinutes),
+    questionCount: await questionCount(database, interview, config),
     maxFollowUps: config.maxFollowUps,
     expiresAt: interview.expiresAt,
     recordVideo: config.recordVideo,

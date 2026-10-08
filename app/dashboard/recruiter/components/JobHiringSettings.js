@@ -2,16 +2,22 @@
 
 import { useState } from "react";
 import toast from "react-hot-toast";
-import { Settings2, ChevronDown, AlertTriangle, Loader2 } from "lucide-react";
+import { Settings2, ChevronDown, AlertTriangle, Loader2, Clock } from "lucide-react";
 import { getHiringConfig } from "@/libs/hiring/config";
+import {
+  INTERVIEW_LENGTH_PRESETS,
+  MAX_INTERVIEW_MINUTES,
+  MIN_INTERVIEW_MINUTES,
+  clampMinutes,
+  questionsThatFit,
+} from "@/libs/interview/time-plan";
 
 const WEIGHT_LABELS = { resume: "Resume fit", interview: "Interview", communication: "Communication" };
 
 const NUMBER_FIELDS = [
   { key: "minFitScore", label: "Min fit score", min: 0, max: 100, hint: "0–100" },
   { key: "maxShortlist", label: "Max shortlist", min: 1, max: 1000, hint: "Blank = no cap", optional: true },
-  { key: "questionCount", label: "Interview questions", min: 3, max: 15, hint: "3–15" },
-  { key: "interviewMaxMinutes", label: "Interview length (min)", min: 5, max: 60, hint: "5–60" },
+  { key: "questionCount", label: "Question pool", min: 3, max: 15, hint: "3–15 questions to choose from" },
   { key: "inviteExpiryHours", label: "Invite expiry (hours)", min: 1, max: 720 },
   { key: "finalThreshold", label: "Final threshold", min: 0, max: 100, hint: "0–100" },
 ];
@@ -52,6 +58,21 @@ function rebalance(percents, changedKey, value) {
 function toForm(job) {
   const config = getHiringConfig(job);
   return { ...config, finalWeights: toPercents(config.finalWeights) };
+}
+
+// What the chosen length means for the interview, in the words the interviewer will act on
+function lengthSummary(minutes, pool) {
+  if (!(pool >= 1)) return "Set the question pool below to see how many questions fit.";
+  const length = clampMinutes(minutes);
+  const fit = questionsThatFit(length, 1000);
+  const asked = Math.min(fit, pool);
+  const parts = [
+    `At ${length} minutes the interviewer asks ${asked} of the ${pool} questions${asked < pool ? " (the most important first, across every topic)" : ""}, adding follow-ups while time allows, and warns the candidate before time runs out.`,
+  ];
+  // The pool holds at most 15; a pool one short of what fits is close enough not to mention
+  const roomFor = Math.min(fit, 15);
+  if (roomFor - pool >= 2) parts.push(`This length has room for more: raise the question pool to ${roomFor} to use the time on new questions, not only follow-ups.`);
+  return parts.join(" ");
 }
 
 /**
@@ -109,6 +130,7 @@ export default function JobHiringSettings({ job, onSaved }) {
           <p className="font-medium text-sm">Hiring automation</p>
           <p className="text-xs text-base-content/60">
             Min fit {form.minFitScore} · {form.maxShortlist == null ? "no shortlist cap" : `top ${form.maxShortlist}`}
+            {" · "}interview up to {clampMinutes(form.interviewMaxMinutes)} min
             {" · "}auto-screen {form.autoScreen ? "on" : "off"} · auto-invite {form.autoInvite ? "on" : "off"}
           </p>
         </div>
@@ -140,6 +162,39 @@ export default function JobHiringSettings({ job, onSaved }) {
               <span>Candidates will be rejected without your review.</span>
             </div>
           )}
+
+          <div className="rounded-lg border border-base-300 bg-base-100 p-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <Clock className="h-4 w-4 text-primary" />
+              <p className="text-sm font-medium">Interview length</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {INTERVIEW_LENGTH_PRESETS.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  className={`btn btn-xs ${Number(form.interviewMaxMinutes) === m ? "btn-primary" : "btn-outline"}`}
+                  onClick={() => setForm((f) => ({ ...f, interviewMaxMinutes: m }))}
+                >
+                  {m} min
+                </button>
+              ))}
+              <label className="flex items-center gap-1 text-xs ml-1">
+                <span className="text-base-content/60">Custom</span>
+                <input
+                  type="number"
+                  className="input input-bordered input-xs w-20"
+                  min={MIN_INTERVIEW_MINUTES}
+                  max={MAX_INTERVIEW_MINUTES}
+                  value={form.interviewMaxMinutes ?? ""}
+                  onChange={(e) => setNumber("interviewMaxMinutes", e.target.value)}
+                  aria-label="Interview length in minutes"
+                />
+                <span className="text-base-content/60">min ({MIN_INTERVIEW_MINUTES}–{MAX_INTERVIEW_MINUTES})</span>
+              </label>
+            </div>
+            <p className="text-xs text-base-content/70">{lengthSummary(form.interviewMaxMinutes, Number(form.questionCount) || 0)}</p>
+          </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {NUMBER_FIELDS.map(({ key, label, min, max, hint, optional }) => (

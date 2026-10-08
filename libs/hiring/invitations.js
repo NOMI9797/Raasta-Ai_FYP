@@ -316,7 +316,9 @@ export async function abandonStaleSessions(deps, { repository } = {}) {
     if (now.getTime() - last < windowMin * 60 * 1000) continue;
     const questions = Array.isArray(interview.questionSnapshot) ? interview.questionSnapshot : [];
     const answered = await repo.countBaseAnswers(interview.id, { database: d.database });
-    if (questions.length && answered >= Math.ceil(questions.length * 0.5)) {
+    // The interview asks only as many questions as its length allows; half of those is "enough"
+    const planned = Number.isInteger(interview.state?.totalQuestions) ? interview.state.totalQuestions : questions.length;
+    if (questions.length && answered >= Math.ceil(planned * 0.5)) {
       await repo.completeInterview(interview, { questions, state: interview.state, endedAt: now, database: d.database });
       await d.enqueueJob("analyse-interview", { interviewId: interview.id });
       completed += 1;

@@ -252,7 +252,7 @@
 
 ### Q37 How long does an interview last and how does it end?
 
-**Answer.** The default budget is 25 minutes per job. The candidate gets warnings at 5 and 1 minutes, a new question is only started if at least 1.5 minutes remain, and at zero a partial answer gets a 60-second grace before the interview closes. It also ends when the questions run out or the candidate says or clicks "end the interview". Completion is recorded as completed if at least half the base questions were answered, otherwise abandoned.
+**Answer.** The recruiter sets the length per job (5 to 120 minutes, default 25) and the interviewer plans around it: it asks as many of the question pool as fit and adds follow-ups only while the remaining questions keep their minimum time. The candidate gets warnings at a quarter of the length (at most 5 minutes) and at 1 minute, a new question is only started if at least 1.5 minutes remain, and at zero a partial answer gets a 60-second grace before the interview closes. It also ends when the questions run out or the candidate says or clicks "end the interview". Completion is recorded as completed if at least half the base questions were answered, otherwise abandoned.
 **Evidence.** `session-engine.js`, [4B H17](04b-functionality-interview.md), `tests/hiring/session-engine.test.js` scenario 7.
 **Follow-up:** *"Can the candidate pause?"* → Not deliberately; a dropped connection pauses the clock for up to 15 minutes.
 

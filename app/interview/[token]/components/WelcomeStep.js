@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Clock, MessageSquareText, Mic, PauseCircle, Volume2, Monitor } from "lucide-react";
+import { Clock, Languages, MessageSquareText, Mic, PauseCircle, Volume2, Monitor } from "lucide-react";
 
 export default function WelcomeStep({ token, info, onAccepted }) {
   const [accepted, setAccepted] = useState(false);
@@ -40,10 +40,11 @@ export default function WelcomeStep({ token, info, onAccepted }) {
     {
       icon: MessageSquareText,
       text: info.maxFollowUps > 0
-        ? `About ${info.questionCount} questions, with up to ${info.maxFollowUps} follow-up${info.maxFollowUps === 1 ? "" : "s"} per question`
-        : `About ${info.questionCount} questions`,
+        ? `${info.questionCount} question${info.questionCount === 1 ? "" : "s"}, with follow-ups when time allows (up to ${info.maxFollowUps} per question)`
+        : `${info.questionCount} question${info.questionCount === 1 ? "" : "s"}`,
     },
-    { icon: Clock, text: `About ${info.maxMinutes} minutes in total` },
+    { icon: Clock, text: `Up to ${info.maxMinutes} minutes in total; a countdown shows how much time is left` },
+    { icon: Languages, text: "The interview is conducted in English only; please answer in English throughout" },
     { icon: Mic, text: "Answer by speaking; press “I've finished my answer” when you're done" },
     { icon: PauseCircle, text: "The interview can't be paused once it starts" },
     { icon: Volume2, text: "Find a quiet room; headphones help" },
