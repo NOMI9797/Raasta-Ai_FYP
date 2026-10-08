@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import {
   User,
@@ -12,6 +12,7 @@ import {
   Lock,
   Palette,
   Bell,
+  CheckCheck,
   Plug,
   LogOut,
   Briefcase,
@@ -24,6 +25,7 @@ import {
 } from "lucide-react";
 import DashboardShell from "@/components/layout/DashboardShell";
 import { DARK_THEME, LIGHT_THEME, getTheme, onThemeChange, setTheme } from "@/components/layout/theme";
+import { markNotificationsRead, metaFor, notificationKeys, timeAgo, useNow } from "@/components/layout/notification-utils";
 
 const MODES = [
   {
@@ -45,9 +47,9 @@ const THEMES = [
   { id: DARK_THEME, label: "Dark", icon: Moon },
 ];
 
-function Section({ icon: Icon, title, description, children }) {
+function Section({ id, icon: Icon, title, description, children }) {
   return (
-    <section className="card bg-base-100 border border-base-300">
+    <section id={id} className="card bg-base-100 border border-base-300 scroll-mt-6">
       <div className="card-body p-5 gap-4">
         <div>
           <h2 className="card-title text-base flex items-center gap-2">
@@ -408,39 +410,151 @@ function AppearanceSection() {
   );
 }
 
-function NotificationsSection() {
-  const queryClient = useQueryClient();
-  const [clearing, setClearing] = useState(false);
+const NOTIFICATION_PAGE_SIZE = 15;
 
-  const markAllRead = async () => {
-    setClearing(true);
-    try {
-      const { updated } = await sendJson("/api/notifications", "PATCH", {});
-      queryClient.invalidateQueries({ queryKey: ["notifications"] });
-      toast.success(updated ? `Marked ${updated} notification${updated === 1 ? "" : "s"} as read` : "You're all caught up");
-    } catch (err) {
-      toast.error(err.message);
-    } finally {
-      setClearing(false);
-    }
+const NOTIFICATION_EVENTS = [
+  "Someone applies to one of your jobs",
+  "AI screening finishes for a job",
+  "An interview is evaluated",
+  "An agent run finishes, fails or needs your approval",
+];
+
+function NotificationsSection() {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const now = useNow();
+  const [unreadOnly, setUnreadOnly] = useState(false);
+
+  const query = useInfiniteQuery({
+    queryKey: notificationKeys.history(unreadOnly),
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }) => {
+      const params = new URLSearchParams({ limit: String(NOTIFICATION_PAGE_SIZE), offset: String(pageParam) });
+      if (unreadOnly) params.set("unread", "1");
+      const res = await fetch(`/api/notifications?${params}`);
+      if (!res.ok) throw new Error("Couldn't load notifications");
+      return res.json();
+    },
+    // Next page starts after everything loaded so far
+    getNextPageParam: (last, pages) =>
+      last.hasMore ? pages.reduce((n, page) => n + page.notifications.length, 0) : undefined,
+    refetchInterval: 30 * 1000,
+  });
+
+  const mark = useMutation({
+    mutationFn: markNotificationsRead,
+    onSettled: () => queryClient.invalidateQueries({ queryKey: notificationKeys.all }),
+    onError: (err) => toast.error(err.message),
+  });
+
+  // New notifications can shift the pages while you scroll: keep each one once
+  const seen = new Set();
+  const items = (query.data?.pages || [])
+    .flatMap((page) => page.notifications)
+    .filter((n) => !seen.has(n.id) && seen.add(n.id));
+  const unread = query.data?.pages?.[0]?.unread ?? 0;
+
+  const open = (item) => {
+    if (!item.readAt) mark.mutate([item.id]);
+    if (item.link) router.push(item.link);
   };
 
   return (
     <Section
+      id="notifications"
       icon={Bell}
       title="Notifications"
-      description="In-app alerts in the bell at the top of every page."
+      description="What happened in your account. The same list is in the bell at the top of every page."
     >
-      <ul className="text-sm space-y-1.5 text-base-content/80">
-        <li>• Someone applies to one of your jobs</li>
-        <li>• AI screening finishes for a job</li>
-        <li>• An agent run finishes, fails or needs your approval</li>
-      </ul>
-      <div className="flex justify-end">
-        <button className="btn btn-outline btn-sm" onClick={markAllRead} disabled={clearing}>
-          {clearing && <span className="loading loading-spinner loading-xs" />}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="tabs tabs-boxed tabs-sm" role="tablist" aria-label="Filter notifications">
+          <button role="tab" aria-selected={!unreadOnly} className={`tab ${unreadOnly ? "" : "tab-active"}`} onClick={() => setUnreadOnly(false)}>
+            All
+          </button>
+          <button role="tab" aria-selected={unreadOnly} className={`tab gap-1.5 ${unreadOnly ? "tab-active" : ""}`} onClick={() => setUnreadOnly(true)}>
+            Unread
+            {unread > 0 && <span className="badge badge-primary badge-xs">{unread}</span>}
+          </button>
+        </div>
+        <button
+          className="btn btn-outline btn-sm gap-1"
+          onClick={() => mark.mutate(undefined, { onSuccess: ({ updated }) => toast.success(updated ? `Marked ${updated} as read` : "You're all caught up") })}
+          disabled={unread === 0 || mark.isPending}
+        >
+          {mark.isPending ? <span className="loading loading-spinner loading-xs" /> : <CheckCheck className="h-4 w-4" />}
           Mark all as read
         </button>
+      </div>
+
+      <div className="border border-base-300 rounded-xl overflow-hidden">
+        {query.isLoading ? (
+          <div className="p-8 flex justify-center">
+            <span className="loading loading-spinner loading-md text-primary" />
+          </div>
+        ) : query.isError ? (
+          <div className="p-6 text-center">
+            <p className="text-sm text-error">Couldn&apos;t load notifications.</p>
+            <button className="btn btn-ghost btn-sm mt-2" onClick={() => query.refetch()}>Try again</button>
+          </div>
+        ) : items.length === 0 ? (
+          <div className="p-8 text-center">
+            <Bell className="h-8 w-8 text-base-content/20 mx-auto mb-2" />
+            <p className="text-sm font-medium">{unreadOnly ? "Nothing unread" : "No notifications yet"}</p>
+            <p className="text-xs text-base-content/60 mt-1">
+              {unreadOnly ? "You've seen everything." : "Applications, screening results, interviews and agent updates will show up here."}
+            </p>
+          </div>
+        ) : (
+          <ul className="divide-y divide-base-300 max-h-[28rem] overflow-y-auto">
+            {items.map((item) => {
+              const { icon: Icon, tone, label } = metaFor(item.type);
+              return (
+                <li key={item.id}>
+                  <button
+                    className={`w-full text-left px-4 py-3 flex gap-3 hover:bg-base-200 transition-colors ${item.readAt ? "" : "bg-primary/5"}`}
+                    onClick={() => open(item)}
+                  >
+                    <span className={`p-2 rounded-lg h-fit ${tone}`}>
+                      <Icon className="h-4 w-4" />
+                    </span>
+                    <span className="flex-1 min-w-0">
+                      <span className="flex items-start justify-between gap-2">
+                        <span className={`text-sm ${item.readAt ? "" : "font-semibold"}`}>{item.title}</span>
+                        <span className="text-[11px] text-base-content/50 whitespace-nowrap mt-0.5">{timeAgo(item.createdAt, now)}</span>
+                      </span>
+                      {item.body && <span className="block text-xs text-base-content/60 mt-0.5">{item.body}</span>}
+                      <span className="flex items-center gap-2 mt-1.5">
+                        <span className="badge badge-ghost badge-sm">{label}</span>
+                        {!item.readAt && (
+                          <span className="flex items-center gap-1 text-[11px] text-primary">
+                            <span className="h-1.5 w-1.5 rounded-full bg-primary" /> Unread
+                          </span>
+                        )}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {query.hasNextPage && (
+          <button className="btn btn-ghost btn-sm w-full rounded-none border-t border-base-300" onClick={() => query.fetchNextPage()} disabled={query.isFetchingNextPage}>
+            {query.isFetchingNextPage && <span className="loading loading-spinner loading-xs" />}
+            Load older notifications
+          </button>
+        )}
+      </div>
+
+      <div>
+        <p className="text-xs font-medium text-base-content/70 mb-1.5">You are notified when</p>
+        <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs text-base-content/70">
+          {NOTIFICATION_EVENTS.map((event) => (
+            <li key={event} className="flex items-center gap-1.5">
+              <Check className="h-3 w-3 text-success shrink-0" /> {event}
+            </li>
+          ))}
+        </ul>
       </div>
     </Section>
   );
@@ -454,6 +568,14 @@ export default function SettingsPage() {
     if (status === "loading") return;
     if (!session) router.push("/signin");
   }, [session, status, router]);
+
+  // Open at a section when the link has one (e.g. /dashboard/settings#notifications from the bell).
+  // The page only renders its sections once the session is known, so wait for it.
+  const ready = status !== "loading" && Boolean(session);
+  useEffect(() => {
+    if (!ready || !window.location.hash) return;
+    document.getElementById(decodeURIComponent(window.location.hash.slice(1)))?.scrollIntoView({ block: "start" });
+  }, [ready]);
 
   return (
     <DashboardShell title="Settings" activeSection="settings">
@@ -474,13 +596,13 @@ export default function SettingsPage() {
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
             <div className="xl:col-span-2 space-y-6">
               <ProfileSection session={session} update={update} />
+              <NotificationsSection />
               <WorkspacesSection session={session} update={update} />
               <SecuritySection session={session} update={update} />
             </div>
 
             <div className="space-y-6">
               <AppearanceSection />
-              <NotificationsSection />
 
               <Section
                 icon={Plug}

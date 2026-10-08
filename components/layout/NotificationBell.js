@@ -1,80 +1,53 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, Bot, CheckCheck, Gauge, Mic, UserPlus, AlertTriangle, PauseCircle } from "lucide-react";
-
-const QUERY_KEY = ["notifications"];
-
-const TYPE_ICONS = {
-  new_application: { icon: UserPlus, tone: "text-info bg-info/10" },
-  screening_complete: { icon: Gauge, tone: "text-success bg-success/10" },
-  interview_completed: { icon: Mic, tone: "text-accent bg-accent/10" },
-  agent_run_finished: { icon: Bot, tone: "text-primary bg-primary/10" },
-  agent_run_failed: { icon: AlertTriangle, tone: "text-error bg-error/10" },
-  agent_needs_approval: { icon: PauseCircle, tone: "text-warning bg-warning/10" },
-};
-
-function timeAgo(date) {
-  const seconds = Math.max(0, Math.round((Date.now() - new Date(date).getTime()) / 1000));
-  if (seconds < 60) return "just now";
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(date).toLocaleDateString();
-}
-
-async function markRead(ids) {
-  const res = await fetch("/api/notifications", {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(ids ? { ids } : {}),
-  });
-  if (!res.ok) throw new Error("Failed to update notifications");
-  return res.json();
-}
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Bell, CheckCheck, Settings } from "lucide-react";
+import {
+  markNotificationsRead,
+  metaFor,
+  notificationKeys,
+  timeAgo,
+  useNotificationFeed,
+  useNow,
+} from "./notification-utils";
 
 export default function NotificationBell() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const containerRef = useRef(null);
+  const now = useNow();
 
-  const { data, isLoading, isError } = useQuery({
-    queryKey: QUERY_KEY,
-    queryFn: async () => {
-      const res = await fetch("/api/notifications?limit=20");
-      if (!res.ok) throw new Error("Failed to load notifications");
-      return res.json();
-    },
-    refetchInterval: 30 * 1000,
-    refetchOnWindowFocus: true,
-  });
+  const { data, isLoading, isError } = useNotificationFeed();
 
   const mutation = useMutation({
-    mutationFn: markRead,
+    mutationFn: markNotificationsRead,
     // Clear the badge immediately; the refetch below reconciles with the server
     onMutate: async (ids) => {
-      await queryClient.cancelQueries({ queryKey: QUERY_KEY });
-      const previous = queryClient.getQueryData(QUERY_KEY);
+      await queryClient.cancelQueries({ queryKey: notificationKeys.all });
+      const previous = queryClient.getQueryData(notificationKeys.bell);
       if (previous) {
-        const now = new Date().toISOString();
-        const notifications = previous.notifications.map((n) =>
-          !n.readAt && (!ids || ids.includes(n.id)) ? { ...n, readAt: now } : n
-        );
-        const unread = ids ? Math.max(0, previous.unread - ids.length) : 0;
-        queryClient.setQueryData(QUERY_KEY, { ...previous, notifications, unread });
+        const readAt = new Date().toISOString();
+        let cleared = 0;
+        const list = previous.notifications.map((n) => {
+          if (n.readAt || (ids && !ids.includes(n.id))) return n;
+          cleared += 1;
+          return { ...n, readAt };
+        });
+        // Unread ones beyond the 20 shown still count, so subtract only what changed here
+        const unread = ids ? Math.max(0, previous.unread - cleared) : 0;
+        queryClient.setQueryData(notificationKeys.bell, { ...previous, notifications: list, unread });
       }
       return { previous };
     },
     onError: (_error, _ids, context) => {
-      if (context?.previous) queryClient.setQueryData(QUERY_KEY, context.previous);
+      if (context?.previous) queryClient.setQueryData(notificationKeys.bell, context.previous);
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: QUERY_KEY }),
+    // Settings shows the same notifications under another key: refresh them all
+    onSettled: () => queryClient.invalidateQueries({ queryKey: notificationKeys.all }),
   });
 
   useEffect(() => {
@@ -120,10 +93,13 @@ export default function NotificationBell() {
       {open && (
         <div className="absolute right-0 mt-2 w-80 max-w-[calc(100vw-2rem)] bg-base-100 border border-base-300 rounded-xl shadow-xl z-50 overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-base-300">
-            <p className="font-semibold text-sm">Notifications</p>
+            <p className="font-semibold text-sm">
+              Notifications
+              {unread > 0 && <span className="ml-2 badge badge-primary badge-sm">{unread} new</span>}
+            </p>
             <button
               className="btn btn-ghost btn-xs gap-1"
-              onClick={() => mutation.mutate(null)}
+              onClick={() => mutation.mutate(undefined)}
               disabled={unread === 0 || mutation.isPending}
             >
               <CheckCheck className="h-3.5 w-3.5" /> Mark all read
@@ -148,7 +124,7 @@ export default function NotificationBell() {
             ) : (
               <ul className="divide-y divide-base-300">
                 {items.map((item) => {
-                  const { icon: Icon, tone } = TYPE_ICONS[item.type] || { icon: Bell, tone: "text-base-content bg-base-200" };
+                  const { icon: Icon, tone } = metaFor(item.type);
                   return (
                     <li key={item.id}>
                       <button
@@ -168,7 +144,7 @@ export default function NotificationBell() {
                           {item.body && (
                             <span className="block text-xs text-base-content/60 mt-0.5 line-clamp-2">{item.body}</span>
                           )}
-                          <span className="block text-[11px] text-base-content/40 mt-1">{timeAgo(item.createdAt)}</span>
+                          <span className="block text-[11px] text-base-content/50 mt-1">{timeAgo(item.createdAt, now)}</span>
                         </span>
                       </button>
                     </li>
@@ -177,6 +153,14 @@ export default function NotificationBell() {
               </ul>
             )}
           </div>
+
+          <Link
+            href="/dashboard/settings#notifications"
+            onClick={() => setOpen(false)}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 border-t border-base-300 text-xs font-medium text-primary hover:bg-base-200 transition-colors"
+          >
+            <Settings className="h-3.5 w-3.5" /> All notifications &amp; settings
+          </Link>
         </div>
       )}
     </div>

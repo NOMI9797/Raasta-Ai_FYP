@@ -4,7 +4,11 @@ import { useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { useDialog } from "@/components/ui/DialogProvider";
-import { FEATURE_NEEDS, FEATURE_WHY, START_ORDER, sentenceName } from "@/libs/system/features";
+import { FEATURE_NEEDS, FEATURE_WHY, SERVICE_ID, START_ORDER, sentenceName } from "@/libs/system/features";
+
+// Every program this guard can start. The posting engine is optional and opens a browser window, so it is not in START_ORDER
+// (the Setup guide's "start everything"), but a feature that needs it can offer to start it.
+const CAN_START = [...START_ORDER, SERVICE_ID.POSTER];
 import { controlService, fetchSystem, refreshSystem, waitUntilRunning } from "./useSystem";
 
 /**
@@ -22,7 +26,7 @@ export function useServiceGuard() {
 
   // Start these programs and wait for them. Returns the ids that are still not running.
   const startPrograms = useCallback(async (ids) => {
-    const ordered = START_ORDER.filter((id) => ids.includes(id));
+    const ordered = CAN_START.filter((id) => ids.includes(id));
     const toastId = toast.loading("Starting. The first start can take up to a minute...");
     try {
       for (const id of ordered) await controlService(id, "start");

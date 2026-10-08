@@ -1,9 +1,10 @@
 // Plain constants shared by the server code and the screens (no Node imports, so the browser can use it too).
 
-export const SERVICE_ID = Object.freeze({ WEB: "web", WORKER: "worker", ENGINE: "engine", AI_ENGINE: "ai-engine" });
+export const SERVICE_ID = Object.freeze({ WEB: "web", WORKER: "worker", ENGINE: "engine", AI_ENGINE: "ai-engine", POSTER: "poster" });
 export const INFRA_ID = Object.freeze({ POSTGRES: "postgres", REDIS: "redis" });
 
-// Start order for "start everything": the worker last, because it calls the others
+// Start order for "start everything": the worker last, because it calls the others. The posting engine is optional and
+// opens a browser window, so it is started by itself, from the Publish panel or here, never as part of "everything".
 export const START_ORDER = Object.freeze([SERVICE_ID.AI_ENGINE, SERVICE_ID.ENGINE, SERVICE_ID.WORKER]);
 
 // What each part of the product needs to be running (used to warn before something silently waits)
@@ -12,6 +13,7 @@ export const FEATURE_NEEDS = Object.freeze({
   screening: [SERVICE_ID.WORKER],
   invites: [SERVICE_ID.WORKER, SERVICE_ID.ENGINE, SERVICE_ID.AI_ENGINE],
   interviews: [SERVICE_ID.ENGINE, SERVICE_ID.AI_ENGINE, SERVICE_ID.WORKER],
+  posting: [SERVICE_ID.POSTER],
 });
 
 // Why a feature needs them, in the words shown to the person
@@ -20,6 +22,7 @@ export const FEATURE_WHY = Object.freeze({
   screening: "Applicants are scored by the hiring worker, so they wait while it is off.",
   invites: "The invite is sent by the hiring worker, and the candidate needs the interview engine and the AI engine running when they open the link.",
   interviews: "Interviews need the interview engine and the AI engine, and the results are processed by the hiring worker.",
+  posting: "The posting engine opens the browser window that fills in the job post, so nothing starts while it is off.",
 });
 
 /** A program label in the middle of a sentence: "Hiring worker" becomes "hiring worker", "AI engine" stays "AI engine". */

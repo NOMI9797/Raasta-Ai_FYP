@@ -19,6 +19,10 @@ const client =
     ssl: process.env.DATABASE_SSL === 'false' ? false : 'require',
     max: 10,
     idle_timeout: 20, // seconds; release idle connections instead of holding them forever
+    // Drizzle reads `timestamp` columns as UTC, so the session must write them as UTC too. On a
+    // database set to local time (e.g. Asia/Karachi) every defaultNow() value was stored hours
+    // ahead and read back in the future ("just now" for ever, wrong ordering against JS dates).
+    connection: { TimeZone: 'UTC' },
   });
 
 if (process.env.NODE_ENV !== 'production') globalForDb.pgClient = client;

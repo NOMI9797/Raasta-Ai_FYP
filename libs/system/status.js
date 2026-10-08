@@ -1,8 +1,11 @@
 // One report of everything the hiring pipeline stands on: Postgres, Redis, the four programs, and the
 // settings they need. Safe to send to the browser: it holds states and short sentences, never values or secrets.
 // Relative imports only.
+import fs from "fs";
+import path from "path";
 import { sql } from "drizzle-orm";
 import { db } from "../db";
+import { ffmpegAvailable } from "../interview/media-tools";
 import { getRedisClient } from "../redis";
 import { getQueueOverview } from "../hiring/queue-admin";
 import {
@@ -66,6 +69,7 @@ export function describeService({ def, probe, managed, infraDown = [], canContro
     if (def.id === SERVICE_ID.WORKER) detail = extras.waiting ? `Working through the queue (${extras.waiting} waiting).` : "Idle, ready for jobs.";
     else if (def.id === SERVICE_ID.ENGINE) detail = extras.activeSessions ? `${extras.activeSessions} interview${extras.activeSessions === 1 ? "" : "s"} in progress.` : "Ready for interviews.";
     else if (def.id === SERVICE_ID.AI_ENGINE) detail = "Ready.";
+    else if (def.id === SERVICE_ID.POSTER) detail = extras.busy ? "Posting a job now: its browser window is open." : "Ready: start a post from a job's Publish panel.";
     else detail = "You are using it now.";
   } else if (state === SERVICE_STATE.STARTING) {
     detail = "Starting. The AI engine can take up to a minute the first time.";
@@ -95,6 +99,7 @@ export function describeService({ def, probe, managed, infraDown = [], canContro
     canStart: canControl && def.controllable && idle && blockedBy.length === 0,
     canStop: canControl && def.controllable && Boolean(managed.managed),
     manual: def.manual,
+    optional: Boolean(def.optional), // not needed for hiring itself: never counted as something missing
     local: def.local,
     activeSessions: extras.activeSessions || 0,
     waiting: extras.waiting ?? null,
@@ -102,10 +107,43 @@ export function describeService({ def, probe, managed, infraDown = [], canContro
   };
 }
 
+/**
+ * What interviews need on this machine besides the programs: ffmpeg to join and decode recordings, the
+ * camera-tracking files for the interview room, and (optionally) live speech recognition.
+ * ffmpegOk and modelOk are observed by the caller; only yes / no leaves this function.
+ */
+export function checkTools({ ffmpegOk, modelOk, env = process.env }) {
+  return [
+    {
+      id: "ffmpeg",
+      label: "Recording tool (ffmpeg)",
+      ok: Boolean(ffmpegOk),
+      impact: "Without it interview recordings can't be joined, so there is nothing to play and the communication score has no audio to measure.",
+      hint: "Install ffmpeg (Windows: winget install Gyan.FFmpeg), open a new terminal so it is on PATH, then restart the programs. If it lives somewhere else, set FFMPEG_PATH in .env.local.",
+    },
+    {
+      id: "face-model",
+      label: "Camera tracking files",
+      ok: Boolean(modelOk),
+      optional: true,
+      impact: "Without them eye contact, head movement and expressions are not measured.",
+      hint: "Run: npm run sync:mediapipe",
+    },
+    {
+      id: "deepgram",
+      label: "Live speech recognition (Deepgram)",
+      ok: Boolean(String(env.DEEPGRAM_API_KEY || "").trim()),
+      optional: true,
+      impact: "Without it a slower fallback is used: no live captions, and more transcription mistakes.",
+      hint: "Add DEEPGRAM_API_KEY to .env.local and restart the interview engine.",
+    },
+  ];
+}
+
 /** ready = everything the pipeline needs is up; degraded = something is off; blocked = Postgres or Redis is down. */
 export function summarise({ infra, services, config }) {
   const infraDown = infra.filter((i) => !i.up);
-  const stopped = services.filter((s) => s.id !== SERVICE_ID.WEB && s.state !== SERVICE_STATE.RUNNING);
+  const stopped = services.filter((s) => s.id !== SERVICE_ID.WEB && !s.optional && s.state !== SERVICE_STATE.RUNNING);
   const missingConfig = config.filter((c) => !c.ok && !c.optional);
   let overall = "ready";
   let summary = "Everything the hiring pipeline needs is running.";
@@ -164,14 +202,19 @@ export async function getSystemStatus(deps = {}) {
       extras = { waiting: worker.waiting, failed: worker.failed, lastSeenMs: worker.lastSeenMs, host: def.hosted ? getHostState({ env }) : null };
     } else {
       probe = await httpProbe(def.healthUrl);
-      extras = { activeSessions: probe.body?.activeSessions };
+      extras = { activeSessions: probe.body?.activeSessions, busy: Boolean(probe.body?.busy) };
     }
     const managed = def.controllable ? getManaged(def.id, deps.cwd ? { cwd: deps.cwd } : {}) : { managed: false, crashed: false };
     const tail = def.controllable && !probe.up ? readLogTail(def.id, { cwd: deps.cwd || process.cwd(), maxLines: 12 }) : [];
     return describeService({ def, probe, managed, infraDown, canControl, now, logTail: tail, extras });
   }));
 
-  const config = checkConfig(env).map(({ id, label, ok, optional, impact, hint }) => ({ id, label, ok, optional: Boolean(optional), impact, hint: ok ? null : hint }));
+  const [ffmpegOk, modelOk] = await Promise.all([
+    deps.ffmpegProbe ? deps.ffmpegProbe() : ffmpegAvailable({ env }),
+    deps.fileExists ? deps.fileExists("public/mediapipe/face_landmarker.task") : fs.existsSync(path.join(process.cwd(), "public", "mediapipe", "face_landmarker.task")),
+  ]);
+  const config = [...checkConfig(env), ...checkTools({ ffmpegOk, modelOk, env })]
+    .map(({ id, label, ok, optional, impact, hint }) => ({ id, label, ok, optional: Boolean(optional), impact, hint: ok ? null : hint }));
   return { checkedAt: new Date(now).toISOString(), controlEnabled: canControl, infra, services, config, ...summarise({ infra, services, config }) };
 }
 

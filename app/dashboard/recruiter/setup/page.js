@@ -101,7 +101,7 @@ export default function SetupPage() {
 
   const overall = OVERALL[status.overall] || OVERALL.degraded;
   const OverallIcon = overall.icon;
-  const startable = status.services.filter((s) => s.canStart);
+  const startable = status.services.filter((s) => s.canStart && !s.optional); // "start everything" leaves out the optional posting engine
 
   return (
     <DashboardShell title="Setup guide" activeSection="recruiter-setup">
@@ -110,7 +110,7 @@ export default function SetupPage() {
           <div>
             <h1 className="text-2xl font-bold">Setup guide</h1>
             <p className="text-sm text-base-content/70 mt-1 max-w-2xl">
-              Hiring runs on four programs. Start them here, see what each one does, and follow the steps below to get from a job to a hire.
+              Hiring runs on four programs. Start them here, see what each one does, and follow the steps below to get from a job to a hire. The posting engine is a fifth, optional one: it opens the browser window that fills in an Indeed post.
             </p>
           </div>
           <button type="button" className="btn btn-ghost btn-sm !normal-case gap-1" onClick={() => refetch()} disabled={isFetching}>

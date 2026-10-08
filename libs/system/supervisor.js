@@ -23,7 +23,7 @@ export class SystemError extends Error {
 
 export const START_GRACE_MS = 90 * 1000; // the AI engine loads large libraries; give it time before calling it stuck
 const MAX_LOG_BYTES = 1024 * 1024;
-const IMAGE = { [SERVICE_ID.WORKER]: "node", [SERVICE_ID.ENGINE]: "node", [SERVICE_ID.AI_ENGINE]: "python" };
+const IMAGE = { [SERVICE_ID.WORKER]: "node", [SERVICE_ID.ENGINE]: "node", [SERVICE_ID.AI_ENGINE]: "python", [SERVICE_ID.POSTER]: "node" };
 
 /** Starting and stopping is on for local development, and off in production unless SERVICE_CONTROL=true. */
 export function controlEnabled(env = process.env) {
@@ -112,6 +112,7 @@ export function buildCommand(id, { env = process.env, cwd = process.cwd(), platf
   const tsx = path.join(cwd, "node_modules", "tsx", "dist", "cli.mjs");
   if (id === SERVICE_ID.WORKER) return { file: process.execPath, args: [tsx, "workers/hiring-worker.js"], cwd, label: "hiring worker" };
   if (id === SERVICE_ID.ENGINE) return { file: process.execPath, args: [tsx, "services/interview-engine/index.js"], cwd, label: "interview engine" };
+  if (id === SERVICE_ID.POSTER) return { file: process.execPath, args: [tsx, "services/poster-engine/index.js"], cwd, label: "posting engine" };
   if (id === SERVICE_ID.AI_ENGINE) {
     const dir = path.join(cwd, "services", "ai-engine");
     const venvPython = platform === "win32" ? path.join(dir, ".venv", "Scripts", "python.exe") : path.join(dir, ".venv", "bin", "python");

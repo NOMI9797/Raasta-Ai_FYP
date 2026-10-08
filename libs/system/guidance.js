@@ -2,7 +2,7 @@
 // checklist, so the app can say where the person is and what to do. Relative imports only.
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db";
-import { agentActions, agentConfigs, candidates, jobPublications, jobs, linkedinAccounts, rozeeAccounts } from "../schema";
+import { agentActions, agentConfigs, candidates, indeedAccounts, jobPublications, jobs, linkedinAccounts, rozeeAccounts } from "../schema";
 import { CANDIDATE_STATUS } from "../hiring/statuses";
 import { SERVICE_ID } from "./features";
 import { SETUP_PATH } from "./paths";
@@ -42,7 +42,7 @@ export function buildGuidance({ counts, running = [], waitingJobs = 0 }) {
     },
     {
       id: "platforms",
-      title: "Connect LinkedIn or Rozee.pk",
+      title: "Connect LinkedIn, Rozee.pk or Indeed",
       detail: counts.platformAccounts > 0 ? "A platform account is connected." : "Optional. Without one you can still copy a post and publish it yourself.",
       done: counts.platformAccounts > 0,
       optional: true,
@@ -110,13 +110,14 @@ export function buildGuidance({ counts, running = [], waitingJobs = 0 }) {
 export async function getGuidanceCounts(user, database = db) {
   const count = sql`count(*)::int`;
   const one = async (query) => (await query)[0]?.n || 0;
-  const [jobsN, publishedN, platformsLi, platformsRz, applicants, shortlisted, interviewsDone, pending, agents] = await Promise.all([
+  const [jobsN, publishedN, platformsLi, platformsRz, platformsId, applicants, shortlisted, interviewsDone, pending, agents] = await Promise.all([
     one(database.select({ n: count }).from(jobs).where(eq(jobs.userId, user.id))),
     one(database.select({ n: sql`count(distinct ${jobs.id})::int` }).from(jobs)
       .leftJoin(jobPublications, and(eq(jobPublications.jobId, jobs.id), eq(jobPublications.status, "published")))
       .where(and(eq(jobs.userId, user.id), sql`(${jobs.status} = 'published' or ${jobPublications.id} is not null)`))),
     one(database.select({ n: count }).from(linkedinAccounts)),
     one(database.select({ n: count }).from(rozeeAccounts)),
+    one(database.select({ n: count }).from(indeedAccounts)),
     one(database.select({ n: count }).from(candidates).where(eq(candidates.userId, user.id))),
     one(database.select({ n: count }).from(candidates).where(and(eq(candidates.userId, user.id), inArray(candidates.status, [
       CANDIDATE_STATUS.SHORTLISTED, CANDIDATE_STATUS.INTERVIEW_INVITED, CANDIDATE_STATUS.INTERVIEW_IN_PROGRESS,
@@ -129,7 +130,7 @@ export async function getGuidanceCounts(user, database = db) {
     one(database.select({ n: count }).from(agentConfigs).where(and(eq(agentConfigs.userId, user.id), eq(agentConfigs.pipelineType, "recruiter")))),
   ]);
   return {
-    jobs: jobsN, publishedJobs: publishedN, platformAccounts: platformsLi + platformsRz, applicants, shortlisted,
+    jobs: jobsN, publishedJobs: publishedN, platformAccounts: platformsLi + platformsRz + platformsId, applicants, shortlisted,
     interviewsDone, pendingApprovals: pending, agents,
   };
 }

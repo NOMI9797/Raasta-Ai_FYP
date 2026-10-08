@@ -4,13 +4,15 @@ import { listNotifications, markNotificationsRead } from "@/libs/notifications";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// GET /api/notifications - latest notifications plus the unread count
+// GET /api/notifications?limit=&offset=&unread=1 - a page of notifications, newest first, plus the unread count
 export const GET = withAuth(async (request, { user }) => {
   try {
     const { searchParams } = new URL(request.url);
     const limit = Math.min(Math.max(Number(searchParams.get("limit")) || 20, 1), 50);
-    const { items, unread } = await listNotifications(user.id, { limit });
-    return NextResponse.json({ success: true, notifications: items, unread });
+    const offset = Math.max(Number(searchParams.get("offset")) || 0, 0);
+    const unreadOnly = searchParams.get("unread") === "1";
+    const { items, unread, hasMore } = await listNotifications(user.id, { limit, offset, unreadOnly });
+    return NextResponse.json({ success: true, notifications: items, unread, hasMore });
   } catch (error) {
     console.error("List notifications error:", error);
     return NextResponse.json({ error: "Failed to load notifications" }, { status: 500 });

@@ -35,12 +35,20 @@ export function aiEngineTarget(env = process.env) {
 }
 
 /**
- * The four programs, in plain words. `local` says whether the app is allowed to start it
- * (only a program on this machine can be started from here).
+ * The programs, in plain words: the four hiring needs, and the optional posting engine. `local` says whether the app is
+ * allowed to start it (only a program on this machine can be started from here).
  */
+/** The posting engine listens on this machine only (its health address is not meant to be reached from elsewhere). */
+export function posterTarget(env = process.env) {
+  const value = Number(env.POSTER_ENGINE_PORT);
+  const port = Number.isInteger(value) && value > 0 && value < 65536 ? value : 8095;
+  return { host: "127.0.0.1", port, local: true, healthUrl: `http://127.0.0.1:${port}/health` };
+}
+
 export function getServiceDefs(env = process.env) {
   const engine = engineTarget(env);
   const ai = aiEngineTarget(env);
+  const poster = posterTarget(env);
   return [
     {
       id: SERVICE_ID.WEB,
@@ -81,6 +89,17 @@ export function getServiceDefs(env = process.env) {
       local: ai.local,
       controllable: ai.local,
       manual: "cd services/ai-engine, activate the virtual environment, then: uvicorn main:app --port 8000",
+    },
+    {
+      id: SERVICE_ID.POSTER,
+      label: "Posting engine",
+      role: "Fills in a job post on Indeed in a visible browser window, like a person, and waits for you at every check, sign-in and decision. Optional: Copy and open works without it.",
+      port: poster.port,
+      healthUrl: poster.healthUrl,
+      local: true, // its window opens on the machine it runs on, so it can only be started from here
+      controllable: true,
+      optional: true,
+      manual: "npm run poster:engine",
     },
   ];
 }

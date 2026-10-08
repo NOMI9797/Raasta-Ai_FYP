@@ -9,7 +9,7 @@ import {
   FEATURE_NEEDS, SERVICE_ID, START_ORDER, aiEngineTarget, checkConfig, engineTarget, getServiceDefs, parseTarget, probeHttp, probePort, workerFromOverview,
 } from "../../libs/system/services";
 import { SystemError, buildCommand, controlEnabled, getManaged, readLogTail, startService, stopService } from "../../libs/system/supervisor";
-import { SERVICE_STATE, describeService, summarise } from "../../libs/system/status";
+import { SERVICE_STATE, checkTools, describeService, summarise } from "../../libs/system/status";
 import { buildGuidance } from "../../libs/system/guidance";
 import { canUseSystem } from "../../libs/system/access";
 
@@ -352,4 +352,53 @@ test("the worker the web server runs explains itself: paused, restarting, gave u
   assert.match(running.detail, /Run by the web server\.$/);
   assert.equal(running.hosted, true);
   assert.equal(running.canStop, true);
+});
+
+test("tool checks: ffmpeg is required, camera tracking files and Deepgram are optional, and no value leaks", () => {
+  const missing = checkTools({ ffmpegOk: false, modelOk: false, env: {} });
+  assert.deepEqual(missing.map((c) => [c.id, c.ok, Boolean(c.optional)]), [["ffmpeg", false, false], ["face-model", false, true], ["deepgram", false, true]]);
+  assert.match(missing[0].hint, /FFMPEG_PATH/);
+  assert.match(missing[1].hint, /sync:mediapipe/);
+  const ready = checkTools({ ffmpegOk: true, modelOk: true, env: { DEEPGRAM_API_KEY: "dg_secretvalue123" } });
+  assert.ok(ready.every((c) => c.ok));
+  assert.ok(!JSON.stringify(ready).includes("secretvalue"));
+  // A missing required tool makes the overall state degraded
+  const up = [{ id: "postgres", up: true }, { id: "redis", up: true }];
+  const running = [{ id: "web", state: "running" }, { id: "worker", state: "running" }];
+  assert.equal(summarise({ infra: up, services: running, config: missing }).overall, "degraded");
+  assert.equal(summarise({ infra: up, services: running, config: ready }).overall, "ready");
+});
+
+// ─── The optional posting engine ───
+
+test("posting engine: an optional program on this machine, started with its own command, never part of 'start everything'", () => {
+  const poster = def(SERVICE_ID.POSTER);
+  assert.equal(poster.optional, true);
+  assert.equal(poster.controllable, true);
+  assert.equal(poster.local, true);
+  assert.equal(poster.port, 8095);
+  assert.equal(poster.healthUrl, "http://127.0.0.1:8095/health");
+  assert.equal(def(SERVICE_ID.POSTER, { POSTER_ENGINE_PORT: "9201" }).healthUrl, "http://127.0.0.1:9201/health");
+  assert.equal(def(SERVICE_ID.POSTER, { POSTER_ENGINE_PORT: "nope" }).port, 8095);
+  assert.equal(START_ORDER.includes(SERVICE_ID.POSTER), false);
+  assert.deepEqual(FEATURE_NEEDS.posting, [SERVICE_ID.POSTER]);
+  const command = buildCommand(SERVICE_ID.POSTER, { cwd: "/p" });
+  assert.deepEqual(command.args, [path.join("/p", "node_modules", "tsx", "dist", "cli.mjs"), "services/poster-engine/index.js"]);
+  assert.equal(command.label, "posting engine");
+  for (const other of [SERVICE_ID.WEB, SERVICE_ID.WORKER, SERVICE_ID.ENGINE, SERVICE_ID.AI_ENGINE]) assert.equal(def(other).optional, undefined);
+});
+
+test("posting engine: when it is off the summary stays ready, and the card says what it is doing when it is on", () => {
+  const svc = (id, state, optional) => ({ id, label: id, state, optional });
+  const up = [{ id: "postgres", label: "Postgres", up: true }, { id: "redis", label: "Redis", up: true }];
+  const services = [svc("web", "running"), svc("worker", "running"), svc("engine", "running"), svc("ai-engine", "running"), svc("poster", "stopped", true)];
+  assert.equal(summarise({ infra: up, services, config: [] }).overall, "ready");
+
+  const poster = def(SERVICE_ID.POSTER);
+  const card = (probe, extras) => describeService({ def: poster, probe, managed: { managed: false, crashed: false }, infraDown: [], canControl: true, now: 1_000_000, extras });
+  assert.equal(card({ up: false }).state, SERVICE_STATE.STOPPED);
+  assert.equal(card({ up: false }).optional, true);
+  assert.equal(card({ up: false }).canStart, true);
+  assert.match(card({ up: true }, { busy: false }).detail, /Ready/);
+  assert.match(card({ up: true }, { busy: true }).detail, /Posting a job now/);
 });
