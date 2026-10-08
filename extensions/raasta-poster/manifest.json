@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Raasta-AI Poster",
+  "version": "0.1.0",
+  "description": "Post a Raasta-AI job on Indeed or Rozee.pk from your own signed-in browser: copy each field or fill the form, then press the platform's own Post button.",
+  "permissions": ["storage"],
+  "content_scripts": [
+    {
+      "matches": ["http://localhost:8085/*", "http://127.0.0.1:8085/*"],
+      "js": ["lib/kit.js", "bridge.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://employers.indeed.com/*",
+        "https://hiring.rozee.pk/*",
+        "https://www.rozee.pk/*",
+        "https://www.rozeegpt.ai/*"
+      ],
+      "js": ["lib/kit.js", "lib/fill.js", "panel.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

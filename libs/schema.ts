@@ -167,6 +167,11 @@ export const jobs = pgTable('jobs', {
   rozeePost: text('rozee_post'),
   rozeePostUrl: text('rozee_post_url'),
   rozeePublishedAt: timestamp('rozee_published_at'),
+  // Indeed publishing
+  indeedAccountId: uuid('indeed_account_id'),
+  indeedPost: text('indeed_post'),
+  indeedPostUrl: text('indeed_post_url'),
+  indeedPublishedAt: timestamp('indeed_published_at'),
   hiringConfig: json('hiring_config'), // see DEFAULT_HIRING_CONFIG in libs/hiring/config.js
   status: varchar('status', { length: 20 }).notNull().default('draft'), // draft | published | closed
   publishedAt: timestamp('published_at'),
@@ -330,6 +335,26 @@ export const rozeeAccounts = pgTable('rozee_accounts', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+// Indeed Accounts table — the Indeed employer session used to post jobs. The person signs in themselves in a
+// real browser window (Indeed signs in with a code or Google, not a plain password), so only the resulting
+// session is stored. Hiring only: no invite or message counters.
+export const indeedAccounts = pgTable('indeed_accounts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  sessionId: text('session_id').notNull().unique(),
+  email: text('email').notNull(),
+  userName: text('user_name'),
+  profileImageUrl: text('profile_image_url'),
+  cookies: json('cookies').notNull(),
+  localStorage: json('local_storage'),
+  sessionStorage: json('session_storage'),
+  isActive: boolean('is_active').default(false).notNull(),
+  tags: json('tags').default([]),
+  lastUsed: timestamp('last_used').defaultNow().notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 // Agent Configs — reusable agent configurations per user
 export const agentConfigs = pgTable('agent_configs', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -416,10 +441,10 @@ export const jobPublications = pgTable('job_publications', {
   id: uuid('id').primaryKey().defaultRandom(),
   jobId: uuid('job_id').references(() => jobs.id, { onDelete: 'cascade' }).notNull(),
   userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
-  platform: varchar('platform', { length: 20 }).notNull(),        // linkedin | rozee
-  accountId: uuid('account_id'),                                  // linkedin_accounts / rozee_accounts id (automatic posts)
+  platform: varchar('platform', { length: 20 }).notNull(),        // linkedin | rozee | indeed
+  accountId: uuid('account_id'),                                  // linkedin_accounts / rozee_accounts / indeed_accounts id (automatic posts)
   mode: varchar('mode', { length: 10 }).notNull(),                // auto | handoff
-  status: varchar('status', { length: 20 }).notNull(),            // publishing | published | failed | needs_login | handed_off
+  status: varchar('status', { length: 20 }).notNull(),            // publishing | published | failed | needs_login | handed_off | unconfirmed
   initiatedBy: varchar('initiated_by', { length: 10 }).notNull().default('user'), // user | agent
   content: text('content'),                                       // the text that was posted
   postUrl: text('post_url'),
@@ -431,6 +456,34 @@ export const jobPublications = pgTable('job_publications', {
   index('job_publications_job_idx').on(t.jobId, t.platform, t.createdAt),
   index('job_publications_account_idx').on(t.accountId, t.createdAt),
   uniqueIndex('job_publications_one_inflight').on(t.jobId, t.platform).where(sql`${t.status} = 'publishing'`),
+]);
+
+// Posting runs — one run of the posting engine (libs/poster, docs/ai-hiring/19 section 5f): a visible browser window that
+// fills in a platform's post form like a person and hands over to the recruiter at every check, sign-in and decision.
+// The web app creates a run (queued); the engine claims it, writes its progress here, and the Publish panel shows it live.
+export const postingRuns = pgTable('posting_runs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  jobId: uuid('job_id').references(() => jobs.id, { onDelete: 'cascade' }).notNull(),
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  platform: varchar('platform', { length: 20 }).notNull(),        // indeed (rozee next)
+  mode: varchar('mode', { length: 12 }).notNull(),                // rehearsal (stops before the final confirm) | post
+  status: varchar('status', { length: 20 }).notNull().default('queued'), // queued | running | needs_you | awaiting_confirm | published | rehearsed | failed | cancelled
+  gate: json('gate'),                                             // what the person is needed for right now: { kind, message, since }
+  steps: json('steps').notNull().default([]),                     // timeline: [{ id, label, status, fields[], shot, startedAt, finishedAt }]
+  kit: json('kit').notNull(),                                     // the posting kit the engine types from (job data; never credentials)
+  outcome: json('outcome'),                                       // { message, code, postUrl, verification }
+  cancelRequested: boolean('cancel_requested').notNull().default(false),
+  engineId: text('engine_id'),                                    // which engine process claimed it
+  heartbeatAt: timestamp('heartbeat_at'),                         // the engine touches this while it works; a stale one means it died
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  startedAt: timestamp('started_at'),
+  completedAt: timestamp('completed_at'),
+}, (t) => [
+  index('posting_runs_job_idx').on(t.jobId, t.platform, t.createdAt),
+  index('posting_runs_queue_idx').on(t.status, t.createdAt),
+  // at most one live run per job and platform
+  uniqueIndex('posting_runs_one_live').on(t.jobId, t.platform).where(sql`${t.status} in ('queued', 'running', 'needs_you', 'awaiting_confirm')`),
 ]);
 
 // Notifications — in-app alerts shown in the top bar bell
