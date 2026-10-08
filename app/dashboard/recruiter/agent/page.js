@@ -175,6 +175,7 @@ export default function HiringAgentPage() {
                     <span className="badge badge-xs badge-outline">{MODE_LABELS[cfg.mode] || cfg.mode}</span>
                     <span className={`badge badge-xs ${cfg.config?.accountId ? "badge-success" : "badge-ghost"}`}>LinkedIn</span>
                     <span className={`badge badge-xs ${cfg.config?.rozeeAccountId ? "badge-success" : "badge-ghost"}`}>Rozee.pk</span>
+                    <span className={`badge badge-xs ${cfg.config?.indeedAccountId ? "badge-success" : "badge-ghost"}`}>Indeed</span>
                   </div>
                   <div className="flex gap-2">
                     <button type="button" className="btn btn-primary btn-xs flex-1 gap-1" onClick={() => launch(cfg)} disabled={launchingId === cfg.id || !cfg.isActive}>

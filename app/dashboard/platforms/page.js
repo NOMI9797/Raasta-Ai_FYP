@@ -8,6 +8,7 @@ import Sidebar from "@/components/layout/Sidebar";
 import { useSidebar } from "@/components/layout/SidebarContext";
 import TopBar from "@/components/layout/TopBar";
 import RozeeAccountsPanel from "@/app/dashboard/accounts/components/RozeeAccountsPanel";
+import IndeedAccountsPanel from "@/app/dashboard/accounts/components/IndeedAccountsPanel";
 import LinkedInAccountsPanel from "./components/LinkedInAccountsPanel";
 import { Plug, CheckCircle2 } from "lucide-react";
 import { PLATFORM_LIST } from "@/libs/platforms/meta";
@@ -96,14 +97,15 @@ export default function PlatformsPage() {
               {active === "linkedin" && <LinkedInAccountsPanel />}
               {active === "rozee" && <RozeeAccountsPanel />}
               {active === "indeed" && (
-                <div className="space-y-3 text-sm text-base-content/80 py-4">
-                  <p className="font-medium text-base-content">
-                    Indeed runs from your Raasta server — no Indeed login in the app.
-                  </p>
-                  <p>
-                    Your deployment admin enables job search the same way as other scraping features. Use Lead Scraper
-                    to pick keywords, location, and optional country.
-                  </p>
+                <div className="space-y-6">
+                  <IndeedAccountsPanel />
+                  <div className="space-y-2 text-sm text-base-content/70 border-t border-base-300 pt-4">
+                    <p className="font-medium text-base-content">Searching Indeed for leads</p>
+                    <p>
+                      Job search in Lead Scraper runs from your Raasta server and needs no Indeed account. Your deployment
+                      admin enables it the same way as other scraping features.
+                    </p>
+                  </div>
                 </div>
               )}
             </div>

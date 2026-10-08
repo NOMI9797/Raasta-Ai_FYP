@@ -19,12 +19,12 @@ const job = {
 const APPLY = "https://raasta.example/apply/abc";
 
 test("every supported platform has a spec with the saved-post column and a limit", () => {
-  assert.deepEqual(POST_PLATFORMS, ["linkedin", "rozee"]);
+  assert.deepEqual(POST_PLATFORMS, ["linkedin", "rozee", "indeed"]);
   for (const id of POST_PLATFORMS) {
     assert.ok(PLATFORM_SPECS[id].field);
     assert.ok(PLATFORM_SPECS[id].maxChars > 0);
   }
-  assert.throws(() => getPlatformSpec("indeed"), /Unknown platform/);
+  assert.throws(() => getPlatformSpec("glassdoor"), /Unknown platform/);
 });
 
 test("LinkedIn: markdown is removed, extra hashtags dropped, the apply link goes before the hashtags", () => {
@@ -44,6 +44,16 @@ test("LinkedIn: markdown is removed, extra hashtags dropped, the apply link goes
 test("Rozee: emojis and hashtags are removed and the apply link is added at the end", () => {
   const raw = "About the role \u{1F680}\n- Build APIs #hiring\n\nRequirements\n- Node.js";
   const { text, warnings } = finalizePost("rozee", raw, { applyUrl: APPLY });
+  assert.ok(!/\p{Extended_Pictographic}/u.test(text));
+  assert.ok(!text.includes("#"));
+  assert.ok(text.endsWith(`How to apply: ${APPLY}`));
+  assert.ok(warnings.some((w) => /Emojis removed/.test(w)));
+  assert.ok(warnings.some((w) => /Hashtags removed/.test(w)));
+});
+
+test("Indeed: emojis and hashtags are removed and the apply link is added at the end", () => {
+  const raw = "Backend Engineer in Lahore \u{1F680}\n\nAbout the role\n- Build APIs #hiring\n\nRequirements\n- Node.js";
+  const { text, warnings } = finalizePost("indeed", raw, { applyUrl: APPLY });
   assert.ok(!/\p{Extended_Pictographic}/u.test(text));
   assert.ok(!text.includes("#"));
   assert.ok(text.endsWith(`How to apply: ${APPLY}`));
@@ -71,6 +81,8 @@ test("a post over the limit is cut at a paragraph and says so", () => {
 test("validatePost refuses an empty or oversized post", () => {
   assert.match(validatePost("linkedin", "")[0], /no LinkedIn post/);
   assert.match(validatePost("rozee", "x".repeat(4001))[0], /limit is 4000/);
+  assert.match(validatePost("indeed", "")[0], /no Indeed post/);
+  assert.match(validatePost("indeed", "x".repeat(4001))[0], /limit is 4000/);
   assert.deepEqual(validatePost("rozee", "A fine ad"), []);
 });
 
@@ -81,7 +93,11 @@ test("prompts differ per platform and carry the job facts and apply link", () =>
   assert.match(linkedin.system, /friendly/);
   assert.match(rozee.system, /Rozee\.pk/);
   assert.match(rozee.system, /No emojis, no hashtags/);
-  for (const prompt of [linkedin, rozee]) {
+  const indeed = buildPostPrompt("indeed", job, { applyUrl: APPLY });
+  assert.match(indeed.system, /Indeed/);
+  assert.match(indeed.system, /job title, the location and the employment type/);
+  assert.match(indeed.system, /No emojis, no hashtags/);
+  for (const prompt of [linkedin, rozee, indeed]) {
     assert.match(prompt.user, /Senior Backend Engineer/);
     assert.match(prompt.user, /Node\.js, PostgreSQL/);
     assert.match(prompt.user, /PKR 300000 - 450000/);
@@ -89,7 +105,7 @@ test("prompts differ per platform and carry the job facts and apply link", () =>
     assert.match(prompt.system, /Never invent/);
   }
   assert.match(buildPostPrompt("linkedin", { title: "Designer" }).user, /Salary: not disclosed/);
-  assert.throws(() => buildPostPrompt("indeed", job), /Unknown platform/);
+  assert.throws(() => buildPostPrompt("glassdoor", job), /Unknown platform/);
 });
 
 test("generatePlatformPost asks the model with the platform prompt and cleans the answer", async () => {
@@ -118,10 +134,11 @@ test("an empty answer is asked for once more; two empty answers fail instead of 
   assert.equal(calls, 2);
 });
 
-test("the LinkedIn hand-off link fills the composer; Rozee points at the post-a-job form", () => {
+test("the LinkedIn hand-off link fills the composer; Rozee.pk and Indeed point at their employer pages", () => {
   const url = composerHandoffUrl("linkedin", "Hello & welcome #1");
   assert.ok(url.startsWith("https://www.linkedin.com/feed/?shareActive=true&text="));
   assert.equal(decodeURIComponent(url.split("text=")[1]), "Hello & welcome #1");
   assert.equal(composerHandoffUrl("rozee", "anything"), PLATFORM_SPECS.rozee.composerUrl);
+  assert.equal(composerHandoffUrl("indeed", "anything"), PLATFORM_SPECS.indeed.composerUrl);
   assert.equal(composerHandoffUrl("linkedin", ""), PLATFORM_SPECS.linkedin.composerUrl);
 });

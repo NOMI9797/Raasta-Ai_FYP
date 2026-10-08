@@ -240,10 +240,12 @@ export default function OnboardingPage() {
                       {meta.comingSoon ? (
                         <div>
                           <span className="badge badge-ghost">Coming soon</span>
-                          <p className="text-xs text-base-content/50 mt-3">
-                            Indeed support is not live yet.
-                          </p>
                         </div>
+                      ) : p === "indeed" ? (
+                        // Indeed signs in with a code or Google, so it opens its own sign-in window from Platforms
+                        <p className="text-xs text-base-content/60">
+                          Connect it from Platforms after setup. You sign in yourself in a browser window.
+                        </p>
                       ) : isConnected ? (
                         <div>
                           <span className="badge badge-success gap-1">

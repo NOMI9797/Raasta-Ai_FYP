@@ -12,7 +12,7 @@ import { getHiringConfig } from "../hiring/config";
 import { POST_SHORTLIST_STATUSES, SHORTLIST_POOL_STATUSES } from "../hiring/shortlist";
 import { queueScreening } from "../hiring/screening-queue";
 import { PLATFORM, generatePlatformPost } from "../hiring/platform-content";
-import { INITIATED_BY, publishToPlatform } from "../hiring/publishing";
+import { INITIATED_BY, autoPostAvailability, publishToPlatform } from "../hiring/publishing";
 import { enqueue } from "../hiring/queue";
 import { applyDecision } from "../hiring/decisions";
 import { chatText } from "../ai/llm";
@@ -47,6 +47,7 @@ export const RECRUITER_STEPS = [
   { key: "approve_post", label: "Approve job post" },
   { key: "post_to_linkedin", label: "Publish to LinkedIn" },
   { key: "publish_to_rozee", label: "Publish to Rozee.pk" },
+  { key: "publish_to_indeed", label: "Publish to Indeed" },
   { key: "scrape_rozee_applicants", label: "Import Rozee applicants" },
   { key: "screen_candidates", label: "Screen applications" },
   { key: "review_shortlist", label: "Shortlist" },
@@ -55,7 +56,9 @@ export const RECRUITER_STEPS = [
   { key: "await_interviews", label: "Interviews" },
   { key: "final_decisions", label: "Final decisions" },
 ];
-const SETUP_STEPS = RECRUITER_STEPS.slice(0, 6).map((s) => s.key);
+// The one-off setup is everything before screening starts
+const SETUP_STEPS = RECRUITER_STEPS.slice(0, RECRUITER_STEPS.findIndex((s) => s.key === "screen_candidates")).map((s) => s.key);
+const PUBLISH_STEPS = ["post_to_linkedin", "publish_to_rozee", "publish_to_indeed"];
 
 const keyFor = (action, id) => `${action}:${id}`;
 const startOfDay = (now) => new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -346,7 +349,7 @@ async function writePost(ctx) {
   const { job, config, d } = ctx;
   const tone = config.postTone || "professional";
   const applyUrl = applyUrlFor(job, config);
-  const platforms = [PLATFORM.LINKEDIN, ...(config.rozeeAccountId ? [PLATFORM.ROZEE] : [])];
+  const platforms = [PLATFORM.LINKEDIN, ...(config.rozeeAccountId ? [PLATFORM.ROZEE] : []), ...(config.indeedAccountId ? [PLATFORM.INDEED] : [])];
   const posts = {};
   for (const platform of platforms) {
     posts[platform] = (await generatePlatformPost({ job, platform, tone, applyUrl, chat: d.llm })).text;
@@ -357,7 +360,7 @@ async function writePost(ctx) {
 async function runSetup(ctx) {
   const { d, job, config, mode } = ctx;
   const skipPosting = async (note) => {
-    for (const key of ["generate_post", "approve_post", "post_to_linkedin", "publish_to_rozee"]) {
+    for (const key of ["generate_post", "approve_post", ...PUBLISH_STEPS]) {
       if (!DONE_STEP.includes(ctx.steps[key]?.status)) await setStep(ctx, key, STEP_STATUS.SKIPPED, { note });
     }
   };
@@ -376,23 +379,27 @@ async function runSetup(ctx) {
       const { posts, applyUrl } = await writePost(ctx);
       const post = posts[PLATFORM.LINKEDIN];
       const rozeePost = posts[PLATFORM.ROZEE];
-      await d.database.update(jobs).set({ linkedinPost: post, ...(rozeePost ? { rozeePost } : {}), updatedAt: d.now() }).where(eq(jobs.id, job.id));
+      const indeedPost = posts[PLATFORM.INDEED];
+      await d.database.update(jobs).set({
+        linkedinPost: post, ...(rozeePost ? { rozeePost } : {}), ...(indeedPost ? { indeedPost } : {}), updatedAt: d.now(),
+      }).where(eq(jobs.id, job.id));
       job.linkedinPost = post;
       if (rozeePost) job.rozeePost = rozeePost;
+      if (indeedPost) job.indeedPost = indeedPost;
       const { action } = await propose(ctx, {
         action: AGENT_ACTION.WRITE_POST, route: decide(AGENT_ACTION.WRITE_POST, mode),
         summary: `Wrote the job post for ${job.title}`, payload: { applyUrl }, dedupeKey: `write_post:${ctx.run.id}`,
       });
       await markExecuted(action.id, { words: post.split(/\s+/).length }, { database: d.database, now: d.now() });
-      await setStep(ctx, key, STEP_STATUS.COMPLETED, { jobId: job.id, linkedinPost: post, ...(rozeePost ? { rozeePost } : {}), applyUrl });
+      await setStep(ctx, key, STEP_STATUS.COMPLETED, { jobId: job.id, linkedinPost: post, ...(rozeePost ? { rozeePost } : {}), ...(indeedPost ? { indeedPost } : {}), applyUrl });
     } else if (key === "approve_post") {
-      const targets = [config.accountId && "LinkedIn", config.rozeeAccountId && "Rozee.pk"].filter(Boolean);
+      const targets = [config.accountId && "LinkedIn", config.rozeeAccountId && autoPostAvailability(PLATFORM.ROZEE).available && "Rozee.pk", config.indeedAccountId && autoPostAvailability(PLATFORM.INDEED).available && "Indeed"].filter(Boolean);
       const { action } = await propose(ctx, {
         action: AGENT_ACTION.PUBLISH_POST,
         route: decide(AGENT_ACTION.PUBLISH_POST, mode),
         blocking: true,
         summary: `Publish "${job.title}"${targets.length ? ` to ${targets.join(" and ")}` : ""}`,
-        payload: { linkedin: Boolean(config.accountId), rozee: Boolean(config.rozeeAccountId) },
+        payload: { linkedin: Boolean(config.accountId), rozee: Boolean(config.rozeeAccountId), indeed: Boolean(config.indeedAccountId) },
         evidence: { post: job.linkedinPost, applyUrl: applyUrlFor(job, config) },
         dedupeKey: `publish_post:${ctx.run.id}`,
       });
@@ -402,8 +409,7 @@ async function runSetup(ctx) {
       }
       if (action.status === ACTION_STATUS.REJECTED) {
         await setStep(ctx, key, STEP_STATUS.SKIPPED, { rejected: true, note: action.decisionNote || "Publishing was declined" });
-        await setStep(ctx, "post_to_linkedin", STEP_STATUS.SKIPPED, { note: "Publishing was declined" });
-        await setStep(ctx, "publish_to_rozee", STEP_STATUS.SKIPPED, { note: "Publishing was declined" });
+        for (const step of PUBLISH_STEPS) await setStep(ctx, step, STEP_STATUS.SKIPPED, { note: "Publishing was declined" });
         continue;
       }
       ctx.publishAction = action;
@@ -416,9 +422,15 @@ async function runSetup(ctx) {
       await setStep(ctx, key, STEP_STATUS.RUNNING);
       const output = await publishRozee(ctx).catch((error) => ({ error: error.message }));
       await setStep(ctx, key, output.skipped ? STEP_STATUS.SKIPPED : output.error ? STEP_STATUS.FAILED : STEP_STATUS.COMPLETED, output);
+    } else if (key === "publish_to_indeed") {
+      await setStep(ctx, key, STEP_STATUS.RUNNING);
+      const output = await publishIndeed(ctx).catch((error) => ({ error: error.message }));
+      await setStep(ctx, key, output.skipped ? STEP_STATUS.SKIPPED : output.error ? STEP_STATUS.FAILED : STEP_STATUS.COMPLETED, output);
+      // The last publishing step closes the approval
       const publish = ctx.publishAction || (await findPublishAction(ctx));
       if (publish && publish.status === ACTION_STATUS.APPROVED) {
-        await markExecuted(publish.id, { linkedin: ctx.steps.post_to_linkedin?.output, rozee: output }, { database: d.database, now: d.now() });
+        const outputs = Object.fromEntries(PUBLISH_STEPS.map((step) => [step, ctx.steps[step]?.output]));
+        await markExecuted(publish.id, { linkedin: outputs.post_to_linkedin, rozee: outputs.publish_to_rozee, indeed: outputs.publish_to_indeed }, { database: d.database, now: d.now() });
       }
     } else if (key === "scrape_rozee_applicants") {
       if (!config.rozeeAccountId) {
@@ -461,10 +473,25 @@ async function publishLinkedIn(ctx) {
 async function publishRozee(ctx) {
   const { d, job, config } = ctx;
   if (!config.rozeeAccountId) return { skipped: true, note: "No Rozee account configured" };
+  // Rozee.pk is not posted in the background: the post is saved on the job, and the recruiter posts it with the posting engine or Copy and open
+  const availability = autoPostAvailability(PLATFORM.ROZEE);
+  if (!availability.available) return { skipped: true, note: availability.reason };
   const [fresh] = await d.database.select().from(jobs).where(eq(jobs.id, job.id)).limit(1);
   const result = await publishToPlatform({ job: fresh, platform: PLATFORM.ROZEE, initiatedBy: INITIATED_BY.AGENT, accountId: config.rozeeAccountId, deps: publishDeps(d) });
   if (!result.ok) throw new Error(`The Rozee.pk post didn't go out: ${result.error}`);
   return { rozeePublished: true, rozeePostUrl: result.postUrl || null };
+}
+
+async function publishIndeed(ctx) {
+  const { d, job, config } = ctx;
+  if (!config.indeedAccountId) return { skipped: true, note: "No Indeed account configured" };
+  // Indeed is not posted in the background: the post is written and saved on the job, and the recruiter posts it with the posting engine or Copy and open
+  const availability = autoPostAvailability(PLATFORM.INDEED);
+  if (!availability.available) return { skipped: true, note: availability.reason };
+  const [fresh] = await d.database.select().from(jobs).where(eq(jobs.id, job.id)).limit(1);
+  const result = await publishToPlatform({ job: fresh, platform: PLATFORM.INDEED, initiatedBy: INITIATED_BY.AGENT, accountId: config.indeedAccountId, deps: publishDeps(d) });
+  if (!result.ok) throw new Error(`The Indeed post didn't go out: ${result.error}`);
+  return { indeedPublished: true, indeedPostUrl: result.postUrl || null };
 }
 
 async function importRozeeApplicants(ctx) {

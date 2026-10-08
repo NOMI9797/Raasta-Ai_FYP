@@ -133,7 +133,7 @@ export default function RecruiterJobsPage() {
             <div>
               <h1 className="text-2xl font-bold text-base-content">Jobs</h1>
               <p className="text-sm text-base-content/70 mt-1">
-                Create jobs, then publish a post written for each platform to LinkedIn and Rozee.pk.
+                Create jobs, then publish a post written for each platform to LinkedIn, Rozee.pk and Indeed.
               </p>
             </div>
             <div className="flex gap-2">

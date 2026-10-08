@@ -89,6 +89,7 @@ const STEP_LABELS = {
   approve_post: "Approve job post",
   post_to_linkedin: "Publish to LinkedIn",
   publish_to_rozee: "Publish to Rozee.pk",
+  publish_to_indeed: "Publish to Indeed",
   scrape_rozee_applicants: "Import Rozee applicants",
   review_shortlist: "Shortlist",
   prepare_questions: "Prepare interview questions",

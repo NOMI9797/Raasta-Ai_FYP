@@ -5,6 +5,8 @@ import Link from "next/link";
 import toast from "react-hot-toast";
 import { AlertTriangle, CheckCircle2, ClipboardCopy, ExternalLink, Loader2, Save, Send, Sparkles, X } from "lucide-react";
 import { useDialog } from "@/components/ui/DialogProvider";
+import { ackConfirmations, detectPoster, pollConfirmations, sendKit } from "@/libs/poster-bridge";
+import PostingEngine from "./PostingEngine";
 import { formatAgo, formatDateTime } from "./format";
 
 const PLATFORMS_PAGE = "/dashboard/platforms";
@@ -30,6 +32,7 @@ function ConnectionChip({ connection }) {
 
 // Why the automatic Publish button is unavailable (null = available)
 function blockedReason(p, text, over) {
+  if (!p.autoPost.available) return p.autoPost.reason;
   if (p.connection.status === "not_connected") return `No ${p.label} account is connected.`;
   if (p.connection.status === "inactive") return `Your ${p.label} account is switched off.`;
   if (!text.trim()) return "Write or generate the post first.";
@@ -39,7 +42,7 @@ function blockedReason(p, text, over) {
   return null;
 }
 
-function PlatformCard({ p, text, busy, handoff, onText, onSave, onGenerate, onPublish, onHandoff, onHandoffLink, onConfirmHandoff, onAccount }) {
+function PlatformCard({ job, p, text, busy, handoff, poster, onText, onSave, onGenerate, onPublish, onHandoff, onHandoffLink, onConfirmHandoff, onAccount, onSaveFirst, onEngineFinished }) {
   const dirty = text !== p.post.text;
   const over = text.length > p.maxChars;
   const reason = blockedReason(p, text, over);
@@ -51,7 +54,7 @@ function PlatformCard({ p, text, busy, handoff, onText, onSave, onGenerate, onPu
     <section className="rounded-xl border border-base-300 bg-base-100 p-4 space-y-3" aria-label={p.label}>
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="font-semibold">{p.label}</h3>
-        <ConnectionChip connection={p.connection} />
+        {p.autoPost.available && <ConnectionChip connection={p.connection} />}
         {p.published && (
           <span className="badge badge-sm badge-success gap-1">
             <CheckCircle2 className="h-3 w-3" /> Published {p.published.at ? formatAgo(p.published.at) : ""}
@@ -63,7 +66,7 @@ function PlatformCard({ p, text, busy, handoff, onText, onSave, onGenerate, onPu
       </div>
       <p className="text-xs text-base-content/60">{p.summary}</p>
 
-      {p.connection.accounts.length > 1 && (
+      {p.autoPost.available && p.connection.accounts.length > 1 && (
         <label className="flex flex-wrap items-center gap-2 text-sm">
           <span className="text-base-content/70">Post with account</span>
           <select
@@ -137,9 +140,21 @@ function PlatformCard({ p, text, busy, handoff, onText, onSave, onGenerate, onPu
           Copy and open {p.label}
         </button>
       </div>
-      {reason && p.connection.status === "connected" && <p className="text-xs text-base-content/60">{reason}</p>}
-      {p.connection.status === "connected" && (
+      {reason && (p.connection.status === "connected" || !p.autoPost.available) && <p className="text-xs text-base-content/60">{reason}</p>}
+      {p.autoPost.available && p.connection.status === "connected" && (
         <p className="text-xs text-base-content/50">Automatic posts in the last 24 hours: {p.guard.usedToday} of {p.guard.dailyCap}</p>
+      )}
+
+      {p.assisted && (
+        <p className="text-xs text-base-content/60">
+          {poster.installed
+            ? `Raasta-AI Poster ${poster.version ? `v${poster.version} ` : ""}is connected: Copy and open also sends every field (title, location, pay, description) to the panel it shows beside ${p.label}'s form.`
+            : "Tip: the Raasta-AI Poster browser extension shows every field beside the form, with a Copy and a Fill button for each (see extensions/raasta-poster/README.md). Reload this page after installing it."}
+        </p>
+      )}
+
+      {p.engine?.available && (
+        <PostingEngine job={job} platform={p} text={text} over={over} onBeforeStart={onSaveFirst} onFinished={onEngineFinished} />
       )}
 
       {awaitingHandoff && (
@@ -165,7 +180,7 @@ function PlatformCard({ p, text, busy, handoff, onText, onSave, onGenerate, onPu
 }
 
 /**
- * Publish a job to LinkedIn and Rozee.pk. Each platform has its own post (written to that platform's format),
+ * Publish a job to LinkedIn, Rozee.pk and Indeed. Each platform has its own post (written to that platform's format),
  * its own Post button, and a hand-off ("Copy and open") for posting it yourself.
  * `onChanged` is called after anything that changes the job so the list can refresh.
  */
@@ -180,6 +195,9 @@ export default function PublishPanel({ job, onClose, onChanged }) {
   const [picks, setPicks] = useState({}); // platform id -> account id chosen by the recruiter
   const picksRef = useRef(picks);
   picksRef.current = picks;
+  const [poster, setPoster] = useState({ installed: false }); // the Raasta-AI Poster browser extension
+  const claimRef = useRef(null); // records the posts the extension reports; assigned below, called from effects
+  const failedClaims = useRef(new Set());
 
   const load = useCallback(async () => {
     try {
@@ -200,6 +218,22 @@ export default function PublishPanel({ job, onClose, onChanged }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Find the extension, and pick up posts the person confirmed on the platform's own page (also when they come back to this tab)
+  useEffect(() => {
+    let alive = true;
+    detectPoster().then((found) => {
+      if (!alive) return;
+      setPoster(found);
+      if (found.installed) claimRef.current?.();
+    });
+    const onFocus = () => claimRef.current?.();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      alive = false;
+      window.removeEventListener("focus", onFocus);
+    };
+  }, []);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -227,6 +261,31 @@ export default function PublishPanel({ job, onClose, onChanged }) {
 
   const byId = (id) => platforms?.find((p) => p.id === id);
   const labelOf = (id) => byId(id)?.label || id;
+
+  claimRef.current = async () => {
+    const items = (await pollConfirmations()).filter((item) => item.jobId === job.id);
+    const recorded = [];
+    for (const item of items) {
+      try {
+        await api(`/api/hiring/jobs/${job.id}/publish/confirm`, json("POST", { platform: item.platform, postUrl: item.postUrl || "" }));
+        recorded.push(item);
+      } catch (error) {
+        // Tell the person once per post; it is offered again next time, so nothing is lost
+        if (!failedClaims.current.has(item.id)) toast.error(`Could not record the ${labelOf(item.platform)} post: ${error.message}`);
+        failedClaims.current.add(item.id);
+      }
+    }
+    if (!recorded.length) return;
+    await ackConfirmations(recorded.map((item) => item.id));
+    toast.success(`Marked as posted on ${recorded.map((item) => labelOf(item.platform)).join(" and ")}`);
+    setHandoffs((prev) => {
+      const next = { ...prev };
+      for (const item of recorded) delete next[item.platform];
+      return next;
+    });
+    await load();
+    onChanged?.();
+  };
 
   const run = async (name, scope, work) => {
     setBusy(`${name}:${scope}`);
@@ -313,7 +372,7 @@ export default function PublishPanel({ job, onClose, onChanged }) {
     if (results) await report(results);
   };
 
-  const connected = (platforms || []).filter((p) => p.connection.status === "connected");
+  const connected = (platforms || []).filter((p) => p.autoPost.available && p.connection.status === "connected");
 
   const publishAll = async () => {
     if (!connected.length) {
@@ -356,6 +415,16 @@ export default function PublishPanel({ job, onClose, onChanged }) {
         const data = await api(`/api/hiring/jobs/${job.id}/publish`, json("POST", { platforms: [p.id], mode: "handoff" }));
         const result = data.results[0];
         if (!result?.ok) throw new Error(result?.error || "Could not prepare the post");
+        // With the extension installed, every field goes to the panel it shows beside the platform's own form
+        let sent = false;
+        if (result.kit && poster.installed) {
+          try {
+            await sendKit(result.kit);
+            sent = true;
+          } catch (error) {
+            toast.error(error.message || "The Raasta-AI Poster extension did not take the fields");
+          }
+        }
         let copied = false;
         try {
           await navigator.clipboard.writeText(result.text);
@@ -366,7 +435,9 @@ export default function PublishPanel({ job, onClose, onChanged }) {
         if (tab) tab.location.href = result.handoffUrl;
         else window.open(result.handoffUrl, "_blank", "noopener,noreferrer");
         setHandoffs((prev) => ({ ...prev, [p.id]: { link: "" } }));
-        toast.success(copied ? `Post copied. Paste it into ${p.label} and press Post.` : `Opened ${p.label}. Copy the text from the box and paste it there.`);
+        toast.success(sent
+          ? `Fields sent to Raasta-AI Poster. Open ${p.label}'s post form: its panel lists every field. You press Post.`
+          : copied ? `Post copied. Paste it into ${p.label} and press Post.` : `Opened ${p.label}. Copy the text from the box and paste it there.`);
         await load();
       } catch (error) {
         tab?.close();
@@ -387,7 +458,7 @@ export default function PublishPanel({ job, onClose, onChanged }) {
     onChanged?.();
   });
 
-  const limits = (platforms || []).map((p) => `${p.label} ${p.guard.dailyCap} a day`).join(", ");
+  const limits = (platforms || []).filter((p) => p.autoPost.available).map((p) => `${p.label} ${p.guard.dailyCap} a day`).join(", ");
 
   return (
     <dialog
@@ -437,10 +508,12 @@ export default function PublishPanel({ job, onClose, onChanged }) {
               {platforms.map((p) => (
                 <PlatformCard
                   key={p.id}
+                  job={job}
                   p={p}
                   text={drafts[p.id] ?? p.post.text}
                   busy={busy}
                   handoff={handoffs[p.id]}
+                  poster={poster}
                   onText={(value) => setDrafts((prev) => ({ ...prev, [p.id]: value }))}
                   onSave={() => save(p)}
                   onGenerate={() => generate(p.id)}
@@ -449,6 +522,8 @@ export default function PublishPanel({ job, onClose, onChanged }) {
                   onHandoffLink={(link) => setHandoffs((prev) => ({ ...prev, [p.id]: { link } }))}
                   onConfirmHandoff={() => confirmHandoff(p)}
                   onAccount={(accountId) => pickAccount(p.id, accountId)}
+                  onSaveFirst={async () => { if (drafts[p.id] !== p.post.text) await saveDraft(p); }}
+                  onEngineFinished={async () => { await load(); onChanged?.(); }}
                 />
               ))}
 

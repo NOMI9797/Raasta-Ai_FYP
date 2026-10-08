@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   CHECKPOINT_COOLOFF_MS, INITIATED_BY, PUBLICATION_STATUS as S, PUBLISH_MODE, RETRY_BRAKE_MS,
-  classifyFailure, evaluateGuard, getPublishLimits, isAllowedPostUrl, plainError,
+  autoPostAvailability, classifyFailure, evaluateGuard, getPublishLimits, isAllowedPostUrl, plainError, publishToPlatform,
 } from "../../libs/hiring/publishing";
 
 const NOW = new Date("2026-10-05T12:00:00.000Z");
@@ -10,12 +10,14 @@ const minutesAgo = (m) => new Date(NOW.getTime() - m * 60 * 1000);
 const row = (status, minutes, mode = PUBLISH_MODE.AUTO) => ({ status, mode, createdAt: minutesAgo(minutes) });
 const guard = (rows, extra = {}) => evaluateGuard({ platform: "linkedin", rows, now: NOW, ...extra });
 
-test("limits: LinkedIn is stricter than Rozee, and the environment can change them", () => {
+test("limits: LinkedIn and Indeed are stricter than Rozee, and the environment can change them", () => {
   assert.deepEqual(getPublishLimits("linkedin", {}), { dailyCap: 3, minGapMs: 10 * 60 * 1000 });
   assert.deepEqual(getPublishLimits("rozee", {}), { dailyCap: 5, minGapMs: 5 * 60 * 1000 });
   assert.deepEqual(getPublishLimits("linkedin", { PUBLISH_DAILY_CAP_LINKEDIN: "2", PUBLISH_MIN_GAP_MINUTES_LINKEDIN: "0" }), { dailyCap: 2, minGapMs: 0 });
   assert.equal(getPublishLimits("linkedin", { PUBLISH_DAILY_CAP_LINKEDIN: "abc" }).dailyCap, 3);
-  assert.throws(() => getPublishLimits("indeed", {}), /Unknown platform/);
+  assert.deepEqual(getPublishLimits("indeed", {}), { dailyCap: 3, minGapMs: 10 * 60 * 1000 });
+  assert.equal(getPublishLimits("indeed", { PUBLISH_DAILY_CAP_INDEED: "1" }).dailyCap, 1);
+  assert.throws(() => getPublishLimits("glassdoor", {}), /Unknown platform/);
 });
 
 test("guard: a quiet account may post, and shows how many posts are left", () => {
@@ -85,10 +87,16 @@ test("links pasted after posting by hand must be https on the platform's own dom
   assert.equal(isAllowedPostUrl("linkedin", "https://lnkd.in/abc"), true);
   assert.equal(isAllowedPostUrl("rozee", "https://www.rozee.pk/job/123"), true);
   assert.equal(isAllowedPostUrl("rozee", "https://rozee.pk.evil.example/job/123"), false);
+  assert.equal(isAllowedPostUrl("rozee", "https://www.rozeegpt.ai/zain-tech-test-engineer-159237"), true, "Rozee.pk's job pages live on rozeegpt.ai");
+  assert.equal(isAllowedPostUrl("rozee", "https://rozeegpt.ai.evil.example/x-1"), false);
   assert.equal(isAllowedPostUrl("linkedin", "http://www.linkedin.com/feed/"), false);
   assert.equal(isAllowedPostUrl("linkedin", "https://www.rozee.pk/job/123"), false);
   assert.equal(isAllowedPostUrl("linkedin", "javascript:alert(1)"), false);
   assert.equal(isAllowedPostUrl("linkedin", ""), false);
+  assert.equal(isAllowedPostUrl("indeed", "https://pk.indeed.com/viewjob?jk=abc123"), true);
+  assert.equal(isAllowedPostUrl("indeed", "https://employers.indeed.com/jobs"), true);
+  assert.equal(isAllowedPostUrl("indeed", "https://indeed.com.evil.example/viewjob"), false);
+  assert.equal(isAllowedPostUrl("indeed", "https://www.rozee.pk/job/123"), false);
 });
 
 test("errors: a Playwright timeout is reduced to one readable sentence, the call log is dropped", () => {
@@ -122,4 +130,30 @@ test("unconfirmed: clicked Post but no confirmation counts as a post, so it cann
   assert.equal(g.usedToday, 1);
   const capped = guard([row(S.UNCONFIRMED, 600), row(S.PUBLISHED, 400), row(S.UNCONFIRMED, 200)]);
   assert.equal(capped.code, "daily_limit");
+});
+
+test("automatic posting: only LinkedIn is posted in the background; Indeed and Rozee.pk use the posting engine or Copy and open", () => {
+  assert.deepEqual(autoPostAvailability("linkedin", {}), { available: true, reason: null });
+  // Rozee.pk's job form is now a wizard that ends by spending a credit: a person's choice, so no background posting
+  const rozee = autoPostAvailability("rozee", {});
+  assert.equal(rozee.available, false);
+  assert.match(rozee.reason, /posting engine/);
+  assert.match(rozee.reason, /credits?/);
+  const off = autoPostAvailability("indeed", {});
+  assert.equal(off.available, false);
+  assert.match(off.reason, /Copy and open/);
+  assert.match(off.reason, /posting engine/);
+  assert.doesNotMatch(off.reason, /blocks|bot protection|cannot/, "the reason says what to use instead, not that it cannot be done");
+  assert.equal(autoPostAvailability("indeed", { INDEED_AUTO_POST: "yes" }).available, false, "only the word true turns it on");
+  assert.equal(autoPostAvailability("indeed", { INDEED_AUTO_POST: "true" }).available, true);
+});
+
+test("an automatic post to Indeed is refused up front, before any account or browser is touched", async () => {
+  const job = { id: "j1", userId: "u1", status: "draft", indeedPost: "Backend Engineer in Lahore\n\nAbout the role\n- Build things" };
+  // no database in deps: reaching for one would throw, so a clean refusal proves nothing else ran
+  const result = await publishToPlatform({ job, platform: "indeed", deps: { env: {}, database: null } });
+  assert.equal(result.ok, false);
+  assert.equal(result.status, "refused");
+  assert.equal(result.code, "auto_unavailable");
+  assert.match(result.error, /Copy and open/);
 });

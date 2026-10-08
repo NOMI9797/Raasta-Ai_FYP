@@ -15,7 +15,7 @@ function describeError(error) {
   return error?.message || "Failed to generate the post";
 }
 
-// POST /api/hiring/jobs/[jobId]/generate-post  { platform?: "linkedin" | "rozee" | "all", tone? }
+// POST /api/hiring/jobs/[jobId]/generate-post  { platform?: "linkedin" | "rozee" | "indeed" | "all", tone? }
 // Writes a post fitted to each platform (format, length, hashtags, emojis) and saves it on the job.
 export const POST = withAuth(async (request, { params, user }) => {
   try {
@@ -61,6 +61,7 @@ export const POST = withAuth(async (request, { params, user }) => {
       errors,
       linkedinPost: posts.linkedin?.text,
       rozeePost: posts.rozee?.text,
+      indeedPost: posts.indeed?.text,
       job: updated,
     });
   } catch (error) {

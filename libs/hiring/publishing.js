@@ -6,8 +6,10 @@
 // Relative imports only (also used by the worker).
 import { and, desc, eq, gte, lt } from "drizzle-orm";
 import { db } from "../db";
-import { jobPublications, jobs, linkedinAccounts, rozeeAccounts } from "../schema";
-import { PLATFORM, POST_PLATFORMS, composerHandoffUrl, getPlatformSpec, validatePost } from "./platform-content";
+import { indeedAccounts, jobPublications, jobs, linkedinAccounts, rozeeAccounts } from "../schema";
+import { PLATFORM, POST_PLATFORMS, composerHandoffUrl, getPlatformSpec, jobApplyUrl, validatePost } from "./platform-content";
+import { KIT_PLATFORMS, buildPostingKit } from "./posting-kit";
+import { ENGINE_PLATFORMS } from "../poster/run-model";
 
 export const PUBLICATION_STATUS = Object.freeze({
   PUBLISHING: "publishing",
@@ -17,7 +19,8 @@ export const PUBLICATION_STATUS = Object.freeze({
   HANDED_OFF: "handed_off", // the recruiter was given the text and will post it themselves
   UNCONFIRMED: "unconfirmed", // Post was clicked but the platform never confirmed; it may be live
 });
-export const PUBLISH_MODE = Object.freeze({ AUTO: "auto", HANDOFF: "handoff" });
+// engine: the posting engine (libs/poster) filled in the platform's form in a visible window and the recruiter pressed its final button
+export const PUBLISH_MODE = Object.freeze({ AUTO: "auto", HANDOFF: "handoff", ENGINE: "engine" });
 export const INITIATED_BY = Object.freeze({ USER: "user", AGENT: "agent" });
 
 const MINUTE = 60 * 1000;
@@ -30,6 +33,7 @@ export const RETRY_BRAKE_MS = 2 * MINUTE; // after a failed attempt, wait before
 const DEFAULT_LIMITS = {
   [PLATFORM.LINKEDIN]: { dailyCap: 3, minGapMinutes: 10 },
   [PLATFORM.ROZEE]: { dailyCap: 5, minGapMinutes: 5 },
+  [PLATFORM.INDEED]: { dailyCap: 3, minGapMinutes: 10 }, // Indeed watches automation closely: as careful as LinkedIn
 };
 
 /** Automatic-posting limits for a platform. Override with PUBLISH_DAILY_CAP_<PLATFORM> / PUBLISH_MIN_GAP_MINUTES_<PLATFORM>. */
@@ -43,6 +47,34 @@ export function getPublishLimits(platform, env = process.env) {
     dailyCap: Number.isInteger(cap) && cap > 0 ? cap : base.dailyCap,
     minGapMs: (Number.isFinite(gap) && gap >= 0 ? gap : base.minGapMinutes) * MINUTE,
   };
+}
+
+/**
+ * Whether automatic posting is offered for a platform: { available, reason }.
+ * "Automatic" here means posting in the background through a connected account's saved session, with nobody watching.
+ * Indeed is off for that, and is posted another way: what the runs showed (docs/ai-hiring/19, section 5c) is that a hidden
+ * automated browser is blocked by Cloudflare's bot check (HTTP 403), while a visible window with a person present passed it.
+ * So Indeed has the posting engine (libs/poster): a visible window that fills the form in like a person and hands over to the
+ * recruiter at every check, sign-in and decision. Copy and open (with the Raasta-AI Poster extension) also works.
+ * INDEED_AUTO_POST=true would switch the background path on; nothing is built behind it.
+ * Rozee.pk is off for the same reason, and for a second one: its "Post a job" is now an AI wizard on rozeegpt.ai that ends in a
+ * dialog applying a free Featured Job credit or selling an upgrade, which must be a person's choice (docs/ai-hiring/19, section 5g).
+ * LinkedIn is the one platform still posted through its connected account.
+ */
+export function autoPostAvailability(platform, env = process.env) {
+  if (platform === PLATFORM.INDEED && env.INDEED_AUTO_POST !== "true") {
+    return {
+      available: false,
+      reason: "Indeed is not posted in the background. Use the posting engine, which fills in Indeed's form in a window you watch, or Copy and open.",
+    };
+  }
+  if (platform === PLATFORM.ROZEE) {
+    return {
+      available: false,
+      reason: "Rozee.pk is not posted in the background: its job form is now a wizard that ends by spending one of your credits. Use the posting engine, which fills it in in a window you watch, or Copy and open.",
+    };
+  }
+  return { available: true, reason: null };
 }
 
 const at = (value) => new Date(value).getTime();
@@ -119,7 +151,8 @@ export function classifyFailure(result) {
 
 const POST_HOSTS = {
   [PLATFORM.LINKEDIN]: ["linkedin.com", "lnkd.in"],
-  [PLATFORM.ROZEE]: ["rozee.pk"],
+  [PLATFORM.ROZEE]: ["rozee.pk", "rozeegpt.ai"], // Rozee.pk's employer area and its job pages now live on rozeegpt.ai
+  [PLATFORM.INDEED]: ["indeed.com"], // covers pk.indeed.com, employers.indeed.com and the other country sites
 };
 
 /** A link someone pastes after posting by hand has to be https on the platform's own domain. */
@@ -134,16 +167,24 @@ export function isAllowedPostUrl(platform, url) {
 
 // ─── Accounts ───
 
-const ACCOUNT_TABLES = { [PLATFORM.LINKEDIN]: linkedinAccounts, [PLATFORM.ROZEE]: rozeeAccounts };
+const ACCOUNT_TABLES = { [PLATFORM.LINKEDIN]: linkedinAccounts, [PLATFORM.ROZEE]: rozeeAccounts, [PLATFORM.INDEED]: indeedAccounts };
+
+// The jobs columns a platform other than LinkedIn writes to (LinkedIn keeps its older, smaller set)
+const JOB_COLUMNS = {
+  [PLATFORM.ROZEE]: { account: "rozeeAccountId", url: "rozeePostUrl", post: "rozeePost", publishedAt: "rozeePublishedAt" },
+  [PLATFORM.INDEED]: { account: "indeedAccountId", url: "indeedPostUrl", post: "indeedPost", publishedAt: "indeedPublishedAt" },
+};
 
 function preferredAccountId(job, platform) {
-  return platform === PLATFORM.LINKEDIN ? job.linkedinAccountId : job.rozeeAccountId;
+  if (platform === PLATFORM.LINKEDIN) return job.linkedinAccountId;
+  return job[JOB_COLUMNS[platform].account];
 }
 
 function defaultDeps(overrides = {}) {
   return {
     database: db,
     now: () => new Date(),
+    env: process.env,
     // Loaded on demand: the adapters pull in Playwright, which tests and read-only views never need
     getAdapter: async (platform) => (await import("../platforms")).getAdapter(platform),
     ...overrides,
@@ -186,9 +227,11 @@ async function recentAccountRows(d, accountId, now) {
 // ─── Overview (what the publish panel shows) ───
 
 function legacyPublished(job, platform) {
-  if (platform === PLATFORM.ROZEE && job.rozeePublishedAt) return { at: job.rozeePublishedAt, url: job.rozeePostUrl || null, mode: PUBLISH_MODE.AUTO };
-  if (platform === PLATFORM.LINKEDIN && job.linkedinPostUrl) return { at: job.publishedAt || null, url: job.linkedinPostUrl, mode: PUBLISH_MODE.AUTO };
-  return null;
+  if (platform === PLATFORM.LINKEDIN) {
+    return job.linkedinPostUrl ? { at: job.publishedAt || null, url: job.linkedinPostUrl, mode: PUBLISH_MODE.AUTO } : null;
+  }
+  const columns = JOB_COLUMNS[platform];
+  return job[columns.publishedAt] ? { at: job[columns.publishedAt], url: job[columns.url] || null, mode: PUBLISH_MODE.AUTO } : null;
 }
 
 /**
@@ -220,7 +263,8 @@ export async function getPublishingOverview(job, deps = {}, { accountIds = {} } 
     if (connection.account) {
       guard = evaluateGuard({ platform, rows: await recentAccountRows(d, connection.account.id, now), now });
     }
-    const canAutoPublish = connection.status === "connected" && Boolean(text) && problems.length === 0 && guard.allowed && latest?.status !== PUBLICATION_STATUS.PUBLISHING;
+    const autoPost = autoPostAvailability(platform, d.env);
+    const canAutoPublish = autoPost.available && connection.status === "connected" && Boolean(text) && problems.length === 0 && guard.allowed && latest?.status !== PUBLICATION_STATUS.PUBLISHING;
 
     return {
       id: platform,
@@ -233,6 +277,9 @@ export async function getPublishingOverview(job, deps = {}, { accountIds = {} } 
       published,
       latest: latest ? { status: latest.status, mode: latest.mode, error: latest.error, at: latest.completedAt || latest.createdAt } : null,
       handoffUrl: composerHandoffUrl(platform, text),
+      autoPost, // { available, reason }: false means Copy and open is the way to post here
+      assisted: KIT_PLATFORMS.includes(platform), // true: the Raasta-AI Poster extension can show the form fields beside the platform's page
+      engine: { available: ENGINE_PLATFORMS.includes(platform) }, // true: the posting engine can fill the form in a visible window (libs/poster)
       guard: {
         allowed: guard.allowed,
         code: guard.code || null,
@@ -267,12 +314,29 @@ async function recordPublished(d, job, platform, { postUrl, accountId, content }
     if (postUrl) patch.linkedinPostUrl = postUrl;
     if (accountId) patch.linkedinAccountId = accountId;
   } else {
-    if (postUrl) patch.rozeePostUrl = postUrl;
-    if (accountId) patch.rozeeAccountId = accountId;
-    patch.rozeePost = content;
-    patch.rozeePublishedAt = now;
+    const columns = JOB_COLUMNS[platform];
+    if (postUrl) patch[columns.url] = postUrl;
+    if (accountId) patch[columns.account] = accountId;
+    patch[columns.post] = content;
+    patch[columns.publishedAt] = now;
   }
   await d.database.update(jobs).set(patch).where(eq(jobs.id, job.id));
+}
+
+/**
+ * The posting engine got a job onto a platform (the recruiter pressed its final button in the engine's window): record it
+ * in the history and on the job, the same way a hand-off the recruiter confirms is recorded.
+ */
+export async function recordEnginePost({ job, platform, postUrl, content, deps = {} }) {
+  const d = defaultDeps(deps);
+  const now = d.now();
+  const link = postUrl && isAllowedPostUrl(platform, postUrl) ? postUrl : null;
+  await d.database.insert(jobPublications).values({
+    jobId: job.id, userId: job.userId, platform, mode: PUBLISH_MODE.ENGINE, status: PUBLICATION_STATUS.PUBLISHED,
+    initiatedBy: INITIATED_BY.USER, content: content || null, postUrl: link, createdAt: now, updatedAt: now, completedAt: now,
+  });
+  await recordPublished(d, job, platform, { postUrl: link, accountId: null, content: content || String(job[getPlatformSpec(platform).field] || "") });
+  return { platform, ok: true, status: PUBLICATION_STATUS.PUBLISHED, mode: PUBLISH_MODE.ENGINE, postUrl: link };
 }
 
 async function releaseStale(d, jobId, platform, now) {
@@ -305,8 +369,13 @@ export async function publishToPlatform({ job, platform, mode = PUBLISH_MODE.AUT
 
   if (mode === PUBLISH_MODE.HANDOFF) {
     await d.database.insert(jobPublications).values({ ...base, mode: PUBLISH_MODE.HANDOFF, status: PUBLICATION_STATUS.HANDED_OFF, completedAt: stamp });
-    return { platform, ok: true, status: PUBLICATION_STATUS.HANDED_OFF, mode, text, handoffUrl: composerHandoffUrl(platform, text) };
+    // For the platforms posted to with the browser extension, the hand-off also carries the kit it shows beside the form
+    const kit = KIT_PLATFORMS.includes(platform) ? buildPostingKit({ job, platform, postText: text, applyUrl: jobApplyUrl(job.id), now: stamp }) : undefined;
+    return { platform, ok: true, status: PUBLICATION_STATUS.HANDED_OFF, mode, text, handoffUrl: composerHandoffUrl(platform, text), ...(kit ? { kit } : {}) };
   }
+
+  const autoPost = autoPostAvailability(platform, d.env);
+  if (!autoPost.available) return refuse(platform, "auto_unavailable", autoPost.reason);
 
   const connection = await resolveAccount(d, platform, { ownerId: job.userId, accountId: accountId || preferredAccountId(job, platform) });
   if (connection.status !== "connected") {
@@ -376,7 +445,8 @@ export async function publishToPlatforms({ job, platforms, mode = PUBLISH_MODE.A
   if (!Array.isArray(platforms)) {
     for (const platform of POST_PLATFORMS) {
       const connection = await resolveAccount(d, platform, { ownerId: job.userId, accountId: accountIds[platform] || preferredAccountId(job, platform) });
-      if (mode === PUBLISH_MODE.HANDOFF || connection.status === "connected") targets.push(platform);
+      // Automatic posting leaves out the platforms that do not offer it; hand-off is offered everywhere
+      if (mode === PUBLISH_MODE.HANDOFF || (connection.status === "connected" && autoPostAvailability(platform, d.env).available)) targets.push(platform);
     }
   }
   const results = [];

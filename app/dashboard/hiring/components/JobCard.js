@@ -162,6 +162,7 @@ export default function JobCard({ job, onDelete, onPublish }) {
           <div className="flex flex-wrap items-center gap-1.5">
             <PlatformChip label="LinkedIn" posted={job.published?.linkedin} />
             <PlatformChip label="Rozee.pk" posted={job.published?.rozee} />
+            <PlatformChip label="Indeed" posted={job.published?.indeed} />
           </div>
           <button className="btn btn-primary btn-xs gap-1" onClick={() => onPublish(job)}>
             <Send className="h-3.5 w-3.5" /> Publish

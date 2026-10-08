@@ -19,7 +19,7 @@ export class RunError extends Error {
 }
 
 // Agent config keys a recruiter run uses (anything else is dropped from the snapshot)
-const CONFIG_KEYS = ["jobId", "accountId", "rozeeAccountId", "postTone", "dailyInviteCap", "rozeeApplicantLimit", "appBaseUrl"];
+const CONFIG_KEYS = ["jobId", "accountId", "rozeeAccountId", "indeedAccountId", "postTone", "dailyInviteCap", "rozeeApplicantLimit", "appBaseUrl"];
 
 export function sanitiseRecruiterConfig(config = {}) {
   const out = {};

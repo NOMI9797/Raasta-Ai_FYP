@@ -16,7 +16,7 @@ export const GET = withAuth(async (request, { params, user }) => {
   try {
     const [job] = await db.select().from(jobs).where(ownerFilter(params.jobId, user)).limit(1);
     if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
-    // ?linkedin=<account id>&rozee=<account id> shows the state for the account the recruiter picked
+    // ?linkedin=<account id>&rozee=<account id>&indeed=<account id> shows the state for the account the recruiter picked
     const accountIds = {};
     const query = new URL(request.url).searchParams;
     for (const platform of POST_PLATFORMS) if (query.get(platform)) accountIds[platform] = query.get(platform);

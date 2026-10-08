@@ -59,6 +59,7 @@ export default function HiringAgentForm({ onClose, onSaved, editConfig }) {
   const [postTone, setPostTone] = useState(saved.postTone || "professional");
   const [linkedinAccountId, setLinkedinAccountId] = useState(saved.accountId || "");
   const [rozeeAccountId, setRozeeAccountId] = useState(saved.rozeeAccountId || "");
+  const [indeedAccountId, setIndeedAccountId] = useState(saved.indeedAccountId || "");
   const [dailyInviteCap, setDailyInviteCap] = useState(saved.dailyInviteCap || 20);
   // These two live on the job (hiringConfig), so the agent and the job settings never disagree
   const [minFitScore, setMinFitScore] = useState(70);
@@ -67,6 +68,7 @@ export default function HiringAgentForm({ onClose, onSaved, editConfig }) {
   const [jobs, setJobs] = useState([]);
   const [linkedinAccounts, setLinkedinAccounts] = useState([]);
   const [rozeeAccounts, setRozeeAccounts] = useState([]);
+  const [indeedAccounts, setIndeedAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [preview, setPreview] = useState(null);
   const [previewing, setPreviewing] = useState(false);
@@ -75,11 +77,12 @@ export default function HiringAgentForm({ onClose, onSaved, editConfig }) {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([getJson("/api/hiring/jobs"), getJson("/api/linkedin/accounts"), getJson("/api/rozee/accounts")]).then(([j, l, r]) => {
+    Promise.all([getJson("/api/hiring/jobs"), getJson("/api/linkedin/accounts"), getJson("/api/rozee/accounts"), getJson("/api/indeed/accounts")]).then(([j, l, r, i]) => {
       if (cancelled) return;
       setJobs((j.jobs || []).filter((job) => job.status !== "closed" || job.id === saved.jobId));
       setLinkedinAccounts(l.accounts || []);
       setRozeeAccounts(r.accounts || []);
+      setIndeedAccounts(i.accounts || []);
       setLoading(false);
     });
     return () => {
@@ -140,6 +143,7 @@ export default function HiringAgentForm({ onClose, onSaved, editConfig }) {
             jobId,
             accountId: linkedinAccountId || null,
             rozeeAccountId: rozeeAccountId || null,
+            indeedAccountId: indeedAccountId || null,
             postTone,
             dailyInviteCap: Number(dailyInviteCap) || 20,
           },
@@ -222,6 +226,7 @@ export default function HiringAgentForm({ onClose, onSaved, editConfig }) {
             <p className="text-xs font-semibold text-base-content/60 uppercase tracking-wider">Where it posts the job</p>
             <AccountSelect id="agent-linkedin" label="LinkedIn account" value={linkedinAccountId} onChange={setLinkedinAccountId} accounts={linkedinAccounts} empty="No LinkedIn account connected. Connect one under Platforms." />
             <AccountSelect id="agent-rozee" label="Rozee.pk account" value={rozeeAccountId} onChange={setRozeeAccountId} accounts={rozeeAccounts} empty="No Rozee.pk account connected. Connect one under Platforms." />
+            <AccountSelect id="agent-indeed" label="Indeed account" value={indeedAccountId} onChange={setIndeedAccountId} accounts={indeedAccounts} empty="No Indeed account connected. Connect one under Platforms." />
             <p className="text-xs text-base-content/50">
               Each platform gets its own post. Automatic posting is limited per account and stops at the first sign-in or security check, so you may be asked to post by hand.
               The job always goes live on Raasta-AI so candidates can apply.

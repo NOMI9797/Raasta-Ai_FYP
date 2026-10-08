@@ -2,8 +2,8 @@
 // those rules whatever the model returns. Relative imports only (also used by the worker).
 import { chatText, getFastModel } from "../ai/llm";
 
-export const PLATFORM = Object.freeze({ LINKEDIN: "linkedin", ROZEE: "rozee" });
-export const POST_PLATFORMS = Object.freeze([PLATFORM.LINKEDIN, PLATFORM.ROZEE]);
+export const PLATFORM = Object.freeze({ LINKEDIN: "linkedin", ROZEE: "rozee", INDEED: "indeed" });
+export const POST_PLATFORMS = Object.freeze([PLATFORM.LINKEDIN, PLATFORM.ROZEE, PLATFORM.INDEED]);
 
 // Limits are conservative: a post that stays inside them is accepted by the platform's own form.
 export const PLATFORM_SPECS = Object.freeze({
@@ -26,8 +26,19 @@ export const PLATFORM_SPECS = Object.freeze({
     words: [180, 350],
     maxHashtags: 0,
     allowEmoji: false,
-    composerUrl: "https://www.rozee.pk/employer/job/post", // the form the publisher fills in
+    composerUrl: "https://www.rozeegpt.ai/employer/dashboard", // a signed-in employer's dashboard, where "Post A New Job" starts the wizard (the old www.rozee.pk/employer/job/post form no longer exists; hiring.rozee.pk/login signs in)
     summary: "Job ad: plain structured sections (role, responsibilities, requirements, how to apply). No emojis or hashtags.",
+  },
+  [PLATFORM.INDEED]: {
+    id: PLATFORM.INDEED,
+    label: "Indeed",
+    field: "indeedPost",
+    maxChars: 4000,
+    words: [180, 380],
+    maxHashtags: 0,
+    allowEmoji: false,
+    composerUrl: "https://employers.indeed.com/jobs", // the employer dashboard (it asks you to sign in first), where Post a job starts
+    summary: "Job description: the title, location and type in the first lines (what search results show), then plain sections. No emojis or hashtags.",
   },
 });
 
@@ -76,7 +87,19 @@ export function buildPostPrompt(platform, job, { tone = "professional", applyUrl
   const apply = applyUrl ? `Apply link (must appear once, written out in full): ${applyUrl}` : "No apply link was provided.";
 
   let system;
-  if (platform === PLATFORM.LINKEDIN) {
+  if (platform === PLATFORM.INDEED) {
+    system = [
+      "You write job descriptions for Indeed, where job seekers search by job title and location.",
+      `Tone: ${voice}.`,
+      `Length: ${spec.words[0]}-${spec.words[1]} words, at most ${spec.maxChars} characters.`,
+      "The first two sentences are what search results show, so they must name the job title, the location and the employment type.",
+      "Then use these plain-text section titles, each on its own line followed by a short list with lines starting with a dash:",
+      "About the role, Responsibilities, Requirements, What we offer (only if facts are given), How to apply.",
+      "No emojis, no hashtags, no hype. State the salary range when given.",
+      "The How to apply section contains the apply link.",
+      ...SHARED_RULES,
+    ].join("\n");
+  } else if (platform === PLATFORM.LINKEDIN) {
     system = [
       "You write LinkedIn job posts for a recruiter's own feed.",
       `Tone: ${voice}.`,

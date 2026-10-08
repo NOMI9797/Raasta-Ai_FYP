@@ -10,7 +10,7 @@ function ownerFilter(jobId, user) {
   return user.role === "admin" ? eq(jobs.id, jobId) : and(eq(jobs.id, jobId), eq(jobs.userId, user.id));
 }
 
-// POST /api/hiring/jobs/[jobId]/publish  { platforms: "all" | ["linkedin", "rozee"], mode?: "auto" | "handoff", accountIds? }
+// POST /api/hiring/jobs/[jobId]/publish  { platforms: "all" | ["linkedin", "rozee", "indeed"], mode?: "auto" | "handoff", accountIds? }
 //   auto    - posts through the connected account (within posting limits)
 //   handoff - returns the text and the platform's composer link; the recruiter posts it themselves
 // Each platform stands alone: the response has one result per platform and the request itself succeeds.
@@ -33,7 +33,7 @@ export const POST = withAuth(async (request, { params, user }) => {
 
     const results = await publishToPlatforms({ job, platforms, mode, initiatedBy: INITIATED_BY.USER, accountIds });
     if (results.length === 0) {
-      return NextResponse.json({ error: "No connected platform to publish to. Connect LinkedIn or Rozee.pk under Platforms, or use hand-off mode." }, { status: 400 });
+      return NextResponse.json({ error: "No connected platform to publish to. Connect LinkedIn, Rozee.pk or Indeed under Platforms, or use hand-off mode." }, { status: 400 });
     }
     return NextResponse.json({ success: true, ok: results.every((r) => r.ok), results });
   } catch (error) {

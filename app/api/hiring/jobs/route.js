@@ -34,7 +34,7 @@ async function withCounts(jobRows) {
   return jobRows.map((j) => ({ ...j, counts: counts.get(j.id) }));
 }
 
-// Adds published { linkedin, rozee } = { url, at } | null: where each job's post has gone live
+// Adds published { linkedin, rozee, indeed } = { url, at } | null: where each job's post has gone live
 async function withPublishing(jobRows) {
   if (jobRows.length === 0) return jobRows;
   const rows = await db
@@ -56,6 +56,7 @@ async function withPublishing(jobRows) {
       published: {
         linkedin: mine.linkedin || (j.linkedinPostUrl ? { url: j.linkedinPostUrl, at: j.publishedAt } : null),
         rozee: mine.rozee || (j.rozeePublishedAt ? { url: j.rozeePostUrl, at: j.rozeePublishedAt } : null),
+        indeed: mine.indeed || (j.indeedPublishedAt ? { url: j.indeedPostUrl, at: j.indeedPublishedAt } : null),
       },
     };
   });

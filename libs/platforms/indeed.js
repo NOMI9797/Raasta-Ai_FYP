@@ -1,10 +1,56 @@
 /**
- * Indeed — job search via hosted Indeed scraper (Lead Scraper).
+ * Indeed
+ *  - job search via the hosted Indeed scraper (Lead Scraper, Sales): needs no account
+ *  - job publishing (Hiring): posts through a connected Indeed employer session, like LinkedIn and Rozee.pk
+ *
+ * `accountsTable` stays null on purpose: the Lead Scraper treats a non-null table as "this platform needs a
+ * connected account" and would start refusing Indeed searches. Publishing finds its account through getAccount().
  */
 
+import { eq } from "drizzle-orm";
+import { db } from "../db";
+import { indeedAccounts } from "../schema";
 import { searchIndeedJobs, isIndeedJobSearchConfigured } from "../indeed-job-search";
+import { testIndeedSession, cleanupBrowserSession } from "../indeed-session-validator";
+import { publishIndeedJob } from "../indeed-job-publisher";
+import { DebugRecorder, debugEnabled } from "../indeed-debug";
 
 const ID = "indeed";
+
+async function getPublishAccount(accountId) {
+  const [account] = await db
+    .select()
+    .from(indeedAccounts)
+    .where(eq(indeedAccounts.id, accountId))
+    .limit(1);
+  return account || null;
+}
+
+async function publishJob(account, job) {
+  // INDEED_DEBUG=true records screenshots, page structure and errors for every attempt (libs/indeed-debug.js)
+  const recorder = debugEnabled() ? new DebugRecorder({ label: "publish" }) : null;
+  const sessionCheck = await testIndeedSession(account, true, { recorder });
+
+  // Close the recording and point a failed attempt at it
+  const done = async (result) => {
+    if (!recorder) return result;
+    await recorder.finish({ success: result.success, code: result.code, error: result.error });
+    return result.success ? result : { ...result, error: `${result.error} Debug trace: ${recorder.location}` };
+  };
+
+  if (!sessionCheck.isValid) {
+    // A verification page is the platform asking a person to confirm something. Report it and stop; never push through.
+    if (sessionCheck.challenge) {
+      return done({ success: false, code: "checkpoint", error: "Indeed showed its bot check to the automated browser, so nothing was posted. Reconnecting the account will not change that. Use Copy and open to post it yourself." });
+    }
+    return done({ success: false, code: "session_invalid", error: `Session invalid: ${sessionCheck.reason}` });
+  }
+  try {
+    return await done(await publishIndeedJob(sessionCheck.page, job, { recorder }));
+  } finally {
+    await cleanupBrowserSession(sessionCheck.context);
+  }
+}
 
 function notSupported() {
   return {
@@ -79,10 +125,10 @@ export const indeedAdapter = {
   comingSoon: false,
   accountsTable: null,
 
-  async getAccount() {
-    return null;
-  },
-  async testSession() {
+  getAccount: getPublishAccount,
+  // Search needs no session, so a call without an account only reports whether the hosted scraper is configured
+  async testSession(account, keepOpen = false) {
+    if (account) return testIndeedSession(account, keepOpen);
     return {
       isValid: isIndeedJobSearchConfigured(),
       reason: isIndeedJobSearchConfigured()
@@ -90,15 +136,11 @@ export const indeedAdapter = {
         : "Not configured on this server.",
     };
   },
-  async cleanupSession() {
-    /* noop */
-  },
+  cleanupSession: cleanupBrowserSession,
   async sendMessage() {
     return notSupported();
   },
-  async publishJob() {
-    return notSupported();
-  },
+  publishJob,
   async scrapeApplicants() {
     return { success: false, error: notSupported().error, candidates: [] };
   },
