@@ -15,6 +15,7 @@ import {
 import { sendRozeeMessage } from "../rozee-message-sender";
 import { publishRozeeJob } from "../rozee-job-publisher";
 import { searchRozeeJobs, scrapeRozeeCandidate } from "../rozee-candidate-scraper";
+import { searchRozeeJobPosts } from "../sales/rozee-search";
 import {
   checkDailyMessageLimitForPlatform,
   incrementMessageCounterForPlatform,
@@ -106,48 +107,24 @@ async function scrapeApplicants(account, job, opts = {}) {
   return searchCandidates(account, { query, limit: opts.limit || 25 });
 }
 
-// Unified profile search used by the Lead Scraper module. Accepts a generic
-// filters object so every adapter can expose the same entrypoint regardless
-// of the underlying query language. Rozee only supports a free-text query
-// today, so `location` / `keywords` are folded into it.
+// Lead search (Find leads › Rozee.pk and the Sales agent): Rozee.pk job posts through a web search
+// engine, because Rozee.pk blocks automated browsers with Cloudflare. No Rozee account is needed.
 async function search(account, filters = {}) {
-  // Build query from free-text fields; pass location separately so the
-  // scraper can append it as a /city/ segment on the URL.
-  const queryParts = [filters.query, filters.keywords]
-    .map((s) => (typeof s === "string" ? s.trim() : ""))
-    .filter(Boolean);
-  const query    = queryParts.join(" ").trim() || null;
-  const location = typeof filters.location === "string" ? filters.location.trim() : null;
-
+  const query = [filters.query, filters.keywords].map((v) => (typeof v === "string" ? v.trim() : "")).filter(Boolean).join(" ");
+  const location = typeof filters.location === "string" ? filters.location.trim() : "";
   if (!query && !location) {
     return { success: false, error: "At least one of query/keywords/location is required", results: [] };
   }
-
-  const { success, error, candidates } = await searchCandidates(account, {
-    query,
-    location,
-    limit: filters.limit || 25,
-  });
-  if (!success) return { success: false, error, results: [] };
-
-  const results = (candidates || [])
-    .filter((c) => c?.url)
-    .map((c) => ({
-      url:      c.url,
-      name:     c.name     || null,   // company name
-      title:    c.title    || null,   // job title
-      location: c.location || null,
-      salary:   c.salary   || null,
-      source:   ID,
-      sourceData: {
-        salary:   c.salary   || null,
-        location: c.location || null,
-      },
-    }));
-  return { success: true, results };
+  try {
+    const results = await searchRozeeJobPosts({ query, location, limit: Number(filters.limit) || 25 });
+    return { success: true, results };
+  } catch (error) {
+    return { success: false, error: error.message, results: [] };
+  }
 }
 
 export const rozeeAdapter = {
+  searchNeedsAccount: false, // lead search goes through a search engine; the account is for publishing jobs
   id: ID,
   label: "Rozee.pk",
   accountsTable: rozeeAccounts,

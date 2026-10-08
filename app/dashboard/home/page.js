@@ -414,7 +414,7 @@ function SalesSection({ data, loading }) {
           href="/dashboard/sales/campaigns"
           loading={loading}
         />
-        <StatCard icon={Users} label="Leads" value={data?.leads ?? 0} sub={data && "Across all campaigns"} href="/dashboard/sales/leads" loading={loading} />
+        <StatCard icon={Users} label="Leads" value={data?.leads ?? 0} sub={data && "Across all campaigns"} href="/dashboard/sales/find-leads" loading={loading} />
         <StatCard
           icon={Send}
           label="Invites sent"

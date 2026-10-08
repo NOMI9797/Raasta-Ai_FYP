@@ -62,3 +62,31 @@ export async function listActiveRecruiterRuns({ database = db } = {}) {
       inArray(agentRuns.status, ACTIVE_RUN_STATUSES),
     ));
 }
+
+// ─── Sales agent runs (one active run per campaign) ───
+
+export const SALES_PIPELINE = "sales_operator";
+
+/** The active sales agent run for a campaign, or null. */
+export async function findActiveSalesRun(campaignId, { database = db } = {}) {
+  if (!campaignId) return null;
+  const [run] = await database
+    .select()
+    .from(agentRuns)
+    .where(and(
+      eq(agentRuns.campaignId, campaignId),
+      eq(agentRuns.pipelineType, SALES_PIPELINE),
+      inArray(agentRuns.status, ACTIVE_RUN_STATUSES),
+    ))
+    .orderBy(desc(agentRuns.createdAt))
+    .limit(1);
+  return run || null;
+}
+
+/** Active runs of every pipeline (for the worker's periodic sweep). */
+export async function listActiveRuns({ database = db } = {}) {
+  return database
+    .select({ id: agentRuns.id, pipelineType: agentRuns.pipelineType, status: agentRuns.status })
+    .from(agentRuns)
+    .where(inArray(agentRuns.status, ACTIVE_RUN_STATUSES));
+}

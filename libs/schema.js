@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, integer, boolean, json, uuid, varchar, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, integer, boolean, json, uuid, varchar, index, uniqueIndex, vector } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 // Users table - for authentication and user isolation
@@ -54,6 +54,11 @@ export const leads = pgTable('leads', {
   messageSent: boolean('message_sent').default(false).notNull(),
   messageSentAt: timestamp('message_sent_at'), // When message was sent on LinkedIn
   messageError: text('message_error'), // Error message if sending failed
+  // Conversation after the first message (libs/sales/conversation/status.js)
+  conversationStatus: varchar('conversation_status', { length: 20 }),
+  lastReplyAt: timestamp('last_reply_at'),
+  followUpsSent: integer('follow_ups_sent').default(0).notNull(),
+  nextFollowUpAt: timestamp('next_follow_up_at'),
   addedAt: timestamp('added_at').defaultNow().notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -85,7 +90,11 @@ export const messages = pgTable('messages', {
   customPrompt: text('custom_prompt'),
   postsAnalyzed: integer('posts_analyzed').default(3),
   source: varchar('source', { length: 20 }).notNull().default('linkedin'), // platform the message was sent through
-  status: varchar('status', { length: 20 }).notNull().default('draft'), // draft, sent, scheduled
+  status: varchar('status', { length: 20 }).notNull().default('draft'), // draft, approved, sent, scheduled
+  channel: varchar('channel', { length: 20 }).notNull().default('linkedin'), // linkedin (invite + message) | email
+  subject: text('subject'), // email subject line
+  recipient: text('recipient'), // email address or LinkedIn profile URL the message goes to
+  approvedAt: timestamp('approved_at'),
   sentAt: timestamp('sent_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -377,6 +386,7 @@ export const agentRuns = pgTable('agent_runs', {
   userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   pipelineType: varchar('pipeline_type', { length: 30 }).notNull(),
   jobId: uuid('job_id').references(() => jobs.id, { onDelete: 'set null' }), // recruiter runs: the job the agent manages
+  campaignId: uuid('campaign_id').references(() => campaigns.id, { onDelete: 'set null' }), // sales runs: the campaign the agent works
   mode: varchar('mode', { length: 20 }).notNull(),
   status: varchar('status', { length: 30 }).notNull().default('queued'), // queued | running | waiting | paused_at_checkpoint | paused | completed | failed | cancelled
   currentStep: varchar('current_step', { length: 50 }),
@@ -415,6 +425,8 @@ export const agentActions = pgTable('agent_actions', {
   userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   jobId: uuid('job_id').references(() => jobs.id, { onDelete: 'cascade' }),
   candidateId: uuid('candidate_id').references(() => candidates.id, { onDelete: 'cascade' }),
+  campaignId: uuid('campaign_id').references(() => campaigns.id, { onDelete: 'cascade' }), // sales actions
+  leadId: uuid('lead_id').references(() => leads.id, { onDelete: 'cascade' }),
   action: varchar('action', { length: 40 }).notNull(),   // libs/agent/policy.js AGENT_ACTION
   route: varchar('route', { length: 10 }).notNull(),     // auto | ask | human
   status: varchar('status', { length: 20 }).notNull().default('pending'), // pending | approved | rejected | executed | failed | superseded
@@ -500,6 +512,112 @@ export const notifications = pgTable('notifications', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (t) => [
   index('notifications_user_created_idx').on(t.userId, t.createdAt),
+]);
+
+// Sales knowledge base (RAG) — what the sales agent may tell clients. See libs/sales/knowledge/
+export const kbDocuments = pgTable('kb_documents', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  title: text('title').notNull(),
+  category: varchar('category', { length: 30 }).notNull().default('other'), // services | pricing | process | faq | case_study | about | other
+  kind: varchar('kind', { length: 10 }).notNull().default('note'),          // note | file | web
+  source: text('source'),                                                   // file name or page URL
+  content: text('content').notNull(),
+  status: varchar('status', { length: 20 }).notNull().default('ready'),     // ready | failed
+  error: text('error'),
+  chunkCount: integer('chunk_count').notNull().default(0),
+  isSample: boolean('is_sample').notNull().default(false),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (t) => [
+  index('kb_documents_user_idx').on(t.userId, t.updatedAt),
+]);
+
+// One searchable passage of a document. The table also has a generated `tsv` column for keyword search.
+export const kbChunks = pgTable('kb_chunks', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  documentId: uuid('document_id').references(() => kbDocuments.id, { onDelete: 'cascade' }).notNull(),
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  chunkIndex: integer('chunk_index').notNull(),
+  content: text('content').notNull(),
+  embedding: vector('embedding', { dimensions: 384 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (t) => [
+  index('kb_chunks_user_idx').on(t.userId),
+  index('kb_chunks_document_idx').on(t.documentId, t.chunkIndex),
+]);
+
+// Sales conversations — every email in a lead's thread. See libs/sales/inbox/ and libs/sales/conversation/
+export const conversationMessages = pgTable('conversation_messages', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  leadId: uuid('lead_id').references(() => leads.id, { onDelete: 'cascade' }).notNull(),
+  campaignId: uuid('campaign_id').references(() => campaigns.id, { onDelete: 'cascade' }).notNull(),
+  direction: varchar('direction', { length: 3 }).notNull(),          // out | in
+  channel: varchar('channel', { length: 20 }).notNull().default('email'), // email | linkedin
+  kind: varchar('kind', { length: 20 }).notNull(),                   // outreach | reply | follow_up | inbound
+  status: varchar('status', { length: 20 }).notNull(),               // draft | approved | sent | discarded | received
+  fromAddress: text('from_address'),
+  toAddress: text('to_address'),
+  subject: text('subject'),
+  body: text('body').notNull(),
+  emailMessageId: text('email_message_id'),                          // RFC 5322 Message-ID, for threading
+  inReplyTo: text('in_reply_to'),
+  references: text('references'),
+  intent: varchar('intent', { length: 30 }),                         // inbound: what the client wants (libs/sales/conversation/intents.js)
+  meta: json('meta'),                                                // knowledge passages used, offered slots, …
+  handledAt: timestamp('handled_at'),                                // inbound: when the agent dealt with it
+  sentAt: timestamp('sent_at'),
+  receivedAt: timestamp('received_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (t) => [
+  index('conversation_messages_lead_idx').on(t.leadId, t.createdAt),
+  index('conversation_messages_user_idx').on(t.userId, t.createdAt),
+  uniqueIndex('conversation_messages_email_id_unique').on(t.emailMessageId).where(sql`${t.emailMessageId} IS NOT NULL`),
+]);
+
+// Per-user sales settings: meeting hours, link and length, follow-up timing. See libs/sales/meetings/settings.js
+export const salesSettings = pgTable('sales_settings', {
+  userId: text('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+  companyName: text('company_name'),
+  timezone: varchar('timezone', { length: 60 }).notNull().default('Asia/Karachi'),
+  availability: json('availability'),   // { mon: [{ start: "10:00", end: "17:00" }], … }
+  meetingMinutes: integer('meeting_minutes').notNull().default(30),
+  bufferMinutes: integer('buffer_minutes').notNull().default(15),
+  minNoticeHours: integer('min_notice_hours').notNull().default(24),
+  meetingTitle: text('meeting_title'),
+  meetingLink: text('meeting_link'),    // Google Meet / Zoom / Teams link sent with confirmations
+  followUpDays: json('follow_up_days'), // e.g. [3, 7]
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// Meetings leads agreed to (or times we offered). See libs/sales/meetings/
+export const meetings = pgTable('meetings', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  leadId: uuid('lead_id').references(() => leads.id, { onDelete: 'cascade' }).notNull(),
+  campaignId: uuid('campaign_id').references(() => campaigns.id, { onDelete: 'cascade' }).notNull(),
+  status: varchar('status', { length: 20 }).notNull(), // proposed | confirmed | completed | cancelled | no_show
+  title: text('title').notNull(),
+  startAt: timestamp('start_at'),
+  endAt: timestamp('end_at'),
+  timezone: varchar('timezone', { length: 60 }).notNull(),
+  proposedSlots: json('proposed_slots'), // [{ start, end }] offered while status is proposed
+  attendeeName: text('attendee_name'),
+  attendeeEmail: text('attendee_email'),
+  location: text('location'),
+  notes: text('notes'),
+  outcome: text('outcome'),
+  bookedBy: varchar('booked_by', { length: 10 }).notNull().default('agent'), // agent | user
+  conversationMessageId: uuid('conversation_message_id').references(() => conversationMessages.id, { onDelete: 'set null' }),
+  icsUid: text('ics_uid'),
+  icsSequence: integer('ics_sequence').notNull().default(0),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (t) => [
+  index('meetings_user_start_idx').on(t.userId, t.startAt),
+  index('meetings_lead_idx').on(t.leadId, t.createdAt),
 ]);
 
 // Database initialization function

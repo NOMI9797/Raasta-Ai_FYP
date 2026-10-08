@@ -298,6 +298,16 @@ New table `indeed_accounts`, the Indeed employer session used to post jobs: `use
 
 New table `posting_runs`, one row per run of the posting engine (19, section 5f): `job_id` and `user_id` (both `ON DELETE CASCADE`), `platform` (`indeed`), `mode` (`rehearsal` fills in every step and stops before the final confirm; `post` waits for the person to press it), `status` (`queued`, `running`, `needs_you`, `awaiting_confirm`, `published`, `rehearsed`, `failed`, `cancelled`), `gate` (why a person is needed right now: `{ kind, message, since }`), `steps` (the timeline: id, label, status, the fields with `verified`, `unverified` or `skipped`, the screenshot name), `kit` (the posting kit the engine types from, plus the per-run `options`; job text, never credentials), `outcome` (`{ message, code, postUrl, verification }`), `cancel_requested`, `engine_id`, `heartbeat_at` (a live run that stops reporting is ended), timestamps. Indexes: `(job_id, platform, created_at)`, `(status, created_at)` for the engine's queue, and a partial unique index so a job has at most one live run per platform. The times are written by the app, never by the column default: the database's own clock and the app's clock can be hours apart (a database that does not run on UTC), which made a default `created_at` read as five hours in the future. A finished post that reached the platform also writes a `job_publications` row with `mode = 'engine'`. Defined in `libs/schema.js` and `libs/schema.ts` too. Idempotent; apply it the same way as `0009`: `psql "$DATABASE_URL" -f drizzle/0015_posting_runs.sql`.
 
+## 7g. Migrations `drizzle/0016`–`0020` (sales pipeline)
+
+Sales work merged from the `sales-pipeline` branch (numbered after the hiring migrations; each is idempotent, apply in order with `psql "$DATABASE_URL" -f …`):
+
+- `0016_sales_message_channels.sql`: `messages.channel` (`linkedin` | `email`), `subject`, `recipient`, `approved_at`.
+- `0017_sales_agent.sql`: `agent_runs.campaign_id`, `agent_actions.campaign_id` and `lead_id`, so the supervised agent can work a campaign.
+- `0018_sales_knowledge_base.sql`: the `vector` extension (pgvector), `kb_documents` and `kb_chunks` (384-number embeddings, HNSW index, generated `tsv` for keyword search).
+- `0019_sales_conversations.sql`: `conversation_messages` (every email in a lead's thread, matched by Message-ID) and the lead's `conversation_status`, `last_reply_at`, `follow_ups_sent`, `next_follow_up_at`.
+- `0020_sales_meetings.sql`: `meetings` (offered times, booked calls, calendar invite UID) and `sales_settings` (meeting hours, link, length, follow-up days).
+
 ## 8. `libs/hiring/statuses.js`
 
 ```js

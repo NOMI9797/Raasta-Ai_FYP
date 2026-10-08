@@ -54,7 +54,7 @@ npm run sync:mediapipe # once: puts the camera-tracking runtime and face model u
 
 1. **Single product identity.** The interview feature is native to Raasta-AI. Never write the name of the legacy source project in code, comments, docs, commit messages, file names, env vars or UI. The interviewer is "Raasta AI Interviewer". Check: `npm run check:branding` must pass (script: `scripts/check-branding.sh`).
 2. **The legacy source lives outside the repo** at `../interview-engine-src/` (read-only reference). Never copy it in wholesale, never add it as a submodule, and never copy its git history, binaries (`*.exe`, `*.h5`, `*.task`), test outputs, uploads or its frontend.
-3. **Schema changes go in both `libs/schema.js` and `libs/schema.ts`**, plus a hand-written SQL migration in `drizzle/` (next number `0014`). Do **not** run `drizzle-kit generate`, because the journal is out of sync. See `docs/ai-hiring/05-data-model.md`.
+3. **Schema changes go in both `libs/schema.js` and `libs/schema.ts`**, plus a hand-written SQL migration in `drizzle/` (next number `0021`). Do **not** run `drizzle-kit generate`, because the journal is out of sync. See `docs/ai-hiring/05-data-model.md`.
 4. **Postgres only.** No MongoDB or Mongoose in new code.
 5. **Candidate statuses come from `libs/hiring/statuses.js`.** Never hard-code status strings in routes or UI.
 6. **Human in the loop for rejections** unless the job's `hiring_config.autoFinalize` is true.
@@ -70,7 +70,10 @@ npm run sync:mediapipe # once: puts the camera-tracking runtime and face model u
 | Hiring APIs | `app/api/hiring/**` |
 | Public apply form | `app/apply/[jobId]/page.js`, `app/api/hiring/apply/[jobId]/route.js` |
 | Recruiter UI | `app/dashboard/recruiter/**`, sidebar `components/layout/Sidebar.js` |
-| Sales agent pipeline | `libs/agent-pipelines/sales-operator.js`, `libs/agent-runner.js` (sales only; the hiring agent is separate) |
+| Sales conversations & meetings | Replies read over IMAP (`libs/sales/inbox/`), answered from the knowledge base (`libs/sales/conversation/`: read, decide, compose, reply), follow-ups and meeting booking (`libs/sales/meetings/`: slots, ICS, settings); agent step `libs/sales/agent/conversations.js`; pages `app/dashboard/sales/{conversations,meetings}/` |
+| Rozee.pk lead search | `libs/sales/rozee-search.js`: job posts through a web search engine (Serper / DuckDuckGo), because Rozee.pk blocks automated browsers; used by `libs/platforms/rozee.js` `search()` and the sales agent |
+| Sales knowledge base (RAG) | `libs/sales/knowledge/` (chunk, local embeddings, pgvector + keyword hybrid search, grounded answers); page `app/dashboard/sales/knowledge/` |
+| Sales agent | `libs/sales/agent/` (policy, planner, scoring, tick `advanceSalesRun`, launch). Same supervised engine as the hiring agent (`libs/agent/`), run by the hiring worker |
 | Schema / DB | `libs/schema.{js,ts}`, `libs/db.ts`, `drizzle/` |
 | New: AI helpers | `libs/ai/` |
 | New: hiring logic | `libs/hiring/` |

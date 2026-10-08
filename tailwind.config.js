@@ -3,6 +3,9 @@ module.exports = {
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
+    // Shared logic that names colour classes (lead stages, platform badges)
+    "./libs/sales/**/*.js",
+    "./libs/platforms/**/*.js",
     "./styles/globals.css",
   ],
   theme: {

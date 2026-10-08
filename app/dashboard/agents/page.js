@@ -1,315 +1,176 @@
 "use client";
 
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
-import { useEffect, useState, useCallback } from "react";
-import Sidebar from "@/components/layout/Sidebar";
-import { useSidebar } from "@/components/layout/SidebarContext";
-import TopBar from "@/components/layout/TopBar";
-import AgentConfigForm from "./components/AgentConfigForm";
-import AgentRunCard from "./components/AgentRunCard";
-import toast from "react-hot-toast";
-import { useDialog } from "@/components/ui/DialogProvider";
-import {
-  Bot,
-  Plus,
-  Play,
-  Settings2,
-  Trash2,
-  Loader2,
-  Zap,
-  Briefcase,
-  ToggleLeft,
-  ToggleRight,
-} from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Activity, Bot, CalendarCheck, Hand, Loader2, MailCheck, MessagesSquare, Plus, X } from "lucide-react";
+import DashboardShell from "@/components/layout/DashboardShell";
+import LaunchSalesAgent from "@/components/sales/agent/LaunchSalesAgent";
+import SalesRunCard from "@/components/sales/agent/SalesRunCard";
+import SalesApprovals from "@/components/sales/agent/SalesApprovals";
 
-const MODE_LABELS = { assisted: "Assisted", autopilot: "Autopilot", semi_auto: "Semi-Auto", full_auto: "Full-Auto" };
+const ACTIVE = ["queued", "running", "waiting", "paused", "paused_at_checkpoint"];
 
-export default function AgentsPage() {
-  const { confirm } = useDialog();
+function SalesAgentPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } = useSidebar();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const tab = searchParams.get("tab") === "approvals" ? "approvals" : "runs";
 
-  const [configs, setConfigs] = useState([]);
-  const [runs, setRuns] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [editConfig, setEditConfig] = useState(null);
-  const [launchingId, setLaunchingId] = useState(null);
+  const [data, setData] = useState(null);
+  const [pending, setPending] = useState(0);
+  const [showLaunch, setShowLaunch] = useState(false);
 
-  // Sales agents only. The hiring agent has its own page under Recruiter.
   useEffect(() => {
-    if (status === "unauthenticated") router.push("/signin");
-    if (status !== "authenticated") return;
-    const modes = Array.isArray(session?.user?.modes) ? session.user.modes : [];
-    if (session?.user?.role === "admin" || modes.includes("sales")) return;
-    router.replace(modes.includes("recruiter") ? "/dashboard/recruiter/agent" : "/dashboard/home");
+    if (status === "loading") return;
+    if (!session) {
+      router.push("/signin");
+      return;
+    }
+    const modes = Array.isArray(session.user?.modes) ? session.user.modes : [];
+    if (session.user?.role !== "admin" && !modes.includes("sales")) router.replace("/dashboard/home");
   }, [session, status, router]);
 
-  const fetchData = useCallback(async () => {
-    try {
-      const [cfgRes, runRes] = await Promise.all([
-        fetch("/api/agents/configs?pipeline=sales_operator"),
-        fetch("/api/agents/runs?pipeline=sales_operator"),
-      ]);
-      const cfgData = await cfgRes.json();
-      const runData = await runRes.json();
-      if (cfgData.success) setConfigs(cfgData.configs);
-      if (runData.success) setRuns(runData.runs);
-    } catch (err) {
-      console.error("Fetch agents data error:", err);
-    } finally {
-      setLoading(false);
+  const load = useCallback(async () => {
+    const res = await fetch("/api/sales/agent");
+    const json = await res.json();
+    if (res.ok) {
+      setData(json);
+      setPending(json.runs.reduce((n, r) => n + (ACTIVE.includes(r.status) ? r.results?.pendingApprovals || 0 : 0), 0));
     }
   }, []);
 
   useEffect(() => {
-    if (status === "authenticated") fetchData();
-  }, [status, fetchData]);
+    if (session) load();
+  }, [session, load]);
 
-  const handleLaunch = async (config) => {
-    setLaunchingId(config.id);
-    try {
-      const res = await fetch("/api/agents/runs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agentConfigId: config.id }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        toast.success("Agent launched!");
-        setRuns((prev) => [data.run, ...prev]);
-      } else {
-        toast.error(data.error || "Failed to launch");
-      }
-    } catch {
-      toast.error("Network error");
-    } finally {
-      setLaunchingId(null);
-    }
-  };
+  // Follow the agent while it works
+  const anyActive = data?.runs.some((r) => ACTIVE.includes(r.status));
+  useEffect(() => {
+    if (!anyActive) return;
+    const timer = setInterval(load, 5000);
+    return () => clearInterval(timer);
+  }, [anyActive, load]);
 
-  const handleDeleteConfig = async (configId) => {
-    const ok = await confirm({ title: "Delete this agent?", message: "Its saved settings are removed. Runs that already happened stay in the history.", confirmText: "Delete", tone: "danger" });
-    if (!ok) return;
-    try {
-      const res = await fetch(`/api/agents/configs/${configId}`, { method: "DELETE" });
-      const data = await res.json();
-      if (data.success) {
-        toast.success("Config deleted");
-        setConfigs((prev) => prev.filter((c) => c.id !== configId));
-      }
-    } catch {
-      toast.error("Network error");
-    }
-  };
+  const setTab = (t) => router.replace(t === "approvals" ? `${pathname}?tab=approvals` : pathname, { scroll: false });
 
-  const handleToggleActive = async (config) => {
-    try {
-      const res = await fetch(`/api/agents/configs/${config.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ isActive: !config.isActive }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setConfigs((prev) =>
-          prev.map((c) => (c.id === config.id ? data.config : c))
-        );
-      }
-    } catch {
-      toast.error("Network error");
-    }
-  };
-
-  const activeRuns = runs.filter((r) =>
-    ["queued", "running", "waiting", "paused_at_checkpoint", "paused"].includes(r.status)
-  );
-  const pastRuns = runs.filter((r) =>
-    ["completed", "failed", "cancelled"].includes(r.status)
-  );
-
-  if (status === "loading" || loading) {
+  if (status === "loading" || !session || !data) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-base-100">
-        <div className="loading loading-spinner loading-lg text-primary" />
-      </div>
+      <DashboardShell title="Sales agent" activeSection="sales-agent">
+        <div className="flex justify-center py-20"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>
+      </DashboardShell>
     );
   }
 
+  const active = data.runs.filter((r) => ACTIVE.includes(r.status));
+  const past = data.runs.filter((r) => !ACTIVE.includes(r.status));
+  const launchOpen = showLaunch || data.runs.length === 0;
+  const sum = (fn) => data.runs.reduce((n, r) => n + (fn(r) || 0), 0);
+  const totals = [
+    { icon: Activity, label: "Agents working", value: active.length, tone: active.length ? "text-primary" : "" },
+    { icon: Hand, label: "Awaiting you", value: pending, tone: pending ? "text-warning" : "", onClick: pending ? () => setTab("approvals") : null },
+    { icon: MailCheck, label: "Contacted", value: sum((r) => r.results?.counts?.done) },
+    { icon: MessagesSquare, label: "Replies", value: sum((r) => r.results?.conversations?.replied) },
+    { icon: CalendarCheck, label: "Meetings booked", value: sum((r) => r.results?.conversations?.meetings), tone: "text-success" },
+  ];
+
   return (
-    <div className="h-screen bg-base-100 flex overflow-hidden">
-      <Sidebar
-        collapsed={sidebarCollapsed}
-        onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
-        activeSection="agents"
-      />
-      <div
-        className={`flex-1 min-w-0 transition-all duration-300 ${
-          sidebarCollapsed ? "ml-16" : "ml-16 md:ml-64"
-        } flex flex-col h-full overflow-hidden`}
-      >
-        <TopBar title="Agents" />
-        <main className="flex-1 p-6 overflow-auto space-y-6">
-          {/* Header */}
-          <div className="flex items-center justify-between">
+    <DashboardShell title="Sales agent" activeSection="sales-agent">
+      <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
+        <header className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary"><Bot className="h-6 w-6" /></span>
             <div>
-              <h1 className="text-2xl font-bold text-base-content">Sales Agents</h1>
-              <p className="text-sm text-base-content/70 mt-1">
-                Configure and run agents that work a sales campaign: find leads, send invites and follow up. Hiring has its own agent under Recruiter.
-              </p>
-            </div>
-            <button className="btn btn-primary btn-sm gap-2" onClick={() => { setEditConfig(null); setShowForm(true); }}>
-              <Plus size={16} /> New Sales Agent
-            </button>
-          </div>
-
-          {/* Summary cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div className="stat bg-base-200 rounded-xl shadow-sm border border-base-300">
-              <div className="stat-title text-xs uppercase tracking-wide text-base-content/60">Configs</div>
-              <div className="stat-value text-2xl">{configs.length}</div>
-            </div>
-            <div className="stat bg-base-200 rounded-xl shadow-sm border border-base-300">
-              <div className="stat-title text-xs uppercase tracking-wide text-base-content/60">Active Runs</div>
-              <div className="stat-value text-2xl text-info">{activeRuns.length}</div>
-            </div>
-            <div className="stat bg-base-200 rounded-xl shadow-sm border border-base-300">
-              <div className="stat-title text-xs uppercase tracking-wide text-base-content/60">Completed</div>
-              <div className="stat-value text-2xl text-success">
-                {runs.filter((r) => r.status === "completed").length}
-              </div>
-            </div>
-            <div className="stat bg-base-200 rounded-xl shadow-sm border border-base-300">
-              <div className="stat-title text-xs uppercase tracking-wide text-base-content/60">Failed</div>
-              <div className="stat-value text-2xl text-error">
-                {runs.filter((r) => r.status === "failed").length}
-              </div>
+              <h1 className="text-2xl font-bold leading-tight">Sales agent</h1>
+              <p className="text-sm text-base-content/60">Finds, researches and contacts leads, answers their replies and books meetings.</p>
             </div>
           </div>
-
-          {/* Agent Configs */}
-          <div>
-            <h2 className="text-base font-semibold text-base-content mb-3 flex items-center gap-2">
-              <Settings2 size={16} className="text-base-content/60" /> Agent Configurations
-            </h2>
-            {configs.length === 0 ? (
-              <div className="bg-base-200 border border-dashed border-base-300 rounded-xl p-10 text-center">
-                <Bot size={28} className="mx-auto text-base-content/20 mb-2" />
-                <p className="text-base-content/50 text-sm">No agent configs yet. Create one to get started.</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {configs.map((cfg) => {
-                  return (
-                    <div
-                      key={cfg.id}
-                      className={`bg-base-200 border border-base-300 rounded-xl p-4 shadow-sm ${
-                        !cfg.isActive ? "opacity-60" : ""
-                      }`}
-                    >
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                          <Briefcase size={15} className="text-accent" />
-                          <span className="font-semibold text-sm text-base-content">{cfg.name}</span>
-                        </div>
-                        <button
-                          onClick={() => handleToggleActive(cfg)}
-                          className="text-base-content/40 hover:text-primary transition-colors"
-                        >
-                          {cfg.isActive
-                            ? <ToggleRight size={20} className="text-success" />
-                            : <ToggleLeft size={20} />}
-                        </button>
-                      </div>
-
-                      <div className="flex flex-wrap gap-1.5 mb-4">
-                        <span className="badge badge-xs badge-outline">Sales</span>
-                        <span className="badge badge-xs badge-outline">
-                          {MODE_LABELS[cfg.mode] || cfg.mode}
-                        </span>
-                        {cfg.config?.dailyInviteLimit && (
-                          <span className="badge badge-xs badge-outline">
-                            {cfg.config.dailyInviteLimit}/day
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="flex gap-2">
-                        <button
-                          className="btn btn-primary btn-xs flex-1 gap-1"
-                          onClick={() => handleLaunch(cfg)}
-                          disabled={launchingId === cfg.id || !cfg.isActive}
-                        >
-                          {launchingId === cfg.id
-                            ? <Loader2 size={11} className="animate-spin" />
-                            : <Play size={11} />}
-                          Launch
-                        </button>
-                        <button
-                          className="btn btn-ghost btn-xs"
-                          onClick={() => { setEditConfig(cfg); setShowForm(true); }}
-                        >
-                          <Settings2 size={12} />
-                        </button>
-                        <button
-                          className="btn btn-ghost btn-xs text-error hover:bg-error/10"
-                          onClick={() => handleDeleteConfig(cfg.id)}
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Active Runs */}
-          {activeRuns.length > 0 && (
-            <div>
-              <h2 className="text-base font-semibold text-base-content mb-3 flex items-center gap-2">
-                <Zap size={16} className="text-info" /> Active Runs
-              </h2>
-              <div className="space-y-2">
-                {activeRuns.map((run) => (
-                  <AgentRunCard key={run.id} run={run} onRefresh={fetchData} />
-                ))}
-              </div>
-            </div>
+          {!launchOpen && (
+            <button className="btn btn-primary btn-sm gap-1" onClick={() => setShowLaunch(true)}><Plus className="h-4 w-4" /> New agent run</button>
           )}
+        </header>
 
-          {/* Run History */}
-          <div>
-            <h2 className="text-base font-semibold text-base-content mb-3">Run History</h2>
-            {pastRuns.length === 0 ? (
-              <p className="text-sm text-base-content/40">No completed runs yet.</p>
-            ) : (
-              <div className="space-y-2">
-                {pastRuns.map((run) => (
-                  <AgentRunCard key={run.id} run={run} onRefresh={fetchData} />
-                ))}
+        {data.runs.length > 0 && (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            {totals.map((t) => {
+              const Tag = t.onClick ? "button" : "div";
+              return (
+                <Tag key={t.label} onClick={t.onClick || undefined} className={`rounded-xl border border-base-300 bg-base-100 px-4 py-3 text-left ${t.onClick ? "transition-colors hover:border-warning" : ""}`}>
+                  <p className="flex items-center gap-1.5 text-xs font-medium text-base-content/55"><t.icon className="h-3.5 w-3.5" /> {t.label}</p>
+                  <p className={`mt-1 text-2xl font-semibold tabular-nums ${t.tone}`}>{t.value}</p>
+                </Tag>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="flex items-center justify-between border-b border-base-300">
+          <div role="tablist" className="flex gap-6">
+            {[
+              { key: "runs", label: "Runs" },
+              { key: "approvals", label: "Approvals", badge: pending },
+            ].map((t) => (
+              <button
+                key={t.key}
+                role="tab"
+                onClick={() => setTab(t.key)}
+                className={`-mb-px flex items-center gap-2 border-b-2 px-1 pb-2.5 text-sm font-medium transition-colors ${tab === t.key ? "border-primary text-primary" : "border-transparent text-base-content/60 hover:text-base-content"}`}
+              >
+                {t.label}
+                {t.badge > 0 && <span className="rounded-full bg-warning px-1.5 py-0.5 text-[11px] font-semibold leading-none text-warning-content">{t.badge}</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {tab === "approvals" ? (
+          <SalesApprovals onCountChange={setPending} />
+        ) : (
+          <div className="space-y-6">
+            {launchOpen && (
+              <div className="relative">
+                {data.runs.length > 0 && (
+                  <button className="btn btn-ghost btn-xs btn-circle absolute right-3 top-3 z-10" title="Close" onClick={() => setShowLaunch(false)}><X className="h-4 w-4" /></button>
+                )}
+                <LaunchSalesAgent
+                  setup={data.setup}
+                  policy={data.policy}
+                  defaults={data.defaults}
+                  onStarted={() => {
+                    setShowLaunch(false);
+                    load();
+                  }}
+                />
               </div>
             )}
+            {active.length > 0 && (
+              <section className="space-y-3">
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-base-content/50">Working now</h2>
+                {active.map((run) => (
+                  <SalesRunCard key={run.id} run={run} stepLabels={data.stepLabels} onChanged={load} onOpenApprovals={() => setTab("approvals")} />
+                ))}
+              </section>
+            )}
+            {past.length > 0 && (
+              <section className="space-y-2">
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-base-content/50">Earlier runs</h2>
+                {past.map((run) => (
+                  <SalesRunCard key={run.id} run={run} stepLabels={data.stepLabels} onChanged={load} compact />
+                ))}
+              </section>
+            )}
           </div>
-        </main>
+        )}
       </div>
+    </DashboardShell>
+  );
+}
 
-      {showForm && (
-        <AgentConfigForm
-          onClose={() => { setShowForm(false); setEditConfig(null); }}
-          onCreated={(cfg) => {
-            if (editConfig) {
-              setConfigs((prev) => prev.map((c) => (c.id === cfg.id ? cfg : c)));
-            } else {
-              setConfigs((prev) => [cfg, ...prev]);
-            }
-          }}
-          editConfig={editConfig}
-        />
-      )}
-    </div>
+export default function Page() {
+  return (
+    <Suspense fallback={null}>
+      <SalesAgentPage />
+    </Suspense>
   );
 }

@@ -4,6 +4,7 @@ import { campaigns } from "@/libs/schema";
 import { eq, and } from "drizzle-orm";
 import { withAuth } from "@/libs/auth-middleware";
 import getRedisClient from "@/libs/redis";
+import { isPlatformAvailable } from "@/libs/platforms/meta";
 
 // GET /api/campaigns/[id] - Get a specific campaign for authenticated user
 export const GET = withAuth(async (request, { params, user }) => {
@@ -76,7 +77,7 @@ export const PUT = withAuth(async (request, { params, user }) => {
     if (icpConfig !== undefined) setData.icpConfig = icpConfig && (icpConfig.targetRole || icpConfig.industry || icpConfig.serviceType) ? icpConfig : null;
     if (sources !== undefined) {
       setData.sources = Array.isArray(sources) && sources.length > 0
-        ? sources.filter((s) => ['linkedin', 'rozee'].includes(s))
+        ? sources.filter(isPlatformAvailable)
         : ['linkedin'];
     }
 

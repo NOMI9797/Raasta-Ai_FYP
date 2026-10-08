@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/libs/db";
-import { agentRuns, agentConfigs } from "@/libs/schema";
+import { agentRuns } from "@/libs/schema";
 import { eq, and } from "drizzle-orm";
 import { withAuth } from "@/libs/auth-middleware";
-import { AgentRunner, getPipelineDefinition } from "@/libs/agent-runner";
 import { RECRUITER_PIPELINE } from "@/libs/agent/runs";
 import { findBlockingAction } from "@/libs/agent/launch";
 import { ActionError, decideAction } from "@/libs/agent/actions";
@@ -44,33 +43,8 @@ export const POST = withAuth(async (request, { user, params }) => {
       return NextResponse.json({ success: true, message: "Approved. The agent is continuing." });
     }
 
-    // Load the original config from the agent config record
-    let runConfig = {};
-    if (run.agentConfigId) {
-      const [cfg] = await db
-        .select()
-        .from(agentConfigs)
-        .where(eq(agentConfigs.id, run.agentConfigId))
-        .limit(1);
-      if (cfg) runConfig = cfg.config || {};
-    }
-
-    const pipeline = await getPipelineDefinition(run.pipelineType);
-
-    const runner = new AgentRunner({
-      runId: run.id,
-      pipeline,
-      mode: run.mode,
-      userId: run.userId,
-      config: runConfig,
-    });
-
-    // Resume in background
-    runner.resumeAfterCheckpoint().catch((err) => {
-      console.error(`Agent run ${run.id} resume failed:`, err);
-    });
-
-    return NextResponse.json({ success: true, message: "Checkpoint approved, resuming execution" });
+    // Sales agent requests are approved one by one in its inbox (POST /api/agents/actions/[actionId])
+    return NextResponse.json({ error: "Approve this agent's requests in its approvals inbox" }, { status: 400 });
   } catch (error) {
     console.error("Approve agent run error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

@@ -197,7 +197,9 @@ async function fetchLeadsWithSentInvites(userId) {
  * @param {string} userId - User ID
  * @returns {Promise<Object>} - Results object with matched/updated counts
  */
-export async function checkConnectionAcceptances(accountData, userId) {
+// sendMessages: false only records acceptances. The sales agent sends approved messages itself, so it
+// must not have this step send drafts on its own.
+export async function checkConnectionAcceptances(accountData, userId, { sendMessages = true } = {}) {
   let browserContext = null;
   let browserPage = null;
   
@@ -332,7 +334,7 @@ export async function checkConnectionAcceptances(accountData, userId) {
     for (const lead of eligibleForMessaging) eligibleById.set(lead.id, lead);
     const uniqueEligibleLeads = Array.from(eligibleById.values()).filter((l) => !l.messageSent);
 
-    if (uniqueEligibleLeads.length > 0) {
+    if (sendMessages && uniqueEligibleLeads.length > 0) {
       console.log('📨 STEP 7: Sending messages to accepted connections...');
       
       // Check daily message limit

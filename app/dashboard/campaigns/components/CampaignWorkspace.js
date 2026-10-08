@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useDialog } from "@/components/ui/DialogProvider";
 import { ArrowLeft, Settings, Maximize2, Minimize2, Zap, Target, MessageSquare, BarChart3, Loader2, Workflow } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -11,19 +11,25 @@ import AIResponseColumn from "./AIResponseColumn";
 import { useLeads } from "../hooks/useLeads";
 import { useRedisWorkflow } from "../hooks/useRedisWorkflow";
 
-export default function CampaignWorkspace({ campaign, onBack }) {
+// sourceFilter shows only one platform's leads (the sales Research step passes "linkedin");
+// without onBack there is no Back button (the page around it has its own navigation)
+export default function CampaignWorkspace({ campaign, onBack, sourceFilter }) {
   const { alert } = useDialog();
   const queryClient = useQueryClient();
   const router = useRouter();
   const [selectedLead, setSelectedLead] = useState(null);
   const {
-    leads,
+    leads: allLeads,
     setLeads,
     loading,
     error,
     fetchLeads,
     refreshLeads,
   } = useLeads();
+  const leads = useMemo(
+    () => (sourceFilter ? allLeads.filter((l) => (l.source || "linkedin") === sourceFilter) : allLeads),
+    [allLeads, sourceFilter]
+  );
   const [columnWidths, setColumnWidths] = useState([35, 30, 35]); // percentages
   const [collapsedColumns, setCollapsedColumns] = useState(new Set());
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -164,14 +170,16 @@ export default function CampaignWorkspace({ campaign, onBack }) {
       <div className="bg-gradient-to-r from-primary/5 to-secondary/5 border-b border-base-300 px-6 py-2 flex-shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-6">
-            <button
-              onClick={onBack}
-              className="btn btn-ghost btn-sm gap-2 hover:bg-primary/10"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Back
-            </button>
-            
+            {onBack && (
+              <button
+                onClick={onBack}
+                className="btn btn-ghost btn-sm gap-2 hover:bg-primary/10"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back
+              </button>
+            )}
+
             <div className="flex items-center gap-4">
               <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center">
                 <Target className="h-5 w-5 text-primary-content" />
@@ -231,6 +239,7 @@ export default function CampaignWorkspace({ campaign, onBack }) {
           }}
         >
           <LeadsColumn
+            singleSource={Boolean(sourceFilter)}
             leads={leads}
             setLeads={setLeads}
             selectedLead={selectedLead}

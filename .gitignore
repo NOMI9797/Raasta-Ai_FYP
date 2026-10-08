@@ -52,6 +52,7 @@ public/sitemap-0.xml
 # AI hiring pipeline
 .storage/
 services/ai-engine/.venv/
+services/indeed-search/.venv/
 services/ai-engine/.models/
 __pycache__/
 
@@ -60,3 +61,5 @@ __pycache__/
 
 # Face-tracking runtime for the interview room (npm run sync:mediapipe)
 public/mediapipe/
+# local AI models (knowledge base embeddings)
+/.cache/

@@ -22,6 +22,7 @@ const nextConfig = {
     serverComponentsExternalPackages: [
       "pdf-parse",
       "drizzle-orm", "postgres", "ioredis", "redis", "openai", "groq-sdk", "bcryptjs", "apify-client", "stripe", "mailgun.js", "nodemailer", "@deepgram/sdk", "axios", "form-data", "mammoth", "ws",
+      "@huggingface/transformers", "onnxruntime-node", "imapflow", "mailparser",
     ],
   },
   images: {

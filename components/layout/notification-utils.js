@@ -3,7 +3,7 @@
 // Shared by the top-bar bell, the Settings notification list and the Home activity feed.
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, Bot, Gauge, Mic, UserPlus, AlertTriangle, PauseCircle } from "lucide-react";
+import { Bell, Bot, Gauge, Mic, UserPlus, AlertTriangle, PauseCircle, MessagesSquare, CalendarCheck } from "lucide-react";
 
 export const notificationKeys = {
   all: ["notifications"],
@@ -18,6 +18,8 @@ export const TYPE_META = {
   agent_run_finished: { icon: Bot, tone: "text-primary bg-primary/10", label: "Agent" },
   agent_run_failed: { icon: AlertTriangle, tone: "text-error bg-error/10", label: "Agent" },
   agent_needs_approval: { icon: PauseCircle, tone: "text-warning bg-warning/10", label: "Approval" },
+  sales_reply: { icon: MessagesSquare, tone: "text-info bg-info/10", label: "Reply" },
+  meeting_booked: { icon: CalendarCheck, tone: "text-success bg-success/10", label: "Meeting" },
 };
 const FALLBACK_META = { icon: Bell, tone: "text-base-content bg-base-200", label: "Update" };
 export const metaFor = (type) => TYPE_META[type] || FALLBACK_META;

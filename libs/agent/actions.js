@@ -46,7 +46,7 @@ export async function findByDedupeKey(dedupeKey, { database = db } = {}) {
  */
 export async function proposeAction(run, {
   action, route, summary, candidateId = null, payload = null, evidence = null,
-  escalations = [], blocking = false, dedupeKey = null,
+  escalations = [], blocking = false, dedupeKey = null, leadId = null, status = null, result = null,
 }, { database = db, now = new Date() } = {}) {
   if (route === ROUTE.HUMAN) throw new Error(`${action} is never carried out by the agent`);
   const existing = await findByDedupeKey(dedupeKey, { database });
@@ -57,9 +57,14 @@ export async function proposeAction(run, {
     userId: run.userId,
     jobId: run.jobId,
     candidateId,
+    campaignId: run.campaignId ?? null,
+    leadId,
     action,
     route,
-    status: isAuto ? ACTION_STATUS.APPROVED : ACTION_STATUS.PENDING,
+    // `status` lets the agent record work it already did (e.g. research) as executed in one write
+    status: status || (isAuto ? ACTION_STATUS.APPROVED : ACTION_STATUS.PENDING),
+    result,
+    executedAt: status === ACTION_STATUS.EXECUTED ? now : null,
     blocking,
     summary,
     payload,

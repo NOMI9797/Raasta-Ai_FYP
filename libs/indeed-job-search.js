@@ -1,121 +1,89 @@
 /**
- * Indeed job listings search — hosted runner integration.
- * Country/site: opts.country (ISO2) or INDEED_JOBS_COUNTRY env — not inferred from free-text location.
+ * Indeed job listings search for the Lead Scraper.
+ *
+ * Runs services/indeed-search/search.py (JobSpy, free and open source) in a
+ * child process: one JSON request on stdin, one JSON response on stdout.
+ *
+ * Python: INDEED_SEARCH_PYTHON, else services/indeed-search/.venv, else python3.
+ * Set it up once with `npm run setup:indeed`.
+ * Country: opts.country (ISO2 or name) or INDEED_JOBS_COUNTRY env, default Pakistan.
  */
 
-import { ApifyClient as JobRunnerClient } from "apify-client";
-import { getScraperServiceTokenFromEnv, isScraperServiceConfigured } from "./scraper-credentials";
+import { spawn } from "child_process";
+import fs from "fs";
+import path from "path";
 
-const INDEED_JOB_RUNNER_ID = "misceres/indeed-scraper";
+const SERVICE_DIR = path.join(process.cwd(), "services", "indeed-search");
+const SCRIPT_PATH = path.join(SERVICE_DIR, "search.py");
+const VENV_PYTHON = path.join(SERVICE_DIR, ".venv", "bin", "python");
+const SEARCH_TIMEOUT_MS = 120_000;
 
-/** Normalise env/UI country tokens (pk → PK). Hostname uses generic xx.indeed.com except US → www. */
-const COUNTRY_CODES = {
-  us: "US",
-  pk: "PK",
-  uk: "UK",
-  ca: "CA",
-  au: "AU",
-  in: "IN",
-  de: "DE",
-  fr: "FR",
-  ae: "AE",
-  sg: "SG",
+/** ISO2 / short codes → the country names JobSpy expects for country_indeed. */
+const COUNTRY_NAMES = {
+  pk: "pakistan",
+  us: "usa",
+  uk: "uk",
+  gb: "uk",
+  ca: "canada",
+  au: "australia",
+  in: "india",
+  de: "germany",
+  fr: "france",
+  ae: "united arab emirates",
+  sa: "saudi arabia",
+  qa: "qatar",
+  sg: "singapore",
 };
 
-function getIndeedJobsHostname(countryLabel) {
-  const cc = String(countryLabel || "")
-    .trim()
-    .toUpperCase()
-    .slice(0, 2);
-  if (!cc || cc.length !== 2) return "www.indeed.com";
-  if (cc === "US") return "www.indeed.com";
-  return `${cc.toLowerCase()}.indeed.com`;
+/** Normalise a country code or name to a JobSpy country name. */
+export function resolveIndeedCountry(country) {
+  const raw = String(country || process.env.INDEED_JOBS_COUNTRY || "pk").trim().toLowerCase();
+  return COUNTRY_NAMES[raw] || raw;
 }
 
-function resolveIndeedCountry(explicitCountry) {
-  if (explicitCountry != null && String(explicitCountry).trim()) {
-    return mapIndeedJobsCountry(explicitCountry);
-  }
-  return mapIndeedJobsCountry(null);
-}
-
-/** Drop listings whose URL host does not match the selected Indeed region (stops cross-site bleed). */
-export function jobUrlMatchesIndeedCountry(jobUrl, countryLabel) {
-  if (!jobUrl || typeof jobUrl !== "string") return false;
-  let host;
-  try {
-    host = new URL(jobUrl.trim()).hostname.toLowerCase();
-  } catch {
-    return false;
-  }
-
-  if (countryLabel === "US") {
-    return host === "www.indeed.com" || host === "indeed.com";
-  }
-
-  const expected = getIndeedJobsHostname(countryLabel).toLowerCase();
-  return host === expected;
-}
-
-function pick(obj, keys) {
-  if (!obj || typeof obj !== "object") return null;
-  for (const k of keys) {
-    const v = obj[k];
-    if (v !== undefined && v !== null && String(v).trim() !== "") return String(v).trim();
-  }
-  return null;
+function pythonPath() {
+  if (process.env.INDEED_SEARCH_PYTHON) return process.env.INDEED_SEARCH_PYTHON;
+  if (fs.existsSync(VENV_PYTHON)) return VENV_PYTHON;
+  return "python3";
 }
 
 export function isIndeedJobSearchConfigured() {
-  return isScraperServiceConfigured();
+  return Boolean(process.env.INDEED_SEARCH_PYTHON) || fs.existsSync(VENV_PYTHON);
 }
 
-export function mapIndeedJobsCountry(code) {
-  if (!code || typeof code !== "string") {
-    const env = String(
-      process.env.INDEED_JOBS_COUNTRY || process.env.INDEED_APIFY_COUNTRY || "pk"
-    )
-      .trim()
-      .toLowerCase();
-    return COUNTRY_CODES[env] || env.slice(0, 2).toUpperCase();
-  }
-  const k = code.trim().toLowerCase();
-  return COUNTRY_CODES[k] || k.slice(0, 2).toUpperCase();
-}
+function runSearchScript(request) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(pythonPath(), [SCRIPT_PATH], { cwd: SERVICE_DIR });
+    let stdout = "";
+    let stderr = "";
 
-/**
- * Build Indeed SERP URL on the correct country host (geography matches the site you scrape).
- */
-export function buildIndeedJobsSearchUrl(keyword, location, countryLabel = "US") {
-  const params = new URLSearchParams();
-  params.set("q", keyword && keyword.trim() ? keyword.trim() : "jobs");
-  const loc = typeof location === "string" ? location.trim() : "";
-  if (loc) params.set("l", loc);
-  const host = getIndeedJobsHostname(countryLabel);
-  return `https://${host}/jobs?${params.toString()}`;
-}
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error("Indeed search took too long. Try a narrower search or fewer results."));
+    }, SEARCH_TIMEOUT_MS);
 
-function cleanJobRow(job) {
-  const desc =
-    typeof job.description === "string"
-      ? job.description
-      : typeof job.snippet === "string"
-        ? job.snippet
-        : "";
-  const snippet = desc ? desc.slice(0, 500) : "";
+    child.stdout.on("data", (chunk) => (stdout += chunk));
+    child.stderr.on("data", (chunk) => (stderr += chunk));
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      reject(new Error(`Could not start the Indeed search (${err.message}). Run npm run setup:indeed.`));
+    });
+    child.on("close", () => {
+      clearTimeout(timer);
+      let data;
+      try {
+        data = JSON.parse(stdout);
+      } catch {
+        console.error("[Indeed search] unreadable output:", stderr.slice(-500));
+        reject(new Error("Indeed search failed. Run npm run setup:indeed if it was never set up."));
+        return;
+      }
+      if (data.error) reject(new Error(`Indeed search failed: ${data.error}`));
+      else resolve(data.jobs || []);
+    });
 
-  const url = pick(job, ["url", "link"]);
-  if (!url || !/^https?:\/\//i.test(url)) return null;
-
-  return {
-    url,
-    title: pick(job, ["positionName", "title"]) || null,
-    company: pick(job, ["companyName", "company"]) || null,
-    location: pick(job, ["location"]) || null,
-    salary: pick(job, ["salary", "salaryText"]) || null,
-    snippet,
-    indeedRaw: job,
-  };
+    child.stdin.end(JSON.stringify(request));
+  });
 }
 
 function tokeniseQuery(q) {
@@ -134,18 +102,19 @@ function tokeniseQuery(q) {
 function keywordScore(job, tokens) {
   if (!tokens.length) return 1;
   const titleLow = (job.title || "").toLowerCase();
-  const snippetLow = (job.snippet || "").toLowerCase();
+  const descLow = (job.description || "").toLowerCase();
   let matched = 0;
   for (const t of tokens) {
     if (titleLow.includes(t)) {
       matched += 2;
-    } else if (snippetLow.includes(t)) {
+    } else if (descLow.includes(t)) {
       matched += 1;
     }
   }
   return matched / (2 * tokens.length);
 }
 
+/** Put the best keyword matches first and drop weak ones (keeps everything if nothing passes). */
 function filterByKeywordRelevance(jobs, query, { threshold = 0.4 } = {}) {
   const tokens = tokeniseQuery(query);
   if (!tokens.length) return jobs;
@@ -159,71 +128,35 @@ function filterByKeywordRelevance(jobs, query, { threshold = 0.4 } = {}) {
 }
 
 /**
- * @param {{ query?: string, keywords?: string, location?: string, limit?: number, country?: string }} opts
+ * @param {{ query?: string, keywords?: string, location?: string, limit?: number, country?: string, hoursOld?: number }} opts
+ * @returns {Promise<{ jobs: object[], country: string }>} jobs as returned by search.py
  */
 export async function searchIndeedJobs(opts = {}) {
-  const token = getScraperServiceTokenFromEnv();
-  if (!token) {
-    throw new Error(
-      "Indeed job search isn’t configured on this server. Your administrator needs to add scraping credentials."
-    );
-  }
-
   const parts = [opts.query, opts.keywords]
     .map((s) => (typeof s === "string" ? s.trim() : ""))
     .filter(Boolean);
-  const folded = parts.join(" ").trim();
-  const loc = typeof opts.location === "string" ? opts.location.trim() : "";
+  const keyword = parts.join(" ").trim();
+  const location = typeof opts.location === "string" ? opts.location.trim() : "";
 
-  if (!folded && !loc) {
+  if (!keyword && !location) {
     throw new Error("At least one of query/keywords/location is required");
   }
 
-  const keyword = folded || "jobs";
-  const countryLabel = resolveIndeedCountry(opts.country);
+  const country = resolveIndeedCountry(opts.country);
   const maxResults = Math.min(Math.max(Number(opts.limit) || 25, 1), 100);
 
-  const fetchLimit = Math.min(maxResults * 3, 100);
+  // Fetch extra so the relevance filter still leaves enough rows
+  const fetched = await runSearchScript({
+    query: keyword,
+    location,
+    country,
+    limit: Math.min(maxResults * 2, 200),
+    hoursOld: opts.hoursOld || null,
+  });
 
-  const actorLocation = loc;
+  const seen = new Set();
+  let jobs = fetched.filter((j) => j.url && !seen.has(j.url) && seen.add(j.url));
+  if (keyword) jobs = filterByKeywordRelevance(jobs, keyword);
 
-  const runInput = {
-    position: keyword,
-    maxItemsPerSearch: fetchLimit,
-    country: countryLabel,
-    location: actorLocation,
-    parseCompanyDetails: false,
-    saveOnlyUniqueItems: true,
-    followApplyRedirects: false,
-    startUrls: [{ url: buildIndeedJobsSearchUrl(keyword, loc, countryLabel) }],
-  };
-
-  const client = new JobRunnerClient({ token });
-
-  let run;
-  try {
-    run = await client.actor(INDEED_JOB_RUNNER_ID).call(runInput);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    throw new Error(`Indeed job search failed: ${msg}`);
-  }
-
-  const datasetId = run?.defaultDatasetId;
-  if (!datasetId) {
-    throw new Error("Indeed search finished without result data.");
-  }
-
-  const { items } = await client.dataset(datasetId).listItems({ limit: Math.min(fetchLimit + 50, 500) });
-
-  let cleaned = (items || []).map(cleanJobRow).filter(Boolean);
-
-  cleaned = cleaned.filter((j) => jobUrlMatchesIndeedCountry(j.url, countryLabel));
-
-  if (keyword && keyword !== "jobs") {
-    cleaned = filterByKeywordRelevance(cleaned, keyword);
-  }
-
-  const jobs = cleaned.slice(0, maxResults);
-
-  return { jobs, countryLabel };
+  return { jobs: jobs.slice(0, maxResults), country };
 }

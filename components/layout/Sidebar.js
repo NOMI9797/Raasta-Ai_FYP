@@ -26,6 +26,10 @@ import {
   Gavel,
   Video,
   Activity,
+  Send,
+  BookOpen,
+  MessagesSquare,
+  CalendarCheck,
 } from "lucide-react";
 
 const NAV = [
@@ -56,10 +60,18 @@ const NAV = [
     icon: Target,
     requireMode: "sales",
     children: [
-      { key: "sales-campaigns", label: "Campaigns", href: "/dashboard/sales/campaigns", icon: Target },
-      { key: "sales-leads", label: "Leads", href: "/dashboard/sales/leads", icon: UserCheck },
-      { key: "sales-lead-scraper", label: "Lead Scraper", href: "/dashboard/sales/lead-scraper", icon: Radar },
-      { key: "sales-outreach", label: "Outreach", href: "/dashboard/sales/outreach", icon: MessageSquare },
+      // The steps of the sales pipeline, in order (libs/sales/stages.js)
+      { key: "sales-campaigns", label: "1. Campaigns", href: "/dashboard/sales/campaigns", icon: Target },
+      { key: "sales-find", label: "2. Find leads", href: "/dashboard/sales/find-leads", icon: Radar },
+      { key: "sales-research", label: "3. Research", href: "/dashboard/sales/research", icon: UserCheck },
+      { key: "sales-messages", label: "4. Messages", href: "/dashboard/sales/messages", icon: MessageSquare },
+      { key: "sales-outreach", label: "5. Outreach", href: "/dashboard/sales/outreach", icon: Send },
+      { key: "sales-conversations", label: "6. Conversations", href: "/dashboard/sales/conversations", icon: MessagesSquare },
+      { key: "sales-meetings", label: "7. Meetings", href: "/dashboard/sales/meetings", icon: CalendarCheck },
+      { key: "sales-results", label: "8. Results", href: "/dashboard/sales/results", icon: TrendingUp },
+      { key: "sales-knowledge", label: "Knowledge base", href: "/dashboard/sales/knowledge", icon: BookOpen },
+      { key: "sales-agent", label: "Sales agent", href: "/dashboard/agents", icon: Bot },
+      { key: "sales-setup", label: "Setup guide", href: "/dashboard/sales/setup", icon: Activity },
     ],
   },
   {
@@ -67,13 +79,6 @@ const NAV = [
     label: "Platforms",
     href: "/dashboard/platforms",
     icon: Plug,
-  },
-  {
-    key: "agents",
-    label: "Sales Agents",
-    href: "/dashboard/agents",
-    icon: Bot,
-    requireMode: "sales",
   },
   {
     key: "analytics",

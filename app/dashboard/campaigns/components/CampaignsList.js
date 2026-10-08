@@ -142,17 +142,11 @@ export default function CampaignsList({ onSelectCampaign }) {
   }
 
   return (
-    <div className="p-6 bg-base-100">
-      <div className="max-w-7xl mx-auto">
-        {/* Modern Header with Stats */}
+    <div className="bg-base-100">
+      <div>
+        {/* Header with Stats (the page title comes from the sales step layout) */}
         <div className="mb-8">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-bold text-base-content">Campaigns</h1>
-              <p className="text-base-content/60 mt-1">
-                Manage your LinkedIn outreach campaigns
-              </p>
-            </div>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-end mb-6 gap-4">
             <button
               onClick={() => setShowCreateModal(true)}
               className="btn btn-primary gap-2 shadow-lg hover:shadow-xl transition-all w-full sm:w-auto"
@@ -336,7 +330,7 @@ export default function CampaignsList({ onSelectCampaign }) {
               No campaigns yet
             </h3>
             <p className="text-base-content/60 mb-6">
-              Create your first LinkedIn outreach campaign to get started
+              Create your first campaign to start finding leads on LinkedIn, Rozee.pk or Indeed
             </p>
             <button
               onClick={() => setShowCreateModal(true)}
