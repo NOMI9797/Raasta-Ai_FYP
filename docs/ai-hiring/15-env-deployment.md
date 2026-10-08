@@ -23,7 +23,10 @@ Add these to `.env.local` (dev) and the deployment environment. Also create `.en
 | `LOG_LEVEL` | engine | `info` | `debug` adds per-answer loop logs (never transcripts at info level) |
 | `INTERVIEWER_NAME` | engine | `Raasta AI Interviewer` | |
 | `TTS_VOICE` | engine | `am_michael` | |
-| `DEEPGRAM_API_KEY` | engine | – | if empty, the Whisper fallback is used |
+| `DEEPGRAM_API_KEY` | engine | – | live captions and the best transcripts. If empty, the Whisper fallback is used (chunked, no live captions) |
+| `STT_LANGUAGE` | engine | `en` | language of the interview. Locks Whisper to it (auto-detection invents Portuguese or Japanese from noise) and turns the foreign-script filter on for English; `auto` leaves Whisper to detect |
+| `LLM_REASONING_EFFORT` | web, worker, engine | – | `low`, `medium` or `high`: default reasoning effort for `openai/gpt-oss-*` models when a caller doesn't choose. The interview paths use `low` |
+| `FFMPEG_PATH` | worker | `ffmpeg` | where ffmpeg is, when it isn't on PATH. The worker joins and decodes recordings with it; without it the AI engine is used for joining |
 | `AI_ENGINE_URL` | engine, worker | `http://localhost:8000` | |
 | `AI_ENGINE_TOKEN` | engine, worker, ai-engine | 32+ random bytes | |
 | `STORAGE_DRIVER` | web, worker, ai-engine | `local` | `s3` in prod |
@@ -35,8 +38,23 @@ Add these to `.env.local` (dev) and the deployment environment. Also create `.en
 | `MAILGUN_API_KEY` | web, worker | existing | |
 | `EMAIL_OUTBOX` | web, worker | – | `local` writes emails to `.storage/outbox` when there is no Mailgun key, even in production (`npm run serve` sets it) |
 | `DEV_WARMUP`, `QUERY_DEVTOOLS` | `npm run dev` | – | `false` turns off the screen warm-up; `true` shows the React Query panel (see 21) |
+| `PUBLISH_DAILY_CAP_<PLATFORM>`, `PUBLISH_MIN_GAP_MINUTES_<PLATFORM>` | web, worker | LinkedIn 3 / 10, Rozee.pk 5 / 5, Indeed 3 / 10 | `<PLATFORM>` is `LINKEDIN`, `ROZEE` or `INDEED`; automatic posts per account per 24 hours, and the pause between two (see 19) |
+| `INDEED_AUTO_POST` | web, worker | – | `true` would offer posting to Indeed in the background (a saved session, nobody watching). Nothing is built behind it: Indeed is posted with the posting engine or Copy and open (see 19, sections 5b and 5f) |
+| `POSTER_ENGINE_PORT` | web, posting engine | `8095` | the posting engine's health address, on this machine only. A second engine on the same port refuses to start |
+| `POSTER_TYPING_SPEED` | posting engine | `natural` | `natural`, `fast` or `off`: how quickly the engine types in its window (see 19, section 5f) |
+| `POSTER_BROWSER` | posting engine | `chrome` | the browser the engine opens: `chrome` (falls back to Chromium), `msedge` or `chromium`. It has a profile of its own under `.runtime/poster-profiles/` |
+| `POSTER_PAUSED_COOLOFF_HOURS` | web | `24` | how long the posting engine leaves a person's Indeed alone after Indeed paused the account (a block page is always 30 minutes); see 19, section 5f |
+| `POSTER_STEALTH` | posting engine | – | `true` adds stealth launch flags. Off by default: a visible window with a person and human-like typing come first (see CLAUDE.md conventions and 19, section 5) |
+| `POSTER_SHOTS_DIR` | web, posting engine | `./.runtime/poster-runs` | where each run's step screenshots are written (git-ignored, the newest 15 runs kept); the web app reads them from here |
+| `INDEED_DEBUG` | web, worker | – | `true` records every automatic Indeed post attempt (screenshots, page structure, errors) in `debug-indeed/` |
+| `INDEED_DEBUG_DIR` | web, worker | `./debug-indeed` | where Indeed debug runs are written (gitignored; the newest 20 are kept) |
+| `INDEED_CHECK_WAIT_SECONDS` | web | `180` | with the window shown, how long the Indeed diagnostic waits for a person to clear a verification check (10 to 600) |
+| `INDEED_CONNECT_WAIT_MINUTES` | web | `5` | how long the Indeed sign-in window waits for the person (1 to 30) |
+| `INDEED_CONNECT_WINDOW` | web | – | `off` disables the Indeed sign-in window (a server without a screen) |
 | `MODEL_CACHE_DIR` | ai-engine | `/models` | |
 | `FACE_ANALYSIS_ENABLED` | ai-engine | `false` | needs TensorFlow + weights |
+
+**ffmpeg** must be installed on the machine that runs the hiring worker (`winget install Gyan.FFmpeg`, `brew install ffmpeg`, `apt install ffmpeg`); `ffmpeg -version` should work in the terminal that starts the app. **Camera tracking** needs its browser runtime copied under `public/mediapipe/` once: `npm run sync:mediapipe` (copies the WebAssembly runtime from `node_modules` and the face model from `services/ai-engine/.models/` or downloads it once, about 4 MB). Both are git-ignored.
 
 Generate secrets: `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`.
 

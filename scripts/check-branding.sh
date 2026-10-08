@@ -5,7 +5,8 @@ set -euo pipefail
 NAME="$(printf '%s%s' 'opti' 'vus')"
 if grep -rniI "$NAME" . \
   --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=".next*" \
-  --exclude-dir=.venv --exclude-dir=venv --exclude-dir=__pycache__; then
+  --exclude-dir=.venv --exclude-dir=venv --exclude-dir=__pycache__ \
+  --exclude-dir=.runtime --exclude-dir=.storage; then # .runtime holds the posting engine's browser profiles: not source, and large
   echo "❌ Branding check failed: legacy name found (see lines above)."
   exit 1
 fi

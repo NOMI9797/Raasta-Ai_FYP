@@ -13,6 +13,8 @@
 /.next-*/
 # screenshots of the LinkedIn publisher debug mode (they show a real feed)
 /debug-recruiter-posts/
+# Indeed debug runs: screenshots and page structure of a signed-in employer area (libs/indeed-debug.js)
+/debug-indeed/
 /out/
 
 # production
@@ -55,3 +57,6 @@ __pycache__/
 
 # processes started from the web app (pid files and their output)
 /.runtime/
+
+# Face-tracking runtime for the interview room (npm run sync:mediapipe)
+public/mediapipe/

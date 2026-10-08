@@ -33,9 +33,11 @@ npm run db:studio      # Drizzle studio
 # New in this branch (see docs/ai-hiring/15-env-deployment.md):
 npm run engine:dev     # interview engine (WebSocket) on :8090
 npm run worker:hiring  # hiring worker. Optional: the web server starts it by itself (HIRING_WORKER_MODE=external to run it yourself)
+npm run poster:engine  # posting engine: opens a visible browser window on THIS machine to fill in an Indeed post (optional; the Publish panel can start it)
 cd services/ai-engine && uvicorn main:app --port 8000   # Python AI engine
 docker compose up      # everything together
 npm run check:branding # fails if the legacy source name appears anywhere
+npm run sync:mediapipe # once: puts the camera-tracking runtime and face model under public/mediapipe/ (git-ignored)
 ```
 
 ## Conventions (follow existing code)
@@ -46,6 +48,7 @@ npm run check:branding # fails if the legacy source name appears anywhere
 - Groq client: `new OpenAI({ apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1" })`. For new code, use `libs/ai/llm.js` (created in Phase 0).
 - UI: DaisyUI classes (`btn`, `card`, `badge`, `tabs`, `modal`), lucide icons, client components with `"use client"`.
 - Code in `libs/interview/`, `libs/hiring/`, `libs/ai/`, `libs/agent/`, `services/` and `workers/` **must use relative imports, not `@/`**, because it also runs outside Next.js under `tsx`.
+- Platform automation (LinkedIn, Rozee.pk, Indeed): human-like behaviour and stealth measures are **allowed** (owner decision, 2026-10-07; docs/ai-hiring/19 §5). Prefer, in order: a visible window with a person for every check and decision, then human-like input, then stealth. The owner accepts the account-ban risk. Claims about what a platform does must come from evidence: the owner's live observation beats an inference from screenshots.
 
 ## Hard rules
 
@@ -74,11 +77,16 @@ npm run check:branding # fails if the legacy source name appears anywhere
 | New: interview logic | `libs/interview/` |
 | New: supervised recruiter agent | `libs/agent/` (policy, runs, actions, worker tick); UI `app/dashboard/recruiter/agent/**` |
 | New: job publishing (LinkedIn, Rozee.pk) | `libs/hiring/platform-content.js`, `libs/hiring/publishing.js`; panel `app/dashboard/recruiter/components/PublishPanel.js` |
-| New: interview engine (WS) | `services/interview-engine/` |
+| New: Indeed (sign-in window, diagnostics, debug recordings) | `libs/indeed-*.js`, `libs/platforms/indeed.js`, `app/api/indeed/**`, panel `app/dashboard/accounts/components/IndeedAccountsPanel.js`; not posted in the background (docs/ai-hiring/19 §5b): the posting engine (below) or Copy and open |
+| New: posting engine (visible window, human-like typing, hands over at every check and decision; Indeed and Rozee.pk; has a practice site per platform, no account needed) | `libs/poster/**`, `services/poster-engine/`, `app/api/hiring/jobs/[jobId]/posting-runs/`, `app/api/hiring/posting-runs/`, panel `app/dashboard/recruiter/components/PostingEngine.js`, table `posting_runs` (docs/ai-hiring/19 §5f) |
+| New: assisted posting (browser extension for Indeed and Rozee.pk) | `extensions/raasta-poster/`, `libs/hiring/posting-kit.js`, `libs/poster-bridge.js` (docs/ai-hiring/19 §5d) |
+| New: interview engine (WS) | `services/interview-engine/`; conversation hygiene (echo, STT junk, "end the interview", refusals) in `libs/interview/{echo-guard,intent}.js`, `libs/interview/stt/clean.js` (docs/ai-hiring/09) |
+| New: recording join and analysis (ffmpeg in the worker, voice metrics, camera behaviour) | `libs/interview/{analysis,media-tools,voice-metrics,behavior}.js`; needs `ffmpeg` on the worker's PATH (docs/ai-hiring/11) |
 | New: Python AI engine | `services/ai-engine/` |
 | New: background worker | `workers/hiring-worker.js` |
 | New: setup guide (start / stop programs, guidance) | `libs/system/`, `components/system/`, `app/dashboard/recruiter/setup/` |
 | New: worker run by the web server | `instrumentation.js`, `instrumentation-node.js`, `libs/system/worker-host.js` |
 | New: speed (fast production mode, dev warm-up) | `scripts/serve.js`, `libs/system/dev-warmup.js`, `next.config.js` |
-| New: candidate interview room | `app/interview/[token]/` |
+| New: candidate interview room (incl. in-browser camera tracking: `lib/behavior-{tracker,features}.js`) | `app/interview/[token]/` |
+| New: recruiter Behaviour tab | `app/dashboard/recruiter/interviews/[interviewId]/components/BehaviorTab.js` |
 | Feature docs | `docs/ai-hiring/` |
