@@ -162,7 +162,6 @@ export default function ScreeningSection({ candidate, onScreen, screening }) {
           {candidate.screenedAt && (
             <p className="text-[10px] text-base-content/40">
               Screened {new Date(candidate.screenedAt).toLocaleString()}
-              {analysis.model ? ` · ${analysis.model}` : ""}
             </p>
           )}
         </>
