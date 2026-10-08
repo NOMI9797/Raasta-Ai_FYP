@@ -118,16 +118,43 @@ export function parseJsonContent(raw) {
   }
 }
 
-async function complete({ messages, model, temperature, maxTokens, json }) {
+// GPT-OSS models "think" before answering and those reasoning tokens count against max_tokens.
+// With a small budget the visible answer comes back cut off, or empty (finish_reason "length").
+const LENGTH_RETRY_FACTOR = 3;
+const MAX_RETRY_TOKENS = 8000;
+
+export function supportsReasoningEffort(model) {
+  return /gpt-oss/i.test(String(model || ""));
+}
+
+// "low" | "medium" | "high"; LLM_REASONING_EFFORT sets a default for callers that don't choose
+function reasoningEffortFor(model, requested) {
+  const effort = requested || process.env.LLM_REASONING_EFFORT || "";
+  return effort && supportsReasoningEffort(model) ? effort : null;
+}
+
+async function complete({ messages, model, temperature, maxTokens, json, reasoningEffort }) {
+  const effort = reasoningEffortFor(model, reasoningEffort);
+  let budget = maxTokens;
   try {
-    const completion = await getClient().chat.completions.create({
-      model,
-      messages,
-      temperature,
-      max_tokens: maxTokens,
-      ...(json ? { response_format: { type: "json_object" } } : {}),
-    });
-    return completion.choices?.[0]?.message?.content?.trim() || "";
+    for (let attempt = 0; ; attempt += 1) {
+      const completion = await getClient().chat.completions.create({
+        model,
+        messages,
+        temperature,
+        max_tokens: budget,
+        ...(effort ? { reasoning_effort: effort } : {}),
+        ...(json ? { response_format: { type: "json_object" } } : {}),
+      });
+      const choice = completion.choices?.[0];
+      const text = choice?.message?.content?.trim() || "";
+      // Out of tokens (often all spent on reasoning): ask once more with a bigger budget
+      if (choice?.finish_reason === "length" && attempt === 0 && budget < MAX_RETRY_TOKENS) {
+        budget = Math.min(MAX_RETRY_TOKENS, budget * LENGTH_RETRY_FACTOR);
+        continue;
+      }
+      return text;
+    }
   } catch (error) {
     if (json && isJsonValidationError(error)) return null; // treat as unparseable output
     throw toLlmError(error);
@@ -137,13 +164,14 @@ async function complete({ messages, model, temperature, maxTokens, json }) {
 /**
  * Plain-text completion.
  */
-export async function chatText({ system, user, messages, model, temperature = 0.7, maxTokens = 400 }) {
+export async function chatText({ system, user, messages, model, temperature = 0.7, maxTokens = 400, reasoningEffort }) {
   return complete({
     messages: buildMessages({ system, user, messages }),
     model: model || getModel(),
     temperature,
     maxTokens,
     json: false,
+    reasoningEffort,
   });
 }
 
@@ -159,12 +187,13 @@ export async function chatJSON({
   temperature = 0.2,
   maxTokens = 1200,
   schemaHint,
+  reasoningEffort,
 }) {
   const systemPrompt = schemaHint
     ? `${system || ""}\n\nRespond with a JSON object matching this shape:\n${schemaHint}`.trim()
     : system;
   const baseMessages = buildMessages({ system: systemPrompt, user, messages });
-  const options = { model: model || getModel(), temperature, maxTokens, json: true };
+  const options = { model: model || getModel(), temperature, maxTokens, json: true, reasoningEffort };
 
   const first = await complete({ ...options, messages: baseMessages });
   const parsed = parseJsonContent(first);
@@ -179,12 +208,38 @@ export async function chatJSON({
 }
 
 /**
- * Speech-to-text with Groq Whisper. Returns the transcript text.
+ * Whisper invents text on silence and noise ("Thank you.", "Bye.", sentences in another language).
+ * Its own per-segment confidence gives these away: keep a segment only when it looks like speech.
  */
-export async function transcribe({ wavBuffer, model = DEFAULT_TRANSCRIBE_MODEL }) {
+export function isSpeechSegment(segment) {
+  if (!segment || typeof segment.text !== "string" || !segment.text.trim()) return false;
+  const noSpeech = Number(segment.no_speech_prob);
+  const logprob = Number(segment.avg_logprob);
+  const compression = Number(segment.compression_ratio);
+  if (Number.isFinite(compression) && compression > 2.4) return false; // repeated filler text
+  if (Number.isFinite(noSpeech) && Number.isFinite(logprob) && noSpeech > 0.6 && logprob < -0.6) return false;
+  if (Number.isFinite(logprob) && logprob < -1.2) return false;
+  return true;
+}
+
+/**
+ * Speech-to-text with Groq Whisper. Returns the transcript text.
+ * The language is fixed (STT_LANGUAGE, default English): auto-detection turns background noise
+ * into Portuguese, Japanese or Russian. Segments Whisper itself doubts are dropped.
+ */
+export async function transcribe({ wavBuffer, model = DEFAULT_TRANSCRIBE_MODEL, language = process.env.STT_LANGUAGE || "en" }) {
   try {
     const file = await toFile(wavBuffer, "audio.wav", { type: "audio/wav" });
-    const result = await getClient().audio.transcriptions.create({ file, model });
+    const result = await getClient().audio.transcriptions.create({
+      file,
+      model,
+      temperature: 0,
+      response_format: "verbose_json",
+      ...(language && language !== "auto" ? { language } : {}),
+    });
+    if (Array.isArray(result?.segments) && result.segments.length) {
+      return result.segments.filter(isSpeechSegment).map((s) => s.text.trim()).join(" ").trim();
+    }
     return (result?.text || "").trim();
   } catch (error) {
     throw toLlmError(error);

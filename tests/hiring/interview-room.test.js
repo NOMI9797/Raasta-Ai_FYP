@@ -126,6 +126,19 @@ test("recording parts: key format and continuing after a reload", async () => {
   const list = async (prefix) => (prefix.endsWith("audio/")
     ? ["recordings/iv1/audio/00000.webm", "recordings/iv1/audio/00003.webm", "recordings/iv1/audio/00003.webm.meta.json"]
     : []);
-  assert.deepEqual(await nextRecordingParts("iv1", { list }), { audio: 4, video: 0 });
-  assert.deepEqual(await nextRecordingParts("iv1", { list: async () => { throw new Error("down"); } }), { audio: 0, video: 0 });
+  assert.deepEqual(await nextRecordingParts("iv1", { list }), { audio: 4, video: 0, behavior: 0 });
+  assert.deepEqual(await nextRecordingParts("iv1", { list: async () => { throw new Error("down"); } }), { audio: 0, video: 0, behavior: 0 });
+  // Camera behaviour batches are JSON and are numbered the same way
+  const withBehavior = async (prefix) => (prefix.endsWith("behavior/") ? ["recordings/iv1/behavior/00000.json", "recordings/iv1/behavior/00005.json"] : []);
+  assert.deepEqual(await nextRecordingParts("iv1", { list: withBehavior }), { audio: 0, video: 0, behavior: 6 });
+});
+
+test("upload queue: camera behaviour batches go up as JSON files, recordings as WebM", async () => {
+  const names = [];
+  const impl = async (url, init) => { names.push([init.body.get("kind"), init.body.get("file").name]); return { ok: true, status: 200 }; };
+  const queue = new UploadQueue("tok", { fetchImpl: impl, sleep: async () => {} });
+  queue.add({ kind: "audio", part: 3, blob: new Blob(["a"]) });
+  queue.add({ kind: "behavior", part: 2, blob: new Blob(["{}"], { type: "application/json" }) });
+  await queue.drain();
+  assert.deepEqual(names, [["audio", "audio-3.webm"], ["behavior", "behavior-2.json"]]);
 });

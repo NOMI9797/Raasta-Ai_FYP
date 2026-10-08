@@ -77,6 +77,7 @@ function emailVars({ candidate, job, hiringTeam }, { token, expiresAt }) {
     expiresAt,
     maxMinutes: config.interviewMaxMinutes,
     recordVideo: config.recordVideo,
+    trackBehavior: Boolean(config.recordVideo && config.trackBehavior),
     hiringTeam,
   };
 }

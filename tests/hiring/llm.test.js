@@ -78,3 +78,37 @@ test("chatText returns trimmed text and accepts a messages array", async () => {
   assert.equal(text, "hello");
   assert.deepEqual(client.calls[0].messages.map((m) => m.role), ["system", "user"]);
 });
+
+// Reasoning models spend max_tokens on thinking: a small budget gave an empty or cut-off reply
+function replyingClient(replies) {
+  const calls = [];
+  return {
+    calls,
+    chat: { completions: { async create(request) { calls.push(request); const next = replies.shift(); return { choices: [{ message: { content: next.content }, finish_reason: next.finish }] }; } } },
+  };
+}
+
+test("a reply cut off by the token limit is asked again with a bigger budget", async () => {
+  const client = replyingClient([{ content: "", finish: "length" }, { content: "Could you describe the project?", finish: "stop" }]);
+  setLlmClient(client);
+  assert.equal(await chatText({ user: "hi", model: "openai/gpt-oss-120b", maxTokens: 150 }), "Could you describe the project?");
+  assert.deepEqual(client.calls.map((c) => c.max_tokens), [150, 450]);
+});
+
+test("the budget is only raised once", async () => {
+  const client = replyingClient([{ content: "Cut", finish: "length" }, { content: "Cut again", finish: "length" }]);
+  setLlmClient(client);
+  assert.equal(await chatText({ user: "hi", maxTokens: 100 }), "Cut again");
+  assert.equal(client.calls.length, 2);
+});
+
+test("reasoning effort is sent to GPT-OSS models only", async () => {
+  const client = replyingClient([{ content: "a", finish: "stop" }, { content: "b", finish: "stop" }, { content: "c", finish: "stop" }]);
+  setLlmClient(client);
+  await chatText({ user: "hi", model: "openai/gpt-oss-20b", reasoningEffort: "low" });
+  await chatText({ user: "hi", model: "llama-3.3-70b-versatile", reasoningEffort: "low" });
+  await chatText({ user: "hi", model: "openai/gpt-oss-20b" });
+  assert.equal(client.calls[0].reasoning_effort, "low");
+  assert.equal("reasoning_effort" in client.calls[1], false);
+  assert.equal("reasoning_effort" in client.calls[2], false);
+});

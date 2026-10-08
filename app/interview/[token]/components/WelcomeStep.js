@@ -83,8 +83,9 @@ export default function WelcomeStep({ token, info, onAccepted }) {
               required
             />
             <span className="text-sm">
-              I agree that this interview will be recorded ({recording}) and evaluated with the help of AI, and that the
-              results will be shared with the hiring team.
+              I agree that this interview will be recorded ({recording}) and evaluated with the help of AI
+              {info.trackBehavior ? ", including analysis of my eye movement, head movement and facial expressions on camera," : ""} and
+              that the results will be shared with the hiring team.
             </span>
           </label>
 

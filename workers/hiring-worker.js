@@ -137,7 +137,8 @@ export const handlers = {
   "assemble-recording": {
     timeoutMs: 5 * 60 * 1000,
     async run({ interviewId, kind = null }) {
-      return assembleRecording(interviewId, { kind });
+      // strict: a failed join is thrown, so it is retried (or dead-lettered at once when retrying can't help)
+      return assembleRecording(interviewId, { kind, strict: true });
     },
   },
 

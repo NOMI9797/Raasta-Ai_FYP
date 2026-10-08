@@ -454,3 +454,107 @@ test("speech activity keeps the silence window open while finals lag behind (Whi
   assert.equal(t.calls.createResponse.length, 1);
   assert.equal(t.calls.createResponse[0].answer, "In my last job I moved our servers to AWS. We used Terraform for the infrastructure.");
 });
+
+// ─── Conversation fixes (echo of the interviewer's voice, "end the interview", refusals) ───
+
+test("echo: the question heard back through the speakers is not part of the answer", async () => {
+  const t = setup();
+  await toFirstQuestion(t);
+  const question = QUESTIONS[0].question;
+  // The microphone hears the question, then the candidate answers: the transcript has both
+  t.session.onSttFinal(question, {});
+  t.session.onSttFinal(`${question} ${LONG_ANSWER}`, {});
+  t.session.onAnswerDone();
+  await settle();
+  assert.equal(t.calls.createResponse.length, 1);
+  assert.equal(t.calls.createResponse[0].answer, LONG_ANSWER);
+  // Captions shown to the candidate never contained the question text
+  assert.ok(t.ofType("caption_final").every((c) => !c.text.includes("design a REST API")));
+});
+
+test("echo: the greeting heard back does not start the interview by itself", async () => {
+  const t = setup();
+  await t.session.start({ resume: false });
+  await t.ackSpeech();
+  t.session.onSttFinal(greetingText({ firstName: "Ayesha", jobTitle: "DevOps Engineer", total: 3 }), {});
+  await settle();
+  assert.equal(t.session.state.begun, false, "'ready to begin?' in the interviewer's own voice is not a ready word");
+  t.session.onSttFinal("yes I am ready", {});
+  await settle();
+  assert.equal(t.session.state.begun, true);
+});
+
+test("end request by voice: not counted as an answer, the interviewer says goodbye and the interview ends", async () => {
+  const t = setup();
+  await toFirstQuestion(t);
+  t.session.onSttFinal(LONG_ANSWER, {});
+  t.session.onAnswerDone();
+  await settle();
+  await t.ackSpeech(); // Q2 spoken
+  t.session.onSttFinal("Actually I want to end the interview, so kindly end it right now.", {});
+  t.session.onAnswerDone();
+  await settle();
+
+  assert.equal(t.lastSpeaking().kind, "closing");
+  assert.match(t.lastSpeaking().text, /^Understood, Ayesha\. I'll end the interview here\./);
+  assert.equal(t.calls.createResponse.length, 1, "the request is in the transcript but is not an answered question");
+  assert.ok(t.calls.appendTurn.some((turn) => turn.speaker === "candidate" && /end the interview/.test(turn.text)));
+  await t.ackSpeech();
+  assert.deepEqual(t.ofType("interview_complete"), [{ type: "interview_complete", reason: "ended_by_candidate" }]);
+  assert.equal(t.calls.complete.length, 1, "1 of 3 answered: kept as a partial interview for the recruiter");
+  assert.equal(t.calls.abandon.length, 0);
+  assert.deepEqual(t.calls.enqueue.map((e) => e.type), ["analyse-interview"]);
+});
+
+test("end button mid-answer: what was said so far is saved, then the interview ends", async () => {
+  const t = setup();
+  await toFirstQuestion(t);
+  t.session.onSttFinal("I would start with the routes and controllers", {});
+  await t.session.onEndRequest({ source: "button" });
+  await settle();
+  assert.equal(t.calls.createResponse.length, 1);
+  assert.equal(t.calls.createResponse[0].answer, "I would start with the routes and controllers");
+  assert.equal(t.lastSpeaking().kind, "closing");
+  await t.ackSpeech();
+  assert.equal(t.ofType("interview_complete").at(-1).reason, "ended_by_candidate");
+  assert.equal(t.calls.complete.length, 1);
+});
+
+test("ending before answering anything: nothing to evaluate, the interview is abandoned and the room still closes", async () => {
+  const t = setup();
+  await t.session.start({ resume: false });
+  await t.ackSpeech();
+  await t.session.onEndRequest({ source: "button" });
+  await settle();
+  await t.ackSpeech();
+  assert.equal(t.calls.abandon.length, 1);
+  assert.equal(t.calls.complete.length, 0);
+  assert.equal(t.ofType("interview_complete").at(-1).reason, "ended_by_candidate");
+});
+
+test("a long answer that mentions ending the interview is still an answer", async () => {
+  const t = setup();
+  await toFirstQuestion(t);
+  t.session.onSttFinal(`${LONG_ANSWER} and when the user logs out we end the session`, {});
+  t.session.onAnswerDone();
+  await settle();
+  assert.equal(t.calls.createResponse.length, 1);
+  assert.equal(t.ofType("question").at(-1).text, QUESTIONS[1].question);
+});
+
+test("a refusal gets no follow-up, scores zero without asking the scorer, and the interview moves on", async () => {
+  let scored = 0;
+  const t = setup({
+    analyze: async () => ({ shouldFollowUp: true, reasons: [{ condition: "answer_incomplete" }], reasonForFollowUp: { condition: "answer_incomplete", message: "short" } }),
+    score: async () => { scored += 1; return { score: 80, reasoning: "x", keywordsCovered: [], keywordsMissed: [], fallback: false }; },
+  });
+  await toFirstQuestion(t);
+  t.session.onSttFinal("No, I don't want to answer that.", {});
+  t.session.onAnswerDone();
+  await settle();
+  assert.equal(t.ofType("question").at(-1).kind, "question");
+  assert.equal(t.ofType("question").at(-1).text, QUESTIONS[1].question);
+  assert.equal(scored, 0);
+  assert.equal(t.calls.updateResponseScore[0].result.score, 0);
+  assert.equal(t.calls.updateResponseScore[0].result.reasoning, "The candidate declined to answer.");
+});

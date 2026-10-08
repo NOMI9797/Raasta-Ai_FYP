@@ -11,8 +11,12 @@
 //    nothing; nothing is persisted for an aborted plan either (the answer goes back to the buffer);
 //  - fallback scores and fallback follow-ups are used (flagged), not discarded;
 //  - the follow-up prompt receives the analysis reasons.
+//  - the interviewer's own voice, heard again through the speakers, is cut out of the answer (echo-guard);
+//  - "end the interview" is honoured, and a refusal moves on instead of earning a follow-up (intent).
 // Relative imports only — runs in the interview engine.
 import { randomUUID } from "crypto";
+import { stripEchoes } from "./echo-guard";
+import { detectEndRequest, isDecline } from "./intent";
 
 export const READY_WORDS = /\b(yes|ready|sure|okay|ok|yeah|let'?s|start|begin)\b/i;
 export const GUARD_CHARS = 10;            // candidate kept talking → don't speak over them
@@ -26,6 +30,8 @@ const ACK_SLACK_MS = 4000;                // client never sent ai_done_speaking 
 const TICK_MS = 1000;
 const HISTORY_LIMIT = 12;
 const RECENT_ANSWERS = 10;
+const ECHO_WINDOW_MS = 90 * 1000;         // how long after the interviewer spoke its words can come back as echo
+const RECENT_SPOKEN = 4;
 const INTEGRITY_EVENTS = new Set(["tab_hidden", "tab_visible", "mic_muted", "mic_unmuted", "net_offline", "net_online", "fullscreen_exit"]);
 const MAX_INTEGRITY_EVENTS = 200;
 
@@ -35,6 +41,10 @@ export function greetingText({ firstName, jobTitle, total }) {
 
 export function closingText({ firstName, jobTitle }) {
   return `Thank you, ${firstName}. That concludes your interview for ${jobTitle}. The hiring team will be in touch. You may now close this window.`;
+}
+
+export function endedByCandidateText({ firstName }) {
+  return `Understood, ${firstName}. I'll end the interview here. Thank you for your time. The hiring team will review what we covered and be in touch. You may now close this window.`;
 }
 
 /**
@@ -97,6 +107,7 @@ export class InterviewSession {
     // Runtime-only (never serialized)
     this.isProcessingAnswer = false;
     this.isAiSpeaking = false;
+    this.recentSpoken = [];         // what the interviewer said lately, newest first (to recognise its echo)
     this.sideBuffer = "";           // finals heard while the AI was speaking (barge-in)
     this.mergeSideBuffer = false;   // the AI finished: merge the side buffer if the candidate keeps talking
     this.currentTurnId = null;
@@ -137,6 +148,7 @@ export class InterviewSession {
       recentAnswers: [],
       repeatCount: 0,
       timeUpAt: null,
+      endedByCandidate: false,
     };
   }
 
@@ -199,9 +211,20 @@ export class InterviewSession {
     if (this.state.stage === "listening" || this.state.stage === "processing") this.state.lastAnswerAt = this.deps.now();
   }
 
+  /**
+   * Take the interviewer's own words out of what the microphone heard. Outside the window after it
+   * spoke (or before it ever spoke) the text is left alone.
+   */
+  withoutEcho(text) {
+    const value = String(text || "").trim();
+    if (!value || !this.recentSpoken.length) return value;
+    if (!this.isAiSpeaking && this.deps.now() - this.recentSpoken[0].at > ECHO_WINDOW_MS) return value;
+    return stripEchoes(value, this.recentSpoken.map((s) => s.text)).text;
+  }
+
   onSttFinal(text, timing = {}) {
     if (this.ended || this.paused) return;
-    const clean = String(text || "").trim();
+    const clean = this.withoutEcho(text);
     if (!clean) return;
     this.deps.send("caption_final", { text: clean });
     this.publish({ type: "caption_final", text: clean });
@@ -236,7 +259,8 @@ export class InterviewSession {
     this.isAiSpeaking = false;
 
     if (this.state.stage === "closing") {
-      this.end(this.state.timeUpAt ? "time_up" : "finished").catch((error) => this.fail(error));
+      const reason = this.state.endedByCandidate ? "candidate_ended" : this.state.timeUpAt ? "time_up" : "finished";
+      this.end(reason).catch((error) => this.fail(error));
       return;
     }
     if (this.state.stage === "greeting") {
@@ -271,6 +295,29 @@ export class InterviewSession {
   onBegin() {
     if (this.ended || this.paused || this.state.begun || this.state.stage !== "greeting") return;
     this.begin().catch((error) => this.fail(error));
+  }
+
+  /**
+   * The candidate wants to stop: the "End interview" button, or they said so (see runProcessing).
+   * What they were saying is kept, the interviewer says goodbye, and the interview ends.
+   */
+  async onEndRequest({ source = "button" } = {}) {
+    if (this.ended || this.paused || this.state.endedByCandidate || this.state.stage === "closing") return;
+    // An answer being processed settles first (it may already be the last one)
+    if (this.processing) await this.processing.catch(() => {});
+    if (this.ended || this.state.stage === "closing") return;
+    this.clearTimer("silence");
+    this.clearTimer("ack");
+    this.isAiSpeaking = false;
+    const pending = this.withoutEcho(`${this.state.currentAnswerBuffer} ${this.sideBuffer}`.trim());
+    this.state.currentAnswerBuffer = "";
+    this.sideBuffer = "";
+    if (pending && this.state.begun && ["listening", "asking"].includes(this.state.stage) && !detectEndRequest(pending)) {
+      await this.saveAnswer({ answer: pending, ...this.questionSnapshot(), answeredAt: new Date(this.answerStartedAt || this.deps.now()) });
+    }
+    this.deps.log("info", { msg: "candidate ended the interview", interviewId: this.interview.id, source });
+    this.publish({ type: "status", status: "ending", source });
+    await this.close({ byCandidate: true });
   }
 
   onRepeatQuestion() {
@@ -328,8 +375,11 @@ export class InterviewSession {
     const state = this.serializeState();
     const answeredBase = new Set(this.state.questionsAnswered.filter((a) => !a.isFollowUp).map((a) => a.questionId)).size;
     const partial = reason === "abandoned" || reason === "error";
-    if (partial && answeredBase < Math.ceil(this.questions.length * 0.5)) {
+    // Someone who ends the interview before answering anything has nothing to evaluate
+    const leftBeforeAnswering = reason === "candidate_ended" && this.state.questionsAnswered.length === 0;
+    if (leftBeforeAnswering || (partial && answeredBase < Math.ceil(this.questions.length * 0.5))) {
       await this.deps.repo.abandon(this.interview, { state });
+      if (reason === "candidate_ended") this.deps.send("interview_complete", { reason: "ended_by_candidate" });
       this.publish({ type: "status", status: "abandoned" });
       this.deps.log("info", { msg: "interview abandoned", interviewId: this.interview.id, answered: answeredBase });
       this.deps.onEnded?.({ status: "abandoned", reason });
@@ -338,7 +388,8 @@ export class InterviewSession {
 
     const stats = await this.deps.repo.complete(this.interview, { questions: this.questions, state });
     if (!partial) {
-      this.deps.send("interview_complete", { reason: reason === "time_up" ? "time_up" : reason === "finished" ? "finished" : "ended_by_system" });
+      const wire = { time_up: "time_up", finished: "finished", candidate_ended: "ended_by_candidate" };
+      this.deps.send("interview_complete", { reason: wire[reason] || "ended_by_system" });
     }
     this.publish({ type: "status", status: "completed", reason });
     try {
@@ -429,7 +480,7 @@ export class InterviewSession {
     }
   }
 
-  async runProcessing({ force }) {
+  questionSnapshot() {
     const snap = {
       questionId: this.state.currentQuestionId,
       questionText: this.state.currentQuestionText,
@@ -439,15 +490,39 @@ export class InterviewSession {
       followUpContext: this.state.followUpContext,
       answerStartedAt: this.answerStartedAt,
     };
-    const answer = this.state.currentAnswerBuffer.trim();
+    return { snap, base: this.questionById.get(snap.baseQuestionId) };
+  }
+
+  async runProcessing({ force }) {
+    const { snap, base } = this.questionSnapshot();
+    // The interviewer's own voice can be heard again through the speakers: it is not the answer
+    const answer = this.withoutEcho(this.state.currentAnswerBuffer.trim());
     const answeredAt = new Date(this.answerStartedAt || this.deps.now());
     this.state.currentAnswerBuffer = ""; // the guard measures everything heard from here on
     this.state.stage = "processing";
     this.deps.send("processing", {});
 
     try {
-      const base = this.questionById.get(snap.baseQuestionId);
-      const plan = await this.planNext({ answer, snap, base, force });
+      if (!force && answer && detectEndRequest(answer)) {
+        // "End the interview": keep the words in the transcript, but they are not an answer
+        await this.deps.repo.appendTurn(this.interview.id, {
+          seq: ++this.state.seq,
+          speaker: "candidate",
+          kind: "answer",
+          questionId: snap.baseQuestionId,
+          text: answer,
+          startedAt: answeredAt,
+          endedAt: new Date(this.deps.now()),
+          offsetMs: this.offsetMs(answeredAt.getTime()),
+        });
+        this.deps.log("info", { msg: "candidate asked to end the interview", interviewId: this.interview.id });
+        this.publish({ type: "status", status: "ending", source: "voice" });
+        await this.close({ byCandidate: true });
+        return;
+      }
+
+      const declined = isDecline(answer);
+      const plan = await this.planNext({ answer, snap, base, force, declined });
 
       // Pre-speak guard: the candidate is still answering → keep listening, commit nothing
       if (!force && plan.type !== "closing_forced" && this.state.currentAnswerBuffer.length > GUARD_CHARS) {
@@ -458,7 +533,7 @@ export class InterviewSession {
         return;
       }
 
-      await this.saveAnswer({ answer, snap, base, answeredAt });
+      await this.saveAnswer({ answer, snap, base, answeredAt, declined });
 
       if (plan.type === "follow_up") {
         this.state.followUpDepth = snap.depth + 1;
@@ -485,10 +560,11 @@ export class InterviewSession {
     }
   }
 
-  async planNext({ answer, snap, base, force }) {
+  async planNext({ answer, snap, base, force, declined = false }) {
     if (force || this.state.timeUpAt) return { type: force ? "closing_forced" : "closing" };
 
-    if (answer && snap.depth < this.config.maxFollowUps && this.remainingMs() >= FOLLOW_UP_MIN_MS) {
+    // A refusal or "I don't know" gets no follow-up: asking again only repeats the question
+    if (answer && !declined && snap.depth < this.config.maxFollowUps && this.remainingMs() >= FOLLOW_UP_MIN_MS) {
       const questionForAnalysis = snap.kind === "follow_up"
         ? { question: snap.questionText, category: null, expectedKeywords: [] }
         : base || { question: snap.questionText, expectedKeywords: [] };
@@ -553,7 +629,7 @@ export class InterviewSession {
     this.state.questionIndex += 1;
   }
 
-  async saveAnswer({ answer, snap, base, answeredAt }) {
+  async saveAnswer({ answer, snap, base, answeredAt, declined = false }) {
     const seq = ++this.state.seq;
     const isFollowUp = snap.depth > 0;
     await this.deps.repo.appendTurn(this.interview.id, {
@@ -586,7 +662,9 @@ export class InterviewSession {
     if (base?.idealAnswer) {
       const question = isFollowUp ? { ...base, question: `${base.question}\nFollow-up asked: ${snap.questionText}` } : base;
       const job = Promise.resolve()
-        .then(() => this.deps.score(answer, question))
+        .then(() => (declined
+          ? { score: 0, reasoning: "The candidate declined to answer.", keywordsCovered: [], keywordsMissed: base.expectedKeywords || [], fallback: false }
+          : this.deps.score(answer, question)))
         .then(async (result) => {
           if (!result) return;
           await this.deps.repo.updateResponseScore(responseId, result);
@@ -599,13 +677,16 @@ export class InterviewSession {
     return responseId;
   }
 
-  async close() {
+  async close({ byCandidate = Boolean(this.state.endedByCandidate) } = {}) {
     if (this.ended) return;
     this.clearTimer("silence");
     this.state.stage = "closing";
+    this.state.endedByCandidate = byCandidate;
     this.state.currentAnswerBuffer = "";
     await this.persistState();
-    await this.speak({ kind: "closing", text: closingText(this.textVars()), cache: true });
+    await this.speak(byCandidate
+      ? { kind: "closing", text: endedByCandidateText(this.textVars()) }
+      : { kind: "closing", text: closingText(this.textVars()), cache: true });
   }
 
   /**
@@ -626,6 +707,7 @@ export class InterviewSession {
       offsetMs: this.offsetMs(startedAt.getTime()),
     });
     this.pushHistory("interviewer", text);
+    this.rememberSpoken(text, questionText);
 
     let speech = null;
     try {
@@ -706,6 +788,13 @@ export class InterviewSession {
 
   // ───────────────────────────── helpers ─────────────────────────────
 
+  rememberSpoken(text, questionText) {
+    const at = this.deps.now();
+    const entries = [{ text, at }];
+    if (questionText && questionText !== text) entries.push({ text: questionText, at });
+    this.recentSpoken = [...entries, ...this.recentSpoken].slice(0, RECENT_SPOKEN);
+  }
+
   textVars() {
     return {
       firstName: this.candidateContext?.firstName || "there",
@@ -714,8 +803,12 @@ export class InterviewSession {
     };
   }
 
+  /**
+   * Position on the recording. The recorder stops while the candidate is disconnected (a page
+   * reload), so time spent disconnected is left out, just like the interview clock.
+   */
   offsetMs(at) {
-    return this.state.startedAt ? Math.max(0, at - this.state.startedAt) : null;
+    return this.state.startedAt ? Math.max(0, at - this.state.startedAt - (this.state.pausedMs || 0)) : null;
   }
 
   pushHistory(role, content) {

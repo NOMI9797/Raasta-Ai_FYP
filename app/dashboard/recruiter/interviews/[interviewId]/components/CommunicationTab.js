@@ -3,7 +3,7 @@
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { formatPercent } from "../../../components/format";
 
-const ERROR_LABELS = { voice: "Speaking pace and fluency", emotion: "Tone of voice", gaze: "Eye contact", face: "Facial expression" };
+const ERROR_LABELS = { voice: "Speaking pace and fluency", emotion: "Tone of voice", gaze: "Eye contact", face: "Facial expression", behavior: "Camera tracking" };
 const EMOTION_BAR = {
   neutral: "progress-info", calm: "progress-info", happy: "progress-success",
   sad: "progress-warning", angry: "progress-error", fear: "progress-warning", disgust: "progress-error", surprise: "progress-secondary",
@@ -55,9 +55,10 @@ export default function CommunicationTab({ detail }) {
     );
   }
 
-  const { voice, emotion, gaze, face, errors = {} } = analysis;
+  const { voice, emotion, gaze, face, behavior, errors = {} } = analysis;
   const components = comm?.components || {};
   const weights = comm?.weights || {};
+  const faceComposure = behavior?.expressions?.composure;
   const distribution = Object.entries(emotion?.distribution || {}).sort((a, b) => b[1] - a[1]);
   const notes = Object.entries(errors).filter(([, reason]) => reason && reason !== "disabled");
 
@@ -69,7 +70,8 @@ export default function CommunicationTab({ detail }) {
           <p className="text-3xl font-bold tabular-nums">{interview.communicationScore ?? comm?.score ?? "–"}</p>
         </div>
         <p className="text-sm text-base-content/60 max-w-xl">
-          Made from speaking pace, fluency, eye contact and tone of voice. Anything that couldn&apos;t be measured is left out and the other parts count for more.
+          Made from speaking pace, fluency, eye contact and composure. Anything that couldn&apos;t be measured is left out and the other parts count for more.
+          {behavior && <> The <span className="font-medium">Behaviour</span> tab shows the camera measurements in detail.</>}
         </p>
       </div>
 
@@ -81,14 +83,15 @@ export default function CommunicationTab({ detail }) {
               <Stat label="Speaking time" value={voice.durationSec != null ? `${Math.round(voice.durationSec)} s` : null} />
             </div>
           ) : <p className="text-xs text-base-content/50">Not measured.</p>}
+          {voice?.source === "transcript" && <p className="text-xs text-base-content/50">There was no usable audio, so pace and pauses could not be measured.</p>}
         </Card>
 
         <Card title="Fluency" score={components.fluency} weight={weights.fluency}>
           {voice ? (
             <>
               <div className="grid grid-cols-3 gap-3">
-                <Stat label="Fillers per minute" value={voice.fillerPerMin != null ? voice.fillerPerMin.toFixed(1) : null} />
-                <Stat label="Time in pauses" value={formatPercent(voice.pauseRatio)} />
+                <Stat label="Fillers per minute" value={voice.fillerPerMin != null ? `${voice.estimated ? "~" : ""}${voice.fillerPerMin.toFixed(1)}` : null} hint={voice.estimated ? "estimated from the transcript" : undefined} />
+                <Stat label="Time in pauses" value={voice.pauseRatio != null ? formatPercent(voice.pauseRatio) : null} />
                 <Stat label="Long pauses" value={voice.longPauses ?? voice.pauseCount} hint={voice.longestPauseSec != null ? `longest ${voice.longestPauseSec.toFixed(1)} s` : undefined} />
               </div>
               {voice.fillerTop?.length > 0 && (
@@ -104,7 +107,7 @@ export default function CommunicationTab({ detail }) {
         <Card title="Eye contact" score={components.eyeContact} weight={weights.eyeContact}>
           {gaze ? (
             <div className="grid grid-cols-2 gap-3">
-              <Stat label="Looking at the camera" value={gaze.eyeContactScore != null ? `${Math.round(gaze.eyeContactScore)}%` : null} />
+              <Stat label="Looking at the screen" value={gaze.eyeContactScore != null ? `${Math.round(gaze.eyeContactScore)}%` : null} hint={gaze.source === "camera" ? (gaze.scope === "answering" ? "while answering" : "whole interview") : undefined} />
               <Stat label="Attention" value={gaze.attentionScore != null ? `${Math.round(gaze.attentionScore)}%` : null} />
               <Stat label="Looked away" value={gaze.lookAwayCount != null ? `${gaze.lookAwayCount} times` : null} hint={gaze.longestLookAwaySec != null ? `longest ${gaze.longestLookAwaySec.toFixed(1)} s` : undefined} />
               <Stat label="Face visible" value={formatPercent(gaze.faceDetectionRate)} />
@@ -112,8 +115,15 @@ export default function CommunicationTab({ detail }) {
           ) : <p className="text-xs text-base-content/50">Not measured{errors.gaze ? `: ${errors.gaze}` : ""}.</p>}
         </Card>
 
-        <Card title="Tone of voice" score={components.composure} weight={weights.composure}>
-          {emotion ? (
+        <Card title={emotion || faceComposure == null ? "Tone of voice" : "Composure (facial expression)"} score={components.composure} weight={weights.composure}>
+          {!emotion && faceComposure != null ? (
+            <div className="space-y-1.5">
+              <p className="text-xs text-base-content/60">
+                {faceComposure}% of the time the face looked calm or pleased
+                {behavior.expressions.dominant ? <>, mostly <span className="font-semibold text-base-content">{behavior.expressions.dominant}</span></> : null}. The tone-of-voice model didn&apos;t run, so this is measured from the camera.
+              </p>
+            </div>
+          ) : emotion ? (
             <div className="space-y-1.5">
               <p className="text-xs text-base-content/60">Mostly <span className="font-semibold text-base-content">{emotion.dominant}</span>{emotion.confidenceAvg != null ? ` (model confidence ${formatPercent(emotion.confidenceAvg)})` : ""}</p>
               {distribution.slice(0, 5).map(([label, share]) => (

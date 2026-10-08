@@ -25,7 +25,7 @@ export const ROUTE_LIMITS = {
 export const UPLOAD_GRACE_MS = 2 * 60 * 60 * 1000;
 export const MAX_PART_BYTES = 10 * 1024 * 1024;
 
-/** recordings/{interviewId}/{kind}/{part:05}.webm */
+/** recordings/{interviewId}/{kind}/{part:05}.webm (camera behaviour batches are .json, see libs/interview/behavior.js) */
 export function recordingPartKey(interviewId, kind, part) {
   return `recordings/${interviewId}/${kind}/${String(part).padStart(5, "0")}.webm`;
 }
@@ -137,11 +137,11 @@ async function questionCount(database, interview) {
  * overwriting the parts uploaded before it.
  */
 export async function nextRecordingParts(interviewId, { list = listKeys } = {}) {
-  const next = { audio: 0, video: 0 };
+  const next = { audio: 0, video: 0, behavior: 0 };
   for (const kind of Object.keys(next)) {
     try {
       for (const key of await list(`recordings/${interviewId}/${kind}/`)) {
-        const match = /\/(\d+)\.webm$/.exec(key);
+        const match = /\/(\d+)\.(?:webm|json)$/.exec(key);
         if (match) next[kind] = Math.max(next[kind], Number(match[1]) + 1);
       }
     } catch {
@@ -160,7 +160,7 @@ export async function publicInterviewView({ interview, job, candidate }, { datab
   const state = interview.state && typeof interview.state === "object" ? interview.state : null;
   const started = interview.status === INTERVIEW_STATUS.IN_PROGRESS || interview.recordingStatus !== "none";
   return {
-    nextRecordingPart: started ? await nextRecordingParts(interview.id, { list }) : { audio: 0, video: 0 },
+    nextRecordingPart: started ? await nextRecordingParts(interview.id, { list }) : { audio: 0, video: 0, behavior: 0 },
     status: interview.status,
     candidateFirstName: (candidate.name || "").trim().split(/\s+/)[0] || "there",
     jobTitle: job.title,
@@ -170,6 +170,7 @@ export async function publicInterviewView({ interview, job, candidate }, { datab
     maxFollowUps: config.maxFollowUps,
     expiresAt: interview.expiresAt,
     recordVideo: config.recordVideo,
+    trackBehavior: Boolean(config.recordVideo && config.trackBehavior),
     consentGiven: Boolean(interview.consentAt),
     canResume: interview.status === INTERVIEW_STATUS.IN_PROGRESS || Boolean(state?.hasGreeted),
     interviewerName: process.env.INTERVIEWER_NAME || "Raasta AI Interviewer",

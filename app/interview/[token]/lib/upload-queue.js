@@ -58,7 +58,7 @@ export class UploadQueue {
         form.append("kind", item.kind);
         form.append("part", String(item.part));
         form.append("final", item.final ? "true" : "false");
-        form.append("file", item.blob, `${item.kind}-${item.part}.webm`);
+        form.append("file", item.blob, `${item.kind}-${item.part}.${item.kind === "behavior" ? "json" : "webm"}`);
         const res = await this.fetch(`/api/interview/${encodeURIComponent(this.token)}/upload`, { method: "POST", body: form });
         if (res.ok) return true;
         // Client errors other than rate limits won't succeed on retry

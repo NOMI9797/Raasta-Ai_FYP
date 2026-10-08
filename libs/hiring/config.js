@@ -14,6 +14,7 @@ export const DEFAULT_HIRING_CONFIG = {
   interviewMaxMinutes: 25,
   resumeWindowMinutes: 15,   // reconnect window after disconnect
   recordVideo: true,
+  trackBehavior: true,       // analyse eye contact, head movement and expressions from the camera (needs recordVideo)
   finalWeights: { resume: 0.3, interview: 0.5, communication: 0.2 },
   finalThreshold: 70,
   autoFinalize: false,       // false = recruiter approves final decisions
@@ -29,7 +30,7 @@ export function getHiringConfig(job) {
 // Alias used in docs/ai-hiring/02-architecture.md
 export const mergeHiringConfig = getHiringConfig;
 
-const BOOLEAN_KEYS = ["autoScreen", "autoInvite", "recordVideo", "autoFinalize", "sendOutcomeEmails"];
+const BOOLEAN_KEYS = ["autoScreen", "autoInvite", "recordVideo", "trackBehavior", "autoFinalize", "sendOutcomeEmails"];
 
 // [key, min, max] — integers within an inclusive range
 const INTEGER_RANGES = [

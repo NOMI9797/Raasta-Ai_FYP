@@ -41,7 +41,7 @@ export function frameRms(pcm) {
  */
 export function createWhisperStt(
   { onFinal, onError, onClose, onActivity },
-  { transcribe = groqTranscribe, sampleRate = 16000, silenceMs = 700, maxChunkMs = 15000, rmsThreshold = 0.015, prerollMs = 300 } = {}
+  { transcribe = groqTranscribe, sampleRate = 16000, silenceMs = 700, maxChunkMs = 15000, rmsThreshold = 0.015, prerollMs = 300, minSpeechMs = 300 } = {}
 ) {
   const bytesPerMs = (sampleRate * BYTES_PER_SAMPLE) / 1000;
   let chunks = [];        // frames of the current utterance
@@ -50,6 +50,7 @@ export function createWhisperStt(
   let prerollBytes = 0;
   let speaking = false;
   let silentMs = 0;
+  let loudMs = 0;         // ms of loud audio in the current chunk
   let streamMs = 0;       // ms of audio received so far
   let chunkStartMs = 0;
   let closed = false;
@@ -61,10 +62,14 @@ export function createWhisperStt(
     const pcm = Buffer.concat(chunks);
     const startMs = chunkStartMs;
     const endMs = Math.round(chunkStartMs + pcm.length / bytesPerMs);
+    const spoken = loudMs;
     chunks = [];
     chunkBytes = 0;
     speaking = false;
     silentMs = 0;
+    loudMs = 0;
+    // A click or a cough isn't speech, and the model invents sentences for it
+    if (spoken < minSpeechMs) return;
     queue = queue.then(async () => {
       try {
         const text = (await transcribe({ wavBuffer: pcmToWav(pcm, sampleRate) }))?.trim();
@@ -100,6 +105,7 @@ export function createWhisperStt(
       chunks.push(buf);
       chunkBytes += buf.length;
       silentMs = loud ? 0 : silentMs + ms;
+      if (loud) loudMs += ms;
       // No partial transcripts here, so report that the candidate is talking (silence timers use it)
       if (loud && streamMs - lastActivityMs >= ACTIVITY_EVERY_MS) {
         lastActivityMs = streamMs;

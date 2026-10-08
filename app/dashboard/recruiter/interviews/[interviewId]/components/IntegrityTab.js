@@ -13,6 +13,7 @@ const EVENT_LABEL = {
 export default function IntegrityTab({ detail }) {
   const { interview } = detail;
   const summary = interview.analysis?.integrity;
+  const camera = interview.analysis?.behavior?.integrity;
   const events = (Array.isArray(interview.integrityEvents) ? interview.integrityEvents : [])
     .filter((e) => e?.at)
     .sort((a, b) => new Date(a.at) - new Date(b.at));
@@ -29,12 +30,13 @@ export default function IntegrityTab({ detail }) {
       </div>
 
       {summary && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
           {[
             ["Times the tab was left", summary.tabHiddenCount],
             ["Total time away", summary.tabHiddenSec != null ? `${summary.tabHiddenSec} s` : null],
             ["Microphone muted", summary.micMutedCount],
             ["Connection lost", summary.offlineCount],
+            ...(camera ? [["Face out of view", camera.faceAbsentCount], ["Second face in view", camera.multipleFacesCount]] : []),
           ].map(([label, value]) => (
             <div key={label} className="bg-base-200 border border-base-300 rounded-lg p-3">
               <p className="text-xs text-base-content/60">{label}</p>

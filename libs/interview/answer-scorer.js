@@ -44,7 +44,7 @@ export async function scoreAnswer(answer, question, { llm = chatJSON } = {}) {
       user: buildScorerUser({ question, answer }),
       model: getModel(),
       temperature: 0.3,
-      maxTokens: 500,
+      maxTokens: 1500, // the model's own reasoning counts against this; 500 left empty replies and keyword-only scores
     });
     const score = Math.round(Number(result?.score));
     if (!Number.isFinite(score)) throw new Error("score missing");

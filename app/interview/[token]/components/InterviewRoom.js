@@ -2,15 +2,18 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
-import { CheckCircle2, Play, Repeat, WifiOff } from "lucide-react";
+import { CheckCircle2, Eye, LogOut, Play, Repeat, WifiOff } from "lucide-react";
 import { InterviewSocket } from "../lib/interview-socket";
 import { UploadQueue } from "../lib/upload-queue";
 import { startRecorders } from "../lib/recorders";
+import { createBehaviorTracker } from "../lib/behavior-tracker";
 import { speak, startMicPipeline } from "../lib/audio";
 import InterviewerOrb from "./InterviewerOrb";
 
 const MAX_REPEATS = 2;
 const MIN_ANSWER_WORDS = 3;
+// The microphone stays closed while the interviewer speaks, and a moment after: room echo trails the speakers
+const MIC_TAIL_MS = 450;
 
 const CHIP = {
   connecting: { label: "Connecting…", className: "badge-ghost" },
@@ -37,10 +40,14 @@ export default function InterviewRoom({ token, info, media, onComplete, onFatal 
   const [repeatsUsed, setRepeatsUsed] = useState(0);
   const [remainingSec, setRemainingSec] = useState(info.maxMinutes * 60);
   const [reconnecting, setReconnecting] = useState(false);
+  const [confirmEnd, setConfirmEnd] = useState(false);
+  const [ending, setEnding] = useState(false);
+  const [tracking, setTracking] = useState("off"); // camera behaviour analysis: off | loading | running | unavailable
 
   const socketRef = useRef(null);
   const queueRef = useRef(null);
   const recordersRef = useRef(null);
+  const trackerRef = useRef(null);
   const pipelineRef = useRef(null);
   const speechRef = useRef(null);       // { turnId, stop }
   const completedRef = useRef(false);
@@ -49,14 +56,17 @@ export default function InterviewRoom({ token, info, media, onComplete, onFatal 
   const handlersRef = useRef({});
   const reconnectingRef = useRef(false);
   const questionRef = useRef(null);
+  const micTailRef = useRef(null);
 
   const finish = useCallback(async () => {
     if (completedRef.current) return;
     completedRef.current = true;
+    clearTimeout(micTailRef.current);
     speechRef.current?.stop();
     pipelineRef.current?.close();
     socketRef.current?.close();
     try {
+      trackerRef.current?.stop(); // its last batch goes first, so the analysis never waits for it
       await recordersRef.current?.stop(); // queues the final parts
     } catch {
       // recorder already stopped
@@ -68,11 +78,16 @@ export default function InterviewRoom({ token, info, media, onComplete, onFatal 
     speechRef.current?.stop();
     setPhase("speaking");
     setAiText(msg.text);
+    // Half-duplex: don't let the microphone hear the interviewer's own voice. Speakers feed it back,
+    // and the speech-to-text would write the question into the candidate's answer.
+    clearTimeout(micTailRef.current);
+    pipelineRef.current?.setEnabled(false);
     const playback = speak(media.ctx, { audio: msg.audio, text: msg.text });
     speechRef.current = { turnId: msg.turnId, stop: playback.stop };
     await playback.done;
     if (speechRef.current?.turnId !== msg.turnId) return; // replaced by a newer utterance
     speechRef.current = null;
+    micTailRef.current = setTimeout(() => pipelineRef.current?.setEnabled(true), MIC_TAIL_MS);
     socketRef.current?.send("ai_done_speaking", { turnId: msg.turnId });
   }, [media.ctx]);
 
@@ -138,6 +153,8 @@ export default function InterviewRoom({ token, info, media, onComplete, onFatal 
       reconnectingRef.current = true;
       setReconnecting(true);
       speechRef.current?.stop();
+      clearTimeout(micTailRef.current);
+      pipelineRef.current?.setEnabled(true);
       setPhase("connecting");
     } else if (status === "failed") {
       onFatal({ code: detail.code || "connection_lost", message: detail.message });
@@ -164,6 +181,11 @@ export default function InterviewRoom({ token, info, media, onComplete, onFatal 
         }
         pipelineRef.current = pipeline;
         recordersRef.current = startRecorders(media.stream, { recordVideo: info.recordVideo, queue, firstPart: info.nextRecordingPart });
+        if (info.recordVideo && info.trackBehavior) {
+          // Not awaited: the model loads in the background and the interview never waits for it
+          trackerRef.current = createBehaviorTracker({ stream: media.stream, queue, firstPart: info.nextRecordingPart?.behavior || 0, onState: setTracking });
+          trackerRef.current.start();
+        }
         await socket.connect();
       } catch (error) {
         if (!disposed) onFatal({ code: "internal", message: "We couldn't start your microphone. Please reload the page." });
@@ -172,10 +194,14 @@ export default function InterviewRoom({ token, info, media, onComplete, onFatal 
 
     return () => {
       disposed = true;
+      clearTimeout(micTailRef.current);
       socket.close();
       pipelineRef.current?.close();
       speechRef.current?.stop();
-      if (!completedRef.current) recordersRef.current?.stop().catch(() => {});
+      if (!completedRef.current) {
+        trackerRef.current?.stop();
+        recordersRef.current?.stop().catch(() => {});
+      }
     };
     // Run once per mounted room
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -231,9 +257,29 @@ export default function InterviewRoom({ token, info, media, onComplete, onFatal 
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, []);
 
+  const endInterview = () => {
+    setConfirmEnd(false);
+    if (!socketRef.current?.send("end_interview")) {
+      toast.error("We can't reach the interviewer right now. Please try again in a moment.");
+      return;
+    }
+    setEnding(true);
+    speechRef.current?.stop();
+    setPhase("thinking");
+  };
+
+  useEffect(() => {
+    if (!confirmEnd) return undefined;
+    const onKey = (event) => {
+      if (event.key === "Escape") setConfirmEnd(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [confirmEnd]);
+
   const answerText = [...finals, partial].join(" ").trim();
-  const canFinish = phase === "listening" && wordCount(answerText) >= MIN_ANSWER_WORDS;
-  const canRepeat = Boolean(question) && (phase === "listening" || phase === "speaking") && repeatsUsed < MAX_REPEATS;
+  const canFinish = !ending && phase === "listening" && wordCount(answerText) >= MIN_ANSWER_WORDS;
+  const canRepeat = !ending && Boolean(question) && (phase === "listening" || phase === "speaking") && repeatsUsed < MAX_REPEATS;
   const chip = CHIP[phase] || CHIP.connecting;
   const lowTime = remainingSec <= 60;
 
@@ -248,6 +294,20 @@ export default function InterviewRoom({ token, info, media, onComplete, onFatal 
           <span className="flex items-center gap-1.5 text-error" aria-label="Recording">
             <span className="w-2.5 h-2.5 rounded-full bg-error animate-pulse" /> REC
           </span>
+          {tracking === "running" && (
+            <span className="hidden sm:flex items-center gap-1.5 text-base-content/60" title="Eye contact, head movement and expressions are measured on your device. No images are sent for this.">
+              <Eye className="w-3.5 h-3.5" aria-hidden="true" /> Camera analysis on
+            </span>
+          )}
+          <button
+            type="button"
+            className="btn btn-ghost btn-xs gap-1"
+            disabled={ending || phase === "connecting"}
+            onClick={() => setConfirmEnd(true)}
+          >
+            <LogOut className="w-3.5 h-3.5" aria-hidden="true" />
+            End interview
+          </button>
         </div>
       </div>
 
@@ -338,6 +398,22 @@ export default function InterviewRoom({ token, info, media, onComplete, onFatal 
           />
         )}
       </div>
+
+      {confirmEnd && (
+        <div className="modal modal-open" role="dialog" aria-modal="true" aria-labelledby="end-interview-title">
+          <div className="modal-box">
+            <h2 id="end-interview-title" className="font-bold text-lg">End the interview now?</h2>
+            <p className="py-3 text-base-content/70">
+              The answers you have given so far are saved and sent to the hiring team. You won&apos;t be able to come back and continue.
+            </p>
+            <div className="modal-action">
+              <button type="button" className="btn btn-ghost" onClick={() => setConfirmEnd(false)} autoFocus>Keep going</button>
+              <button type="button" className="btn btn-error" onClick={endInterview}>End interview</button>
+            </div>
+          </div>
+          <div className="modal-backdrop" onClick={() => setConfirmEnd(false)} aria-hidden="true" />
+        </div>
+      )}
     </div>
   );
 }

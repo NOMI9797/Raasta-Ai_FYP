@@ -15,6 +15,7 @@ import QATab from "./components/QATab";
 import TranscriptTab from "./components/TranscriptTab";
 import RecordingTab from "./components/RecordingTab";
 import CommunicationTab from "./components/CommunicationTab";
+import BehaviorTab from "./components/BehaviorTab";
 import IntegrityTab from "./components/IntegrityTab";
 
 const POLL_MS = 10000;
@@ -125,6 +126,7 @@ export default function InterviewDetailPage({ params }) {
     ["transcript", "Transcript"],
     ["recording", "Recording"],
     ["communication", "Communication"],
+    ["behavior", "Behaviour"],
     ["integrity", "Integrity"],
   ].filter(Boolean);
   const activeTab = tabs.some(([key]) => key === tab) ? tab : tabs[0][0];
@@ -137,6 +139,8 @@ export default function InterviewDetailPage({ params }) {
     setSeek({ ms, nonce: Date.now() });
     setTab("recording");
   };
+  // Camera-track times start when the camera tracking started, a moment after the recording did
+
 
   return (
     <DashboardShell title="Interview" activeSection="recruiter-interviews">
@@ -242,6 +246,7 @@ export default function InterviewDetailPage({ params }) {
           {activeTab === "transcript" && <TranscriptTab detail={detail} onSeek={handleSeek} />}
           {activeTab === "recording" && <RecordingTab detail={detail} seek={seek} onChanged={load} />}
           {activeTab === "communication" && <CommunicationTab detail={detail} />}
+          {activeTab === "behavior" && <BehaviorTab detail={detail} onSeek={handleSeek} />}
           {activeTab === "integrity" && <IntegrityTab detail={detail} />}
         </section>
       </div>

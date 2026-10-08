@@ -5,16 +5,24 @@
 import { chatText, getModel } from "../ai/llm";
 import { buildFollowUpPrompt } from "../ai/prompts/interview";
 
+// Used only when the model can't produce a question. Each one must make sense on its own: it is
+// spoken to a real person who may not have said anything it could refer to ("that situation").
 export const FALLBACK_FOLLOW_UPS = {
-  answer_incomplete: "Can you provide more details about that?",
-  new_topic_opened: "That's interesting. Can you tell me more about that?",
-  skill_avoided: "Could you give me a specific example of how you've used that?",
-  contradiction: "Can you help me understand that better?",
-  deep_experience: "That sounds like valuable experience. Can you walk me through the details?",
+  answer_incomplete: "Could you add a bit more detail to your answer?",
+  new_topic_opened: "You touched on something interesting there. Could you tell me more about it?",
+  skill_avoided: "Could you share a specific example from your own experience that relates to the question?",
+  contradiction: "Could you clarify that last point for me?",
+  deep_experience: "That sounds like valuable experience. Could you walk me through the details?",
   natural_cues: "Please, go ahead and tell me more.",
-  multi_step_required: "What specific challenges did you face in that situation?",
+  multi_step_required: "Could you walk me through a specific example: what you did, and what the result was?",
 };
 const DEFAULT_FALLBACK = "Can you elaborate on that?";
+
+// Reasoning models spend part of the budget thinking; 150 tokens left an empty or cut-off question
+const ATTEMPTS = [
+  { maxTokens: 500, temperature: 0.7 },
+  { maxTokens: 900, temperature: 0.3 },
+];
 
 function clean(text) {
   // One question, no surrounding quotes or "Follow-up:" labels
@@ -25,22 +33,29 @@ function clean(text) {
     .trim();
 }
 
+/** A spoken question ends in terminal punctuation; anything else was cut off mid-sentence. */
+export function looksComplete(text) {
+  return /[?.!]["'”)]*$/.test(String(text || "").trim());
+}
+
 /**
  * Returns { question, fallback }.
  * context: { question, answer, analysis, reason, history, candidate, role, depth }
  */
 export async function generateFollowUp(context, { llm = chatText } = {}) {
-  try {
-    const text = clean(await llm({
-      system: buildFollowUpPrompt(context),
-      user: "Write the follow-up question now.",
-      model: getModel(),
-      temperature: 0.7,
-      maxTokens: 150,
-    }));
-    if (!text || text.length > 400) throw new Error("unusable follow-up");
-    return { question: text, fallback: false };
-  } catch {
-    return { question: FALLBACK_FOLLOW_UPS[context.reason?.condition] || DEFAULT_FALLBACK, fallback: true };
+  for (const attempt of ATTEMPTS) {
+    try {
+      const text = clean(await llm({
+        system: buildFollowUpPrompt(context),
+        user: "Write the follow-up question now.",
+        model: getModel(),
+        reasoningEffort: "low",
+        ...attempt,
+      }));
+      if (text && text.length <= 400 && looksComplete(text)) return { question: text, fallback: false };
+    } catch (error) {
+      if (error?.code === "rate_limit") break; // retrying straight away only makes it worse
+    }
   }
+  return { question: FALLBACK_FOLLOW_UPS[context.reason?.condition] || DEFAULT_FALLBACK, fallback: true };
 }

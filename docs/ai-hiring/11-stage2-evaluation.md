@@ -2,31 +2,33 @@
 
 ## 1. `analyse-interview { interviewId }` (worker)
 
-1. **Wait for the recording:** if `recording_status != 'complete'`, re-enqueue with a 30s delay. After 10 minutes, continue without media (`analysis.media = 'missing'`).
-2. **Assemble the recording:** concatenate the parts into `recordings/{id}/audio.webm` and `recordings/{id}/video.webm`, done by the ai-engine `/media/concat` (ffmpeg). Save the keys in `recording_audio_key` / `recording_video_key`.
-3. **Build the segments:** use `interview_turns` where `speaker='candidate'` with `offsetMs` → `[{ responseId?, startMs, endMs }]`.
-4. **Call the ai-engine** (each with a 10 min timeout; failures recorded per type, never fatal):
-   - `POST /analyze/voice { audioKey, segments }`
-   - `POST /analyze/emotion { audioKey, segments }`
-   - `POST /analyze/gaze { videoKey, sampleFps: 1 }` (if video)
-   - `POST /analyze/face { videoKey }` (if `FACE_ANALYSIS_ENABLED=true`)
+1. **Wait for the recording:** if `recording_status` is `none` or `uploading`, re-enqueue with a 30s delay. After 10 minutes, continue without media (`analysis.media = 'missing'`). A `failed` join is **not** waited out: the analysis tries to join the parts itself, then goes on with whatever exists.
+2. **Assemble the recording:** join the parts into `recordings/{id}/audio.webm` and `recordings/{id}/video.webm` with **ffmpeg in the worker process** (`libs/interview/media-tools.js`, `FFMPEG_PATH` or `ffmpeg` on PATH). The AI engine's `/media/concat` is only the fallback when ffmpeg isn't installed on the worker's machine. Save the keys in `recording_audio_key` / `recording_video_key`. A failure is written to `interviews.error_message` as `recording_failed: …` (shown on the Recording tab) and thrown from the worker job, so it is retried; a missing ffmpeg or damaged data is not retried.
+3. **Build the segments:** use `interview_turns` where `speaker='candidate'` with `offsetMs` → `[{ id, startMs, endMs, text }]`, and the same turns' timestamps as epoch windows for the camera track.
+4. **Measure** (each independent; failures recorded per type in `analysis.errors`, never fatal):
+   - **Pace and fluency** (`libs/interview/voice-metrics.js`, Node): decode the audio with ffmpeg, find speech and pauses inside each answer (silence before the first word and after the last is not a pause), count filler words in the transcript. If the audio can't be decoded, `POST /analyze/voice` is tried; with no audio at all only the transcript's filler words are used (`voice.source = "transcript"`, `estimated: true`; pace and pauses stay `null`).
+   - **Camera behaviour** (`libs/interview/behavior.js`): the batches uploaded by the room (see 10) are merged, corrected for the candidate's clock, and summarised: eye contact (overall and while answering), look-aways, head movement, blinks, expressions, per-answer figures, a 2 s timeline and integrity flags. `gaze` is filled from it (`gaze.source = "camera"`).
+   - `POST /analyze/gaze { videoKey, sampleFps: 1 }`: only when there is no camera track and a video exists (`gaze.source = "video"`).
+   - `POST /analyze/emotion { audioKey, segments }`: tone of voice (the speech-emotion model; optional).
+   - `POST /analyze/face { videoKey }` (if `FACE_ANALYSIS_ENABLED=true`).
 5. **Store** `interviews.analysis`:
 ```json
 {
-  "voice":   { "wpm": 132, "pauseRatio": 0.18, "longPauses": 4, "fillerPerMin": 3.1, "fillerTop": ["um","like"], "jitter": 0.012, "shimmer": 0.08 },
+  "voice":   { "source": "audio", "wpm": 132, "pauseRatio": 0.18, "longPauses": 4, "fillerPerMin": 3.1, "fillerTop": ["um","like"] },
   "emotion": { "dominant": "neutral", "distribution": {"neutral":0.62,"happy":0.2,"...":0}, "confidenceAvg": 0.71 },
-  "gaze":    { "eyeContactScore": 78, "attentionScore": 81, "lookAwayCount": 6, "longestLookAwaySec": 4.2, "faceDetectionRate": 0.97 },
+  "gaze":    { "eyeContactScore": 78, "attentionScore": 81, "lookAwayCount": 6, "longestLookAwaySec": 4.2, "faceDetectionRate": 0.97, "scope": "answering", "source": "camera" },
+  "behavior": { "faceVisibleRate": 0.97, "eyeContact": {}, "answering": {}, "head": {}, "blinks": {}, "expressions": {}, "integrity": { "faceAbsentCount": 0, "multipleFacesCount": 0, "events": [] }, "perAnswer": [], "timeline": [] },
   "face":    { "dominant": "neutral", "distribution": {} },
   "integrity": { "tabHiddenCount": 1, "tabHiddenSec": 12 },
-  "errors": { "face": "disabled" },
-  "version": 1
+  "errors": { "emotion": "ai-engine unreachable" },
+  "version": 2
 }
 ```
 6. **Compute `communication_score` (0–100)** in `libs/hiring/final-evaluator.js`. This is a documented, deterministic formula:
    - **Pace (30%):** 100 if 110–160 wpm; linear down to 0 at < 70 or > 210.
    - **Fluency (30%):** `100 − min(100, fillerPerMin × 12) × 0.6 − min(100, pauseRatio × 200) × 0.4`.
    - **Eye contact (25%):** `gaze.eyeContactScore`. If there's no video, reweight to the others.
-   - **Composure (15%):** `100 × (neutral + happy share)`, capped at 100.
+   - **Composure (15%):** `100 × (neutral + happy share)`, capped at 100. From the tone-of-voice model when it ran; otherwise from the share of calm or pleased facial expressions in the camera track (`communication.sources.composure` says which).
 
    Missing components are dropped and the weights renormalised. If nothing is available, the score is `null`.
 7. Set `analysis_status = complete` and enqueue `finalize-candidate { candidateId, interviewId }`.
@@ -74,12 +76,13 @@ The recruiter pipeline's `final_evaluation` step lists finalised candidates. The
 
 ## Implementation notes (Phase 7)
 - Files:
-  - `libs/interview/analysis.js` (assemble, segments, integrity, analysis) and `analysis-client.js` (ai-engine HTTP)
+  - `libs/interview/analysis.js` (assemble, segments, integrity, analysis), `media-tools.js` (ffmpeg), `voice-metrics.js`, `behavior.js` and `analysis-client.js` (ai-engine HTTP)
   - `libs/hiring/final-evaluator.js` (pure formulas, unit-tested), `finalize.js` (final evaluation), `decisions.js` (decisions, bulk approve, outcome email)
   - `libs/ai/prompts/final.js`
 - **Assembly:** the room's final part of each kind queues `assemble-recording { interviewId, kind }`. The audio and video jobs run concurrently. Each writes only its own key, and `recording_status` is set in one SQL statement from the row's current keys (`complete` once audio, and video if any video parts exist, are joined).
 - **Waiting:** `analyse-interview` re-queues itself every 30 s until `recording_status = complete`. After 10 minutes it assembles whatever was uploaded and continues (`analysis.media` = `ok` | `partial` | `missing`). A Redis lock (`lock:analyse:{id}`) keeps a re-analyse from running alongside a first analysis.
-- **Segments:** candidate `interview_turns` give `{ id: "turn-{seq}", startMs: offsetMs, endMs: offsetMs + duration, text }`. The text lets `/analyze/voice` compute WPM and fillers without Whisper. Offsets count from the interview start, so they are approximate after a reconnect.
+- **Segments:** candidate `interview_turns` give `{ id: "turn-{seq}", startMs: offsetMs, endMs: offsetMs + duration, text }`. `offsetMs` counts from the interview start **without the time the candidate was disconnected** (the recorder isn't running then either), so it follows the assembled recording after a page reload; interviews saved before that change are approximate after a reload. A segment's `endMs` is when the answer was saved, so it includes the silence that ended it: pauses are only measured between the first and last word.
+- **Why the recording used to fail:** assembly depended on the Python AI engine, errors were swallowed (status `failed`, no retry), and the page said the browser had uploaded nothing. Now the join runs in the worker, errors are kept and retried, the Recording tab says how many parts were received, and **Re-analyse** joins them again.
 - **Composure** counts `neutral`, `happy` and `calm` (the speech-emotion model's near-neutral class). **Fluency** without a transcript uses the pause part alone.
 - **Summary fallback:** if the LLM fails, a plain summary is built from the computed facts (`fallback: true`). The candidate's name is scrubbed from the LLM output.
 - **`final_analysis`** = `{ recommendation, summary, strengths, risks, suggestedNextSteps, suggestedDecision, breakdown { resume, interview, communication, weights, finalWeights, threshold }, communication { score, components, weights }, answered, totalQuestions, interviewId, computedAt, version, decision?, outcomeEmail? }`. `decision` records `{ decision, by, at, note }`. A re-analysis keeps `decision` and `outcomeEmail`.
@@ -91,3 +94,4 @@ The recruiter pipeline's `final_evaluation` step lists finalised candidates. The
 - After a completed test interview with recording, `analysis`, `communication_score`, `final_score` and `final_analysis` are filled within 5 minutes.
 - With `autoFinalize=false`, the status stays `interview_completed` until the recruiter approves.
 - With video disabled, the final score still computes (weights renormalised).
+- With the AI engine stopped, the recording is still joined and the communication score is still produced (pace, fluency, eye contact and composure from the camera); only tone of voice is missing.

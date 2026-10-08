@@ -121,11 +121,25 @@ export async function signRecording(key, filename, sign) {
   }
 }
 
+// How many parts of each kind the candidate's browser uploaded: tells "nothing arrived" from "it arrived
+// but could not be joined". Storage trouble must never hide the interview, so it counts as unknown.
+export async function countRecordingParts(interviewId, list = listKeys) {
+  const parts = {};
+  for (const kind of ["audio", "video"]) {
+    try {
+      parts[kind] = (await list(`recordings/${interviewId}/${kind}/`)).filter((k) => /\/\d+\.webm$/.test(k)).length;
+    } catch {
+      parts[kind] = null;
+    }
+  }
+  return parts;
+}
+
 /**
  * Everything the detail page shows: interview (without its invite token hash or engine state),
  * job, candidate, scored answers, transcript turns and short-lived recording links.
  */
-export async function getInterviewDetail(interviewId, user, { database = db, sign = getSignedUrl } = {}) {
+export async function getInterviewDetail(interviewId, user, { database = db, sign = getSignedUrl, list = listKeys } = {}) {
   const row = await loadOwned(interviewId, user, database);
   if (!row) return null;
   // eslint-disable-next-line no-unused-vars
@@ -149,6 +163,7 @@ export async function getInterviewDetail(interviewId, user, { database = db, sig
     .orderBy(asc(interviewTurns.seq));
 
   const deleted = interview.recordingStatus === RECORDING_DELETED;
+  const parts = deleted ? { audio: 0, video: 0 } : await countRecordingParts(interviewId, list);
   const [audioUrl, videoUrl] = deleted
     ? [null, null]
     : await Promise.all([
@@ -168,6 +183,9 @@ export async function getInterviewDetail(interviewId, user, { database = db, sig
       audioUrl,
       videoUrl,
       expiresInSec: RECORDING_URL_SECONDS,
+      parts,
+      // Why the parts could not be joined (written by the worker); the analysis problems stay in errorMessage
+      problem: interview.errorMessage?.startsWith("recording_failed") ? interview.errorMessage.replace(/^recording_failed:\s*/, "") : null,
     },
   };
 }

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, RECORDING_URL_SECONDS, ViewError, parseListFilters, signRecording } from "../../libs/hiring/interview-views";
+import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, RECORDING_URL_SECONDS, ViewError, countRecordingParts, parseListFilters, signRecording } from "../../libs/hiring/interview-views";
 import { INTERVIEW_STATUS } from "../../libs/hiring/statuses";
 
 test("list filters: defaults, paging limits and empty values", () => {
@@ -44,4 +44,12 @@ test("recording links: no key, or a signer that fails (sync or async), means no 
   assert.equal(await signRecording(null, "f", async () => "never"), null);
   assert.equal(await signRecording("k", "f", () => { throw new Error("STORAGE_SIGNING_SECRET must be set"); }), null);
   assert.equal(await signRecording("k", "f", async () => { throw new Error("s3 down"); }), null);
+});
+
+test("recording parts: counted per kind, so 'nothing arrived' differs from 'it arrived but could not be joined'", async () => {
+  const keys = ["recordings/i-1/audio/00000.webm", "recordings/i-1/audio/00001.webm", "recordings/i-1/video/00000.webm", "recordings/i-1/video/readme.txt"];
+  const list = async (prefix) => keys.filter((k) => k.startsWith(prefix));
+  assert.deepEqual(await countRecordingParts("i-1", list), { audio: 2, video: 1 });
+  assert.deepEqual(await countRecordingParts("i-2", async () => []), { audio: 0, video: 0 });
+  assert.deepEqual(await countRecordingParts("i-1", async () => { throw new Error("storage down"); }), { audio: null, video: null });
 });

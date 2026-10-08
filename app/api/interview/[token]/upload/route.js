@@ -5,12 +5,37 @@ import { MAX_PART_BYTES, recordingPartKey, resolveInterviewToken } from "@/libs/
 import { putObject } from "@/libs/hiring/storage";
 import { enqueue } from "@/libs/hiring/queue";
 import { INTERVIEW_STATUS } from "@/libs/hiring/statuses";
+import { behaviorPartKey, normaliseBatch } from "@/libs/interview/behavior";
 import { ok, fail, handleError } from "../../_lib/respond";
 
-const KINDS = new Set(["audio", "video"]);
+const KINDS = new Set(["audio", "video", "behavior"]);
 const MAX_PART_INDEX = 99999;
+const MAX_BEHAVIOR_BYTES = 1024 * 1024; // a 15 s batch of numbers is a few KB
 
-// POST /api/interview/[token]/upload — multipart: kind (audio|video), part (int), final (bool), file (≤ 10 MB)
+// Camera behaviour batches: small JSON documents of numbers (never images). Stored with the time the
+// server received them, which lets the analysis correct for a candidate's wrong clock.
+async function storeBehavior(interview, part, file) {
+  if (file.size === 0 || file.size > MAX_BEHAVIOR_BYTES) return fail("invalid_file", "Behaviour data has an unusable size.", 400);
+  let doc;
+  try {
+    doc = JSON.parse(await file.text());
+  } catch {
+    return fail("invalid_file", "Behaviour data must be JSON.", 400);
+  }
+  let stored;
+  if (typeof doc?.unavailable === "string") {
+    // The browser could not start tracking: keep the reason so the recruiter's report can say so
+    stored = { receivedAt: Date.now(), unavailable: doc.unavailable.slice(0, 200) };
+  } else {
+    const batch = normaliseBatch(doc);
+    if (!batch) return fail("invalid_batch", "Unusable behaviour data.", 400);
+    stored = { receivedAt: Date.now(), batch };
+  }
+  await putObject(behaviorPartKey(interview.id, part), Buffer.from(JSON.stringify(stored)), "application/json");
+  return ok({ stored: true, part });
+}
+
+// POST /api/interview/[token]/upload — multipart: kind (audio|video|behavior), part (int), final (bool), file (≤ 10 MB)
 export async function POST(request, { params }) {
   try {
     const { interview } = await resolveInterviewToken(params.token, { route: "upload", allowCompleted: true });
@@ -32,6 +57,7 @@ export async function POST(request, { params }) {
     if (!Number.isInteger(part) || part < 0 || part > MAX_PART_INDEX) return fail("invalid_part", "part must be a whole number", 400);
     if (!file || typeof file.arrayBuffer !== "function") return fail("missing_file", "file is required", 400);
     if (file.size > MAX_PART_BYTES) return fail("too_large", "Recording part is too large (max 10 MB).", 413);
+    if (kind === "behavior") return await storeBehavior(interview, part, file);
     const type = String(file.type || "");
     if (type && !/^(audio|video)\/webm\b/i.test(type) && type !== "application/octet-stream") {
       return fail("invalid_type", "Recording parts must be WebM", 415);

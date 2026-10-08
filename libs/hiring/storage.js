@@ -5,6 +5,7 @@ import crypto from "crypto";
 import fs from "fs";
 import fsp from "fs/promises";
 import path from "path";
+import { pipeline } from "stream/promises";
 
 const META_SUFFIX = ".meta.json"; // local driver: sidecar holding the content type
 const DEFAULT_URL_SECONDS = 300;
@@ -258,6 +259,26 @@ export function getSignedUrl(key, seconds = DEFAULT_URL_SECONDS, options = {}) {
 
 export function listKeys(prefix = "") {
   return driver().listKeys(prefix);
+}
+
+/** Download an object to a local file, streaming (media tools need real files). */
+export async function downloadToFile(key, filePath) {
+  const { stream } = await getObjectStream(key);
+  await pipeline(stream, fs.createWriteStream(filePath));
+  return filePath;
+}
+
+/** Store a local file under a key. */
+export async function putFile(key, filePath, contentType) {
+  return putObject(key, await fsp.readFile(filePath), contentType);
+}
+
+/** A whole (small) object in memory: JSON documents, not recordings. */
+export async function getObjectBuffer(key) {
+  const { stream } = await getObjectStream(key);
+  const chunks = [];
+  for await (const chunk of stream) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  return Buffer.concat(chunks);
 }
 
 export function deleteObject(key) {

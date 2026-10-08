@@ -45,6 +45,7 @@ Text frames are JSON `{ type, ...payload }`. Binary frames are **only** candidat
 | `ai_done_speaking` | `{ turnId }` | Browser finished playing AI audio |
 | `answer_done` | – | Candidate pressed "I've finished my answer" |
 | `repeat_question` | – | Re-speak the current question (max 2 per question) |
+| `end_interview` | – | Candidate pressed "End interview" (after confirming): save what was said, say goodbye, end |
 | `client_event` | `{ event: 'tab_hidden'|'tab_visible'|'mic_muted'|'net_offline', at }` | Integrity / diagnostics |
 | `ping` | `{ t }` | Keep-alive every 15s |
 
@@ -60,7 +61,7 @@ Text frames are JSON `{ type, ...payload }`. Binary frames are **only** candidat
 | `caption_final` | `{ text }` |
 | `processing` | – ("Thinking…" between answer and next question) |
 | `time_warning` | `{ minutesLeft }` (sent at 5 and 1 minutes left) |
-| `interview_complete` | `{ reason: 'finished'|'time_up'|'ended_by_system' }` |
+| `interview_complete` | `{ reason: 'finished'|'time_up'|'ended_by_candidate'|'ended_by_system' }` |
 | `error` | `{ code, message, retryable }`, codes: `stt_unavailable`, `tts_failed`, `invalid_state`, `expired`, `duplicate_session`, `internal` |
 | `pong` | `{ t }` |
 
@@ -162,6 +163,16 @@ Target latency from answer end to next question audio: **≤ 4s** with Groq.
 - The interview clock excludes time spent disconnected. After an engine restart, the clock is treated as frozen at `last_activity_at`.
 - A socket closed by the client is kept for `resumeWindowMinutes`. After that, `end('abandoned')` marks the interview `completed` if ≥ 50% of the base questions were answered, and otherwise `abandoned` (candidate back to `interview_invited`, or `interview_expired` once the link has expired).
 - In-progress interviews that never reconnect after an engine restart have no resume timer; the worker sweep's `abandonStaleSessions()` ([13-workers-automation.md](13-workers-automation.md)) closes them.
+
+## Conversation hygiene (what the transcript showed)
+A real interview transcript showed these problems; each has a fix and a test (`tests/hiring/interview-conversation.test.js`, `session-engine.test.js`).
+- **The question inside the answer.** Speakers feed the interviewer's voice back into the microphone. The room closes the microphone while the interviewer speaks (10), and `libs/interview/echo-guard.js` cuts the interviewer's recent sentences off the start of anything heard (loose matching: "Node.js/React" may come back as "node dot js slash react"). A "ready to begin?" heard in the interviewer's own voice no longer starts the interview.
+- **Words nobody said.** Speech models invent text on silence and noise ("Thank you.", "Bye.", sentences in another language). `libs/interview/stt/clean.js` removes foreign-script words and phantom sentences and collapses decoding loops, for both Deepgram and Whisper. Whisper is also locked to the interview language (`STT_LANGUAGE`, default `en`), asked for `verbose_json` so segments it doubts (`no_speech_prob`, `avg_logprob`, `compression_ratio`) are dropped, and never sent chunks with less than 300 ms of speech.
+- **"End the interview" was ignored.** `libs/interview/intent.js` recognises an explicit request in a short answer ("kindly end my interview", "please end it", "I don't want to continue with this interview"); a long technical answer that mentions "end the session" is not one. The request is kept in the transcript, is not counted as an answer, and the interviewer closes with `endedByCandidateText`. The same happens from the button. An interview ended before any answer is `abandoned`; otherwise it is `completed` with what exists (the final evaluation marks it `needs_review` when under half was answered).
+- **Follow-ups for refusals.** A short refusal or "I don't know" (`isDecline`) gets no follow-up, no scorer call (it scores 0, "The candidate declined to answer."), and the interview moves on.
+- **Cut-off and generic follow-ups.** `openai/gpt-oss-*` models spend `max_tokens` on reasoning before answering: with 150 tokens the reply was empty or cut mid-sentence, and the generic fallback question was used instead. `libs/ai/llm.js` now retries once with a 3× budget when the reply stops at the limit, accepts `reasoningEffort` (sent to GPT-OSS models only; the interview paths ask for `low`, `LLM_REASONING_EFFORT` sets a default), the follow-up and scorer budgets are larger, a follow-up that doesn't end in punctuation is treated as cut off, and the fallback questions read sensibly on their own.
+- **Turn offsets** (`interview_turns.offset_ms`) leave out time spent disconnected, so they follow the recording after a reload.
+- Deepgram runs with `filler_words=true`, so "um" and "uh" reach the fluency measure.
 
 ## Security
 - The ticket JWT is verified on every connection (`typ`, `exp`, `sub`), and the interview row must match `cid`.

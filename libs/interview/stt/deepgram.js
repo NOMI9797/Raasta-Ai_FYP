@@ -15,6 +15,7 @@ export const DEEPGRAM_OPTIONS = {
   endpointing: "300",
   utterance_end_ms: "1000",
   vad_events: "true",
+  filler_words: "true", // keep "um" and "uh": the fluency score counts them
 };
 
 /**

@@ -76,15 +76,25 @@ export default function RecordingTab({ detail, seek, onChanged }) {
 
   if (!src) {
     const waiting = ["none", "uploading"].includes(recording.status);
+    // The parts the candidate's browser sent are kept: a failed join can be tried again
+    const received = (recording.parts?.audio || 0) + (recording.parts?.video || 0);
+    const failed = recording.status === "failed";
     return (
       <div className="bg-base-200 border border-dashed border-base-300 rounded-xl p-8 text-center">
         {waiting && interview.status === "completed" ? <Loader2 className="mx-auto mb-2 animate-spin text-primary" size={22} /> : <Film className="mx-auto mb-2 text-base-content/30" size={24} />}
         <p className="font-semibold">
-          {recording.status === "failed" ? "The recording couldn't be assembled" : waiting ? "No recording available yet" : "No recording available"}
+          {failed && received > 0 ? "The recording was received but couldn't be put together" : failed ? "No recording was received" : waiting ? "No recording available yet" : "No recording available"}
         </p>
         <p className="text-sm text-base-content/60 mt-1">
-          {waiting ? "It is joined together after the interview ends." : "The candidate's browser didn't upload any audio or video."}
+          {failed && received > 0
+            ? `The candidate's browser uploaded ${received} parts, and they are still stored. Press Re-analyse above to try again.`
+            : waiting
+              ? "It is joined together after the interview ends."
+              : "The candidate's browser didn't upload any audio or video."}
         </p>
+        {failed && recording.problem && (
+          <p className="text-xs text-error mt-3 max-w-xl mx-auto break-words">{recording.problem}</p>
+        )}
       </div>
     );
   }

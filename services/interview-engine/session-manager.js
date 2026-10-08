@@ -7,6 +7,7 @@ import { InterviewSession } from "../../libs/interview/session-engine";
 import { INTERVIEW_STATUS } from "../../libs/hiring/statuses";
 import { getHiringConfig } from "../../libs/hiring/config";
 import { toCandidateContext, toRoleContext, toSessionQuestions } from "../../libs/interview/mappers";
+import { cleanTranscript } from "../../libs/interview/stt/clean";
 
 export const CLOSE_CODES = {
   NORMAL: 1000,
@@ -25,7 +26,7 @@ const MAX_MESSAGES_PER_SECOND = 200;   // audio frames arrive at 10–50 per sec
 const KEEPALIVE_MS = 5000;
 const FLUSH_TIMEOUT_MS = 2500;
 const CLOSE_AFTER_COMPLETE_MS = 1500;
-const CLIENT_TYPES = new Set(["ready", "begin", "ai_done_speaking", "answer_done", "repeat_question", "client_event", "ping"]);
+const CLIENT_TYPES = new Set(["ready", "begin", "ai_done_speaking", "answer_done", "repeat_question", "end_interview", "client_event", "ping"]);
 
 function sendJson(ws, type, payload = {}) {
   if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type, ...payload }));
@@ -284,6 +285,9 @@ export class SessionManager {
       case "repeat_question":
         session.onRepeatQuestion();
         return;
+      case "end_interview":
+        if (entry.readyOnSocket) await session.onEndRequest({ source: "button" });
+        return;
       case "client_event":
         session.onClientEvent({ event: message.event, at: message.at });
         return;
@@ -296,7 +300,11 @@ export class SessionManager {
     const { session } = entry;
     const stt = this.deps.createStt({
       onPartial: (text) => session.onSttPartial(text),
-      onFinal: (text, timing) => session.onSttFinal(text, timing),
+      // Speech models invent text on silence and noise; only real words reach the interview
+      onFinal: (text, timing) => {
+        const cleaned = cleanTranscript(text);
+        if (cleaned) session.onSttFinal(cleaned, timing);
+      },
       onActivity: () => session.onSpeechActivity(),
       onError: (error) => {
         this.deps.log("warn", { msg: "stt error", interviewId: entry.interviewId, error: error?.message });

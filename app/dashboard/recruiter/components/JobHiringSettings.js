@@ -20,6 +20,7 @@ const TOGGLES = [
   { key: "autoScreen", label: "Auto-screen", hint: "Score each application as it arrives" },
   { key: "autoInvite", label: "Auto-invite", hint: "Email the interview link when shortlisted" },
   { key: "recordVideo", label: "Record video", hint: "Record the camera during interviews" },
+  { key: "trackBehavior", label: "Track behaviour", hint: "Measure eye contact, head movement and expressions from the camera (needs video)" },
   { key: "autoFinalize", label: "Auto-finalize", hint: "Apply final decisions without your approval" },
 ];
 

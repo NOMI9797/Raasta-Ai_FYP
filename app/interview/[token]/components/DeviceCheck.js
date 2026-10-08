@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Circle, Mic, Video, Volume2, Wifi } from "lucide-react";
 import { MEDIA_CONSTRAINTS, createAudioContext, playTestTone, readLevel } from "../lib/audio";
+import { loadFaceLandmarker } from "../lib/behavior-tracker";
 
 const SPEECH_LEVEL = 0.04;     // RMS that counts as speaking
 const SPEECH_NEEDED_MS = 1000; // cumulative speech before the mic passes
@@ -30,6 +31,7 @@ export default function DeviceCheck({ token, info, onReady }) {
   const [micOk, setMicOk] = useState(false);
   const [heard, setHeard] = useState(false);
   const [latency, setLatency] = useState(null);
+  const [face, setFace] = useState(null); // camera analysis check: loading | ok | none | unavailable
   const videoRef = useRef(null);
   const ctxRef = useRef(null);
   const handedOver = useRef(false);
@@ -63,6 +65,44 @@ export default function DeviceCheck({ token, info, onReady }) {
   useEffect(() => {
     if (stream && videoRef.current) videoRef.current.srcObject = stream;
   }, [stream]);
+
+  // Face check. Not required to start: it only helps the candidate fix lighting or framing now
+  useEffect(() => {
+    if (!stream || !info.recordVideo || !info.trackBehavior) return undefined;
+    let cancelled = false;
+    let landmarker = null;
+    let timer = null;
+    setFace("loading");
+    loadFaceLandmarker({ numFaces: 1 })
+      .then((model) => {
+        if (cancelled) {
+          model.close();
+          return;
+        }
+        landmarker = model;
+        setFace("none");
+        const tick = () => {
+          const video = videoRef.current;
+          if (video && video.readyState >= 2 && video.videoWidth) {
+            try {
+              setFace(model.detectForVideo(video, performance.now()).faceLandmarks.length ? "ok" : "none");
+            } catch {
+              // a bad frame: try again on the next tick
+            }
+          }
+          timer = setTimeout(tick, 500);
+        };
+        tick();
+      })
+      .catch(() => {
+        if (!cancelled) setFace("unavailable");
+      });
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      try { landmarker?.close(); } catch { /* already closed */ }
+    };
+  }, [stream, info.recordVideo, info.trackBehavior]);
 
   // Mic level meter: pass after ~1 s of speech
   useEffect(() => {
@@ -152,6 +192,13 @@ export default function DeviceCheck({ token, info, onReady }) {
               <div>
                 <div className="flex items-center gap-2 font-medium mb-2"><Video className="w-5 h-5 text-primary" aria-hidden="true" /> Camera</div>
                 <video ref={videoRef} autoPlay muted playsInline className="w-full rounded-lg bg-base-300 aspect-video object-cover -scale-x-100" aria-label="Camera preview" />
+                {face && face !== "unavailable" && (
+                  <p className={`text-sm mt-2 flex items-center gap-1.5 ${face === "ok" ? "text-success" : "text-base-content/70"}`} aria-live="polite">
+                    {face === "ok" && <><CheckCircle2 className="w-4 h-4" aria-hidden="true" /> Your face is visible</>}
+                    {face === "loading" && <><span className="loading loading-spinner loading-xs" /> Checking that your face can be seen…</>}
+                    {face === "none" && "We can't see your face yet. Face the camera, in good light."}
+                  </p>
+                )}
               </div>
             )}
           </div>

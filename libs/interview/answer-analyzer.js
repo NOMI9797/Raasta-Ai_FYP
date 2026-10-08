@@ -92,7 +92,8 @@ async function llmChecks({ answer, question, candidateSkills }, llm) {
       user: buildAnalyzerUser({ question, answer, candidateSkills }),
       model: getFastModel(),
       temperature: 0.3,
-      maxTokens: 300,
+      maxTokens: 600,
+      reasoningEffort: "low", // this runs between the answer and the next question: keep it quick
     });
     return {
       opensNewTopic: result?.opensNewTopic === true,

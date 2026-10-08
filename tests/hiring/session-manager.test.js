@@ -223,3 +223,33 @@ test("finished interview: socket closed with 1000 and the session removed; shutd
   assert.equal(ws3.closedWith.code, CLOSE_CODES.SERVICE_RESTART);
   assert.ok(s.calls.saveState.at(-1).pausedAt);
 });
+
+test("STT results are cleaned before the session sees them: junk never becomes a caption or an answer", async () => {
+  const { manager, calls } = setup();
+  const ws = new FakeSocket();
+  await manager.attach(ws, CLAIMS);
+  await ws.client({ type: "ready" });
+  await ws.client({ type: "ai_done_speaking", turnId: ws.json("ai_speaking")[0].turnId });
+  calls.stt[0].handlers.onFinal("Thank you. Thank you.", {});
+  calls.stt[0].handlers.onFinal("Olha aí.", {});
+  calls.stt[0].handlers.onFinal("Yeah. Время... Bye.", {});
+  await settle();
+  assert.deepEqual(ws.json("caption_final").map((c) => c.text), ["Yeah."]);
+});
+
+test("end_interview: the interviewer says goodbye, then the socket closes normally", async () => {
+  const { manager, calls } = setup();
+  const ws = new FakeSocket();
+  await manager.attach(ws, CLAIMS);
+  await ws.client({ type: "ready" });
+  await ws.client({ type: "ai_done_speaking", turnId: ws.json("ai_speaking")[0].turnId });
+  calls.stt[0].handlers.onFinal("yes ready", {});
+  await settle();
+  await ws.client({ type: "ai_done_speaking", turnId: ws.json("ai_speaking").at(-1).turnId });
+  calls.stt[0].handlers.onFinal("my answer to the first question", {});
+  await ws.client({ type: "end_interview" });
+  assert.equal(ws.json("ai_speaking").at(-1).kind, "closing");
+  await ws.client({ type: "ai_done_speaking", turnId: ws.json("ai_speaking").at(-1).turnId });
+  assert.deepEqual(ws.json("interview_complete"), [{ type: "interview_complete", reason: "ended_by_candidate" }]);
+  assert.equal(calls.complete.length, 1);
+});

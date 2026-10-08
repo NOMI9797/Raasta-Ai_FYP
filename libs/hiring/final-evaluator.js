@@ -60,18 +60,31 @@ export function weightedAverage(parts, weights) {
 }
 
 /**
- * Communication score (0–100) from interviews.analysis. Returns { score, components, weights }.
+ * Composure: the tone-of-voice model when it ran, otherwise the share of composed facial expressions
+ * from the camera track. Returns { value, source: "voice" | "face" | null }.
+ */
+export function composure(analysis) {
+  const fromVoice = composureScore(analysis?.emotion);
+  if (fromVoice !== null) return { value: fromVoice, source: "voice" };
+  const fromFace = analysis?.behavior?.expressions?.composure;
+  return isNum(fromFace) ? { value: clamp(fromFace), source: "face" } : { value: null, source: null };
+}
+
+/**
+ * Communication score (0–100) from interviews.analysis. Returns { score, components, weights, sources }.
+ * sources says where the composure and eye-contact parts were measured (it is shown to the recruiter).
  */
 export function communicationScore(analysis) {
+  const calm = composure(analysis);
   const components = {
     pace: paceScore(analysis?.voice?.wpm),
     fluency: fluencyScore(analysis?.voice || {}),
     eyeContact: isNum(analysis?.gaze?.eyeContactScore) ? clamp(analysis.gaze.eyeContactScore) : null,
-    composure: composureScore(analysis?.emotion),
+    composure: calm.value,
   };
   const rounded = Object.fromEntries(Object.entries(components).map(([k, v]) => [k, v === null ? null : Math.round(v)]));
   const { score, weights } = weightedAverage(components, COMMUNICATION_WEIGHTS);
-  return { score, components: rounded, weights };
+  return { score, components: rounded, weights, sources: { composure: calm.source, eyeContact: components.eyeContact === null ? null : analysis?.gaze?.source || "video", fluencyEstimated: Boolean(analysis?.voice?.estimated) } };
 }
 
 /**

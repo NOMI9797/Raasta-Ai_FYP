@@ -76,10 +76,16 @@ function requirementsList({ recordVideo }) {
   ];
 }
 
+// What is recorded and analysed, in one sentence candidates read before they agree
+function privacyLine({ recordVideo, trackBehavior, team }) {
+  const analysed = recordVideo && trackBehavior ? ", analysed with the help of AI (including eye movement, head movement and facial expressions on camera)" : ", evaluated with the help of AI";
+  return `Privacy: the interview is recorded (${recordVideo ? "audio and video" : "audio"})${analysed} and reviewed by ${team}.`;
+}
+
 /**
- * Invite email. vars: { candidateName, jobTitle, link, expiresAt, maxMinutes, recordVideo, hiringTeam }
+ * Invite email. vars: { candidateName, jobTitle, link, expiresAt, maxMinutes, recordVideo, trackBehavior, hiringTeam }
  */
-export function inviteEmail({ candidateName, jobTitle, link, expiresAt, maxMinutes, recordVideo, hiringTeam }) {
+export function inviteEmail({ candidateName, jobTitle, link, expiresAt, maxMinutes, recordVideo, trackBehavior, hiringTeam }) {
   const name = firstName(candidateName);
   const team = hiringTeam || "the hiring team";
   const expiry = formatExpiry(expiresAt);
@@ -98,7 +104,7 @@ export function inviteEmail({ candidateName, jobTitle, link, expiresAt, maxMinut
     "",
     "How it works: the questions are asked aloud and you answer by speaking. When you're done with an answer, press \"I've finished my answer\".",
     "",
-    `Privacy: the interview is recorded (${recordVideo ? "audio and video" : "audio"}), evaluated with the help of AI and reviewed by ${team}.`,
+    privacyLine({ recordVideo, trackBehavior, team }),
     "",
     `Start my interview: ${link}`,
     "",
@@ -114,7 +120,7 @@ export function inviteEmail({ candidateName, jobTitle, link, expiresAt, maxMinut
       `The next step is a voice interview of about ${escapeHtml(maxMinutes)} minutes with the ${INTERVIEWER}. You can take it any time before <strong>${escapeHtml(expiry)}</strong>.`,
       `You'll need: ${reqs.map(escapeHtml).join(", ")}.`,
       "How it works: the questions are asked aloud and you answer by speaking. When you're done with an answer, press <em>I've finished my answer</em>.",
-      `Privacy: the interview is recorded (${recordVideo ? "audio and video" : "audio"}), evaluated with the help of AI and reviewed by ${escapeHtml(team)}.`,
+      escapeHtml(privacyLine({ recordVideo, trackBehavior, team })),
     ],
     button: { label: "Start my interview", href: link },
     footer: `Sent by ${BRAND} on behalf of ${escapeHtml(team)}.`,
