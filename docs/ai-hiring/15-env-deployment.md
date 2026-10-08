@@ -35,7 +35,10 @@ Add these to `.env.local` (dev) and the deployment environment. Also create `.en
 | `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | storage | – | `S3_ENDPOINT` for R2/MinIO |
 | `HIRING_WORKER_CONCURRENCY` | worker | `3` | |
 | `WORKER_ID` | worker | hostname | consumer name |
-| `MAILGUN_API_KEY` | web, worker | existing | |
+| `MAILGUN_API_KEY` | web, worker | – | Mailgun private API key. Needed with `MAILGUN_DOMAIN` to send real email (08) |
+| `MAILGUN_DOMAIN` | web, worker | – | the sending domain as Mailgun lists it (`mg.example.com`, or `sandbox….mailgun.org`: authorized recipients only) |
+| `MAILGUN_REGION`, `MAILGUN_API_URL` | web, worker | `us` | `eu` for a domain created in the EU region; the URL overrides both |
+| `MAILGUN_FROM`, `MAILGUN_REPLY_TO` | web, worker | `Raasta-AI <noreply@MAILGUN_DOMAIN>` | sender and default reply address |
 | `EMAIL_OUTBOX` | web, worker | – | `local` writes emails to `.storage/outbox` when there is no Mailgun key, even in production (`npm run serve` sets it) |
 | `DEV_WARMUP`, `QUERY_DEVTOOLS` | `npm run dev` | – | `false` turns off the screen warm-up; `true` shows the React Query panel (see 21) |
 | `PUBLISH_DAILY_CAP_<PLATFORM>`, `PUBLISH_MIN_GAP_MINUTES_<PLATFORM>` | web, worker | LinkedIn 3 / 10, Rozee.pk 5 / 5, Indeed 3 / 10 | `<PLATFORM>` is `LINKEDIN`, `ROZEE` or `INDEED`; automatic posts per account per 24 hours, and the pause between two (see 19) |

@@ -50,8 +50,8 @@ async function loadCandidateContext(database, candidateId) {
   if (!candidate) throw new InviteError("Candidate not found", { code: "not_found", status: 404 });
   const [job] = await database.select().from(jobs).where(eq(jobs.id, candidate.jobId)).limit(1);
   if (!job) throw new InviteError("Job not found", { code: "not_found", status: 404 });
-  const [owner] = await database.select({ name: users.name }).from(users).where(eq(users.id, job.userId)).limit(1);
-  return { candidate, job, hiringTeam: owner?.name || null };
+  const [owner] = await database.select({ name: users.name, email: users.email }).from(users).where(eq(users.id, job.userId)).limit(1);
+  return { candidate, job, hiringTeam: owner?.name || null, replyTo: owner?.email || null };
 }
 
 async function activeInterview(database, candidateId) {
@@ -68,7 +68,7 @@ async function hasActiveJobQuestions(database, jobId) {
   return n > 0;
 }
 
-function emailVars({ candidate, job, hiringTeam }, { token, expiresAt }) {
+function emailVars({ candidate, job, hiringTeam, replyTo }, { token, expiresAt }) {
   const config = getHiringConfig(job);
   return {
     candidateName: candidate.name,
@@ -79,6 +79,7 @@ function emailVars({ candidate, job, hiringTeam }, { token, expiresAt }) {
     recordVideo: config.recordVideo,
     trackBehavior: Boolean(config.recordVideo && config.trackBehavior),
     hiringTeam,
+    canReply: Boolean(replyTo),
   };
 }
 
@@ -90,12 +91,15 @@ async function emailInvite(d, ctx, interview, { token, template = "invite" }) {
   const vars = emailVars(ctx, { token, expiresAt: interview.expiresAt });
   const message = template === "reminder" ? reminderEmail(vars, d.now()) : inviteEmail(vars);
   try {
-    const result = await d.deliver({ to: ctx.candidate.email, ...message });
+    // Replies go to the recruiter who owns the job, not to a no-reply address
+    const result = await d.deliver({ to: ctx.candidate.email, replyTo: ctx.replyTo || undefined, tags: ["interview-invite", template], ...message });
     await d.database.update(interviews).set({ errorMessage: null, updatedAt: d.now() }).where(eq(interviews.id, interview.id));
     return result;
   } catch (error) {
+    // MailError carries a hint ("add the recipient as an authorized recipient…") worth showing the recruiter
+    const reason = [error?.message || error, error?.hint].filter(Boolean).join(" — ");
     await d.database.update(interviews)
-      .set({ errorMessage: `${EMAIL_FAILED_PREFIX}: ${String(error?.message || error).slice(0, 300)}`, updatedAt: d.now() })
+      .set({ errorMessage: `${EMAIL_FAILED_PREFIX}: ${String(reason).slice(0, 400)}`, updatedAt: d.now() })
       .where(eq(interviews.id, interview.id));
     throw new InviteError("The invite email could not be sent", { code: "email_failed", status: 502, retryable: true });
   }

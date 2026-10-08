@@ -19,7 +19,7 @@ Start with `docs/ai-hiring/README.md`.
 - NextAuth (`libs/next-auth.js`), route protection via `withAuth()` in `libs/auth-middleware.js`.
 - Redis via `ioredis` (`libs/redis.js` → `getRedisClient()`, `RedisStreamManager`).
 - LLM: Groq through the OpenAI SDK (`baseURL: https://api.groq.com/openai/v1`).
-- Email: Mailgun (`libs/mailgun.js` → `sendEmail({to, subject, text, html})`).
+- Email: Mailgun (`libs/mailgun.js` → `sendEmail({to, subject, text, html})`; needs `MAILGUN_API_KEY` and `MAILGUN_DOMAIN`, `npm run mail:check` verifies them).
 - Playwright for LinkedIn/Rozee automation.
 
 ## Commands
@@ -37,6 +37,7 @@ npm run poster:engine  # posting engine: opens a visible browser window on THIS 
 cd services/ai-engine && uvicorn main:app --port 8000   # Python AI engine
 docker compose up      # everything together
 npm run check:branding # fails if the legacy source name appears anywhere
+npm run mail:check     # which Mailgun settings are present (never the key); add an address to send a test email
 npm run sync:mediapipe # once: puts the camera-tracking runtime and face model under public/mediapipe/ (git-ignored)
 ```
 

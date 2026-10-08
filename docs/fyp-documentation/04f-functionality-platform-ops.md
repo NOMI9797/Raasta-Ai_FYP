@@ -123,7 +123,7 @@ Detailed in M18. Additional facts: drivers `local` and `s3` selectable by env; l
 
 ## P9 · Email delivery
 
-Detailed in M7/D.11. `deliverEmail({to, subject, text, html, from})` returns `{delivered: "mailgun" | "outbox" | "custom"}`; `usesDevOutbox()` is true without `MAILGUN_API_KEY` unless `NODE_ENV=production` (override `EMAIL_OUTBOX=local`, which `npm run serve` sets); the outbox filename is `<ISO time>-<sanitised address>.html/.txt` under `.storage/outbox/`. Sender `Raasta-AI <noreply@mg.reachly.ai>` (`config.mailgun.fromNoReply`; the domain is the earlier product's). `POST /api/webhook/mailgun` verifies an HMAC of timestamp+token with `MAILGUN_SIGNING_KEY` and forwards inbound replies to `support@reachly.ai`.
+Detailed in M7/D.11. `deliverEmail({to, subject, text, html, from})` returns `{delivered: "mailgun" | "outbox" | "custom"}`; `usesDevOutbox()` is true without `MAILGUN_API_KEY` unless `NODE_ENV=production` (override `EMAIL_OUTBOX=local`, which `npm run serve` sets); the outbox filename is `<ISO time>-<sanitised address>.html/.txt` under `.storage/outbox/`. Sending is `libs/mailgun.js`: it needs `MAILGUN_API_KEY` and `MAILGUN_DOMAIN` (plus `MAILGUN_REGION=eu` for an EU domain), the sender defaults to `Raasta-AI <noreply@MAILGUN_DOMAIN>` (`MAILGUN_FROM` overrides it; the old hard-coded `mg.reachly.ai` is only a never-used fallback), tracking is off because interview links carry a token, replies go to the recruiter, and a failed send explains what to fix (`MailError`, e.g. a sandbox domain's authorized recipients). `npm run mail:check` verifies the settings and can send a test email. `POST /api/webhook/mailgun` verifies an HMAC of timestamp+token with `MAILGUN_SIGNING_KEY` and forwards inbound replies to `support@reachly.ai`.
 
 ---
 
