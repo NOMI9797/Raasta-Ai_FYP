@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import toast from "react-hot-toast";
-import { Building2, Check, Linkedin, Loader2, Mail, RotateCcw, Save, Sparkles, User } from "lucide-react";
+import { AlertTriangle, Building2, Check, Globe, Linkedin, Loader2, Mail, Phone, RotateCcw, Save, Sparkles, User, UserX } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { PLATFORM_KIND, stageHref } from "@/libs/sales/stages";
 import { companyNameOf, jobsOf } from "@/libs/sales/companies";
+import { CONTACT_ROUTE_LABELS, contactRoute } from "@/libs/sales/contact-route";
 
 const LINKEDIN_MAX = 600;
 
@@ -25,6 +27,96 @@ const FILTERS = [
   { value: "approved", label: "Approved" },
   { value: "sent", label: "Sent" },
 ];
+
+// Companies are sorted after research by how they can be reached (libs/sales/contact-route.js)
+const SECTIONS = [
+  { value: "email", label: "Email", icon: Mail, hint: "An email address was found" },
+  { value: "linkedin", label: "LinkedIn", icon: Linkedin, hint: "No email, but a decision-maker on LinkedIn" },
+  { value: "no_contact", label: "No contact", icon: UserX, hint: "Nothing found: no message is written until you add a contact" },
+  { value: "unresearched", label: "Not researched", icon: AlertTriangle, hint: "Research them first (step 3)" },
+];
+const sectionOf = (item) => contactRoute(item.lead, item.message) || "unresearched";
+
+/** A company with no email or LinkedIn contact: no message, just the way to move it to Email or LinkedIn. */
+function NoContactPanel({ item, onMoved }) {
+  const { lead } = item;
+  const research = lead.sourceData?.research || {};
+  const [channel, setChannel] = useState("email");
+  const [form, setForm] = useState({ address: "", name: "", title: "" });
+  const [busy, setBusy] = useState(false);
+
+  const move = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/sales/companies/${lead.id}/contact`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel, ...form }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not add the contact");
+      toast.success(`Moved to ${CONTACT_ROUTE_LABELS[channel]}: the ${channel === "email" ? "email" : "LinkedIn message"} is written`);
+      onMoved(data.lead, data.message, channel);
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const searchName = encodeURIComponent(companyNameOf(lead) || "");
+  return (
+    <div className="rounded-xl border border-base-300 bg-base-100 p-4 space-y-4">
+      <header>
+        <h3 className="font-semibold flex items-center gap-2">{companyNameOf(lead)} <span className="badge badge-ghost badge-sm gap-1"><UserX className="h-3 w-3" /> No contact</span></h3>
+        <p className="text-xs text-base-content/60">Hiring for: {jobsOf(lead).map((j) => j.title).filter(Boolean).slice(0, 4).join(", ") || "—"}</p>
+      </header>
+
+      <div className="rounded-lg bg-base-200/60 p-3 text-sm space-y-1.5">
+        <p className="text-xs font-semibold uppercase tracking-wide text-base-content/50">What research found</p>
+        {research.website ? (
+          <a href={research.website} target="_blank" rel="noopener noreferrer" className="link link-primary flex items-center gap-1.5"><Globe className="h-3.5 w-3.5" /> {research.website.replace(/^https?:\/\//, "")}</a>
+        ) : <p className="flex items-center gap-1.5 text-base-content/60"><Globe className="h-3.5 w-3.5" /> No website</p>}
+        {(research.phones || []).map((p) => <p key={p} className="flex items-center gap-1.5"><Phone className="h-3.5 w-3.5" /> {p} <span className="text-xs text-base-content/50">(call or WhatsApp)</span></p>)}
+        <p className="text-xs text-base-content/60">No email address and no one on LinkedIn, so nothing was written. Find a contact and move the company:</p>
+        <p className="flex flex-wrap gap-3 text-xs">
+          <a className="link" target="_blank" rel="noopener noreferrer" href={`https://www.google.com/search?q=${searchName}+email+Pakistan`}>Search the web for its email</a>
+          <a className="link" target="_blank" rel="noopener noreferrer" href={`https://www.linkedin.com/search/results/people/?keywords=${searchName}%20CEO%20OR%20HR`}>Find its people on LinkedIn</a>
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <div role="tablist" className="join">
+          {["email", "linkedin"].map((c) => (
+            <button key={c} role="tab" aria-selected={channel === c} className={`btn btn-sm join-item gap-1 ${channel === c ? "btn-primary" : "btn-ghost bg-base-200"}`} onClick={() => setChannel(c)} disabled={busy}>
+              {c === "email" ? <Mail className="h-4 w-4" /> : <Linkedin className="h-4 w-4" />} Move to {CONTACT_ROUTE_LABELS[c]}
+            </button>
+          ))}
+        </div>
+        <label className="form-control">
+          <span className="label-text text-xs mb-1">{channel === "email" ? "Email address" : "LinkedIn profile link"}</span>
+          <input
+            className="input input-bordered input-sm"
+            placeholder={channel === "email" ? "hr@company.com" : "https://www.linkedin.com/in/name"}
+            value={form.address}
+            onChange={(e) => setForm({ ...form, address: e.target.value })}
+          />
+        </label>
+        {channel === "linkedin" && (
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input className="input input-bordered input-sm" placeholder="Their name (optional)" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            <input className="input input-bordered input-sm" placeholder="Their role, e.g. CEO (optional)" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+          </div>
+        )}
+        <div className="flex justify-end">
+          <button className="btn btn-primary btn-sm gap-1" disabled={busy || !form.address.trim()} onClick={move}>
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Move and write the {channel === "email" ? "email" : "LinkedIn message"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function leadLabel(lead, isCompany) {
   return isCompany ? companyNameOf(lead) || "Unknown company" : lead.name || "Profile not read yet";
@@ -183,6 +275,8 @@ export default function MessageReview({ campaignId, platform }) {
   const [items, setItems] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
   const [filter, setFilter] = useState("all");
+  const searchParams = useSearchParams();
+  const [section, setSection] = useState(SECTIONS.some((x) => x.value === searchParams.get("view")) ? searchParams.get("view") : "email");
   const [busyIds, setBusyIds] = useState(new Set());
   const [batch, setBatch] = useState(null);
 
@@ -223,6 +317,11 @@ export default function MessageReview({ campaignId, platform }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not write the message");
       putMessage(lead.id, data.message);
+      // Switched to the other channel by hand: follow the company to its new section
+      if (!quiet && isCompany) {
+        const next = contactRoute(lead, data.message);
+        if (next) setSection(next);
+      }
       return true;
     } catch (err) {
       if (!quiet) toast.error(err.message);
@@ -269,7 +368,8 @@ export default function MessageReview({ campaignId, platform }) {
     toast.success(`${doneText}: ${ok} of ${todo.length}`);
   };
 
-  const ready = (it) => isCompany || it.lead.status === "completed";
+  // Companies with no contact aren't written to (they're moved to Email or LinkedIn by hand)
+  const ready = (it) => (isCompany ? ["email", "linkedin"].includes(sectionOf(it)) : it.lead.status === "completed");
   const writeMissing = () => runBatch(items.filter((it) => !it.message && ready(it)), (it) => generate(it.lead, undefined, { quiet: true }), "Messages written");
   const approveDrafts = () =>
     runBatch(
@@ -279,10 +379,17 @@ export default function MessageReview({ campaignId, platform }) {
     );
 
   const counts = useMemo(() => {
-    const c = { all: items?.length || 0, none: 0, draft: 0, approved: 0, sent: 0 };
-    for (const it of items || []) c[stateOf(it)]++;
+    // Section totals over the campaign; the status chips count inside the section shown
+    const c = { all: 0, none: 0, draft: 0, approved: 0, sent: 0 };
+    for (const it of items || []) {
+      const sec = sectionOf(it);
+      c[`sec_${sec}`] = (c[`sec_${sec}`] || 0) + 1;
+      if (isCompany && sec !== section) continue;
+      c.all++;
+      c[stateOf(it)]++;
+    }
     return c;
-  }, [items]);
+  }, [items, isCompany, section]);
 
   if (!items) {
     return (
@@ -295,12 +402,40 @@ export default function MessageReview({ campaignId, platform }) {
     return <p className="text-sm text-base-content/60 rounded-lg border border-dashed border-base-300 p-6 text-center">No leads from this platform yet. Add some in step 2.</p>;
   }
 
-  const visible = items.filter((it) => filter === "all" || stateOf(it) === filter);
-  const selected = items.find((it) => it.lead.id === selectedId) || visible[0];
+  const visible = items.filter((it) => (filter === "all" || stateOf(it) === filter) && (!isCompany || sectionOf(it) === section));
+  const selected = visible.find((it) => it.lead.id === selectedId) || visible[0];
   const missingReady = items.filter((it) => !it.message && ready(it)).length;
+
+  const moved = (lead, message, channel) => {
+    setItems((prev) => prev.map((it) => (it.lead.id === lead.id ? { lead, message } : it)));
+    setSection(channel);
+    setSelectedId(lead.id);
+  };
 
   return (
     <div className="space-y-4">
+      {isCompany && (
+        <div role="tablist" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {SECTIONS.filter((x) => x.value !== "unresearched" || counts.sec_unresearched).map((x) => {
+            const Icon = x.icon;
+            const active = section === x.value;
+            return (
+              <button
+                key={x.value}
+                role="tab"
+                aria-selected={active}
+                onClick={() => { setSection(x.value); setSelectedId(null); }}
+                title={x.hint}
+                className={`rounded-xl border p-3 text-left transition-colors ${active ? "border-primary bg-primary/10" : "border-base-300 bg-base-100 hover:border-primary/40"}`}
+              >
+                <span className="flex items-center gap-1.5 text-xs font-medium text-base-content/60"><Icon className="h-3.5 w-3.5" /> {x.label}</span>
+                <span className="mt-1 block text-2xl font-semibold tabular-nums">{counts[`sec_${x.value}`] || 0}</span>
+                <span className="block text-[11px] leading-tight text-base-content/50">{x.hint}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-1">
           {FILTERS.map((f) => (
@@ -352,7 +487,9 @@ export default function MessageReview({ campaignId, platform }) {
           {!visible.length && <li className="p-4 text-sm text-base-content/50 text-center">Nothing here</li>}
         </ul>
 
-        {selected && (
+        {selected && isCompany && sectionOf(selected) === "no_contact" ? (
+          <NoContactPanel key={selected.lead.id} item={selected} onMoved={moved} />
+        ) : selected && (
           <Editor
             key={selected.lead.id}
             item={selected}

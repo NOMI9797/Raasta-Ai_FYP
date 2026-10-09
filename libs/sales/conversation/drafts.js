@@ -2,13 +2,13 @@
 // asks the AI for a reply, or writes their own. Relative imports only.
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "../../db";
-import { agentActions, conversationMessages, leads } from "../../schema";
+import { agentActions, conversationMessages, leads, linkedinAccounts } from "../../schema";
 import { ACTION_STATUS, supersedeActions } from "../../agent/actions";
 import { requestAgentTick } from "../../agent/triggers";
 import { getSalesSettings } from "../meetings/settings";
 import { isEmailAddress, testRecipient } from "../send/email";
 import { CONVERSATION_STATUS } from "./status";
-import { loadThread, replySubject } from "./thread";
+import { linkedinAddress, loadThread, replySubject, threadChannel } from "./thread";
 import { REPLY_PLAN, replyAddress } from "./decide";
 import { markInboundHandled, prepareReply, sendDraft } from "./reply";
 
@@ -36,7 +36,7 @@ async function actionFor(draftId, { database = db } = {}) {
 }
 
 export async function editDraft(id, user, { subject, body, toAddress }, { database = db } = {}) {
-  await ownedDraft(id, user, { database });
+  const current = await ownedDraft(id, user, { database });
   const changes = { updatedAt: new Date() };
   if (body !== undefined) {
     if (!String(body).trim()) throw new DraftError("The message is empty");
@@ -45,7 +45,9 @@ export async function editDraft(id, user, { subject, body, toAddress }, { databa
   if (subject !== undefined) changes.subject = String(subject).slice(0, 300) || null;
   if (toAddress !== undefined) {
     const to = String(toAddress || "").trim();
-    if (to && !isEmailAddress(to)) throw new DraftError("That isn't a valid email address");
+    if (current.channel === "linkedin") {
+      if (to && !/linkedin\.com\/in\//i.test(to)) throw new DraftError("That isn't a LinkedIn profile link");
+    } else if (to && !isEmailAddress(to)) throw new DraftError("That isn't a valid email address");
     changes.toAddress = to || null;
   }
   const [row] = await database.update(conversationMessages).set(changes).where(eq(conversationMessages.id, id)).returning();
@@ -65,7 +67,7 @@ export async function discardDraft(id, user, { database = db } = {}) {
  */
 export async function sendDraftNow(id, user, { database = db, senderName } = {}) {
   const draft = await ownedDraft(id, user, { database });
-  if (!draft.toAddress) throw new DraftError("Add an email address first");
+  if (!draft.toAddress) throw new DraftError(draft.channel === "linkedin" ? "No LinkedIn profile for this lead" : "Add an email address first");
   const action = await actionFor(draft.id, { database });
   if (action) {
     if (action.status === ACTION_STATUS.PENDING) {
@@ -77,7 +79,8 @@ export async function sendDraftNow(id, user, { database = db, senderName } = {})
   const [lead] = await database.select().from(leads).where(eq(leads.id, draft.leadId)).limit(1);
   const thread = await loadThread(lead.id, { database });
   const settings = await getSalesSettings(lead.userId, { database });
-  const { sent, meeting } = await sendDraft({ draft, lead, thread, settings, senderName }, { database });
+  const linkedinFn = draft.channel === "linkedin" ? await userLinkedInSender(lead.userId, { database }) : undefined;
+  const { sent, meeting } = await sendDraft({ draft, lead, thread, settings, senderName }, { database, linkedinFn });
   return { sent: { to: sent.to, redirected: sent.redirected }, meetingId: meeting?.id || null };
 }
 
@@ -99,23 +102,39 @@ export async function draftWithAi(lead, { database = db, senderName } = {}) {
 }
 
 /** Send the person's own message in the thread. */
+/**
+ * Sends a LinkedIn message from one of the user's connected accounts (for drafts sent by hand on the
+ * Conversations page; the agent uses its own account). Null when the user has no active account.
+ */
+async function userLinkedInSender(userId, { database = db } = {}) {
+  const [account] = await database.select({ id: linkedinAccounts.id }).from(linkedinAccounts)
+    .where(and(eq(linkedinAccounts.userId, userId), eq(linkedinAccounts.isActive, true))).limit(1);
+  if (!account) return undefined;
+  const { getLinkedInAccount, sendLinkedInMessage } = await import("../send/linkedin");
+  const full = await getLinkedInAccount(account.id);
+  return full ? (msg) => sendLinkedInMessage(full, msg) : undefined;
+}
+
 export async function sendOwnReply(lead, { body, subject }, { database = db, senderName } = {}) {
   if (!String(body || "").trim()) throw new DraftError("Write a message first");
   const thread = await loadThread(lead.id, { database });
-  const toAddress = replyAddress(thread, { testRecipient: testRecipient() });
-  if (!toAddress) throw new DraftError("There's no email address for this lead");
+  // Written on the channel the conversation is on
+  const onLinkedIn = threadChannel(thread) === "linkedin";
+  const toAddress = onLinkedIn ? linkedinAddress(thread) : replyAddress(thread, { testRecipient: testRecipient() });
+  if (!toAddress) throw new DraftError(onLinkedIn ? "There's no LinkedIn profile for this lead" : "There's no email address for this lead");
   const lastIn = [...thread].reverse().find((m) => m.direction === "in");
   const [draft] = await database.insert(conversationMessages).values({
     userId: lead.userId, leadId: lead.id, campaignId: lead.campaignId,
-    direction: "out", channel: "email", kind: "reply", status: "draft",
-    fromAddress: process.env.SENDER_EMAIL || null, toAddress,
-    subject: String(subject || "").trim() || replySubject(thread), body: String(body).slice(0, 10000),
-    inReplyTo: lastIn?.emailMessageId || [...thread].reverse().find((m) => m.emailMessageId)?.emailMessageId || null,
+    direction: "out", channel: onLinkedIn ? "linkedin" : "email", kind: "reply", status: "draft",
+    fromAddress: onLinkedIn ? null : process.env.SENDER_EMAIL || null, toAddress,
+    subject: onLinkedIn ? null : String(subject || "").trim() || replySubject(thread), body: String(body).slice(0, 10000),
+    inReplyTo: onLinkedIn ? null : lastIn?.emailMessageId || [...thread].reverse().find((m) => m.emailMessageId)?.emailMessageId || null,
     meta: { plan: REPLY_PLAN.ANSWER, nextStatus: CONVERSATION_STATUS.IN_CONVERSATION, writtenBy: "user" },
   }).returning();
   if (lastIn && !lastIn.handledAt) await markInboundHandled(lastIn, { note: "answered by you" }, { database });
   const settings = await getSalesSettings(lead.userId, { database });
-  const { sent } = await sendDraft({ draft, lead, thread, settings, senderName }, { database });
+  const linkedinFn = onLinkedIn ? await userLinkedInSender(lead.userId, { database }) : undefined;
+  const { sent } = await sendDraft({ draft, lead, thread, settings, senderName }, { database, linkedinFn });
   return { sent: { to: sent.to, redirected: sent.redirected } };
 }
 

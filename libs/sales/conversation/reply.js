@@ -9,7 +9,7 @@ import { sendSalesEmail, testRecipient } from "../send/email";
 import { canBook, confirmMeeting, meetingInvite, offerSlots, openMeetingFor, proposeMeeting } from "../meetings/store";
 import { zonedTime } from "../meetings/slots";
 import { CONVERSATION_STATUS, INTENT_LABELS } from "./status";
-import { nextFollowUpAt, recordOutbound, replySubject, threadReferences } from "./thread";
+import { linkedinAddress, nextFollowUpAt, recordOutbound, replySubject, threadReferences } from "./thread";
 import { REPLY_ESCALATION, REPLY_PLAN, planReply, proposedTime, replyAddress } from "./decide";
 import { readReply } from "./read-reply";
 import { composeReply } from "./compose";
@@ -33,6 +33,22 @@ export function planWords(plan) {
  * @returns {{ reading, decision, intentLine, draft: object|null, escalations: string[] }} — `draft` holds
  *          the values of the reply to save, or is null when no email should go back (declined, away)
  */
+const firstName = (name) => String(name || "").trim().split(/\s+/)[0] || null;
+
+/**
+ * Who we greet. The AI reads "the first name they sign with"; with no sign-off it can pick up OUR
+ * sign-off from the thread (it greeted Nouman as "Hi QA" on LinkedIn). Our own name is never theirs,
+ * and on LinkedIn (or for a person lead) their profile name is known.
+ */
+export function contactNameFor({ reading, lead, inbound, senderName }) {
+  const said = reading?.contactName || null;
+  const ours = firstName(senderName);
+  const usable = said && !(ours && said.toLowerCase() === ours.toLowerCase());
+  if (usable) return said;
+  const known = inbound?.channel === "linkedin" || lead?.source === "linkedin" ? lead?.sourceData?.profile?.name || lead?.name : null;
+  return firstName(known);
+}
+
 export async function prepareReply({ lead, inbound, thread, settings, senderName }, deps = {}) {
   const database = deps.database || db;
   const now = deps.now || new Date();
@@ -43,7 +59,8 @@ export async function prepareReply({ lead, inbound, thread, settings, senderName
   const lastOut = [...thread].reverse().find((m) => m.direction === "out" && m.status === "sent");
   const meeting = await openMeetingFor(lead.id, { database });
   const offeredSlots = meeting?.status === "proposed" ? (meeting.proposedSlots || []) : [];
-  const reading = await readFn({ reply: inbound.body, ourLastEmail: lastOut?.body, offeredSlots, timeZone: settings.timezone, now });
+  const read = await readFn({ reply: inbound.body, ourLastEmail: lastOut?.body, offeredSlots, timeZone: settings.timezone, now });
+  const reading = { ...read, contactName: contactNameFor({ reading: read, lead, inbound, senderName }) };
 
   const start = proposedTime(reading, { offeredSlots, timeZone: settings.timezone, zonedTime });
   const proposed = start && !Number.isNaN(start.getTime())
@@ -62,22 +79,27 @@ export async function prepareReply({ lead, inbound, thread, settings, senderName
     plan: decision.plan, reply: inbound.body, reading, thread, passages,
     companyName: settings.companyName, senderName, timeZone: settings.timezone,
     slots, meeting: meetingInfo, wrongTime: decision.escalations.includes(REPLY_ESCALATION.TIME_UNAVAILABLE),
+    channel: inbound.channel === "linkedin" ? "linkedin" : "email",
   });
 
   const escalations = [...decision.escalations];
   if (!composed.covered) escalations.push(REPLY_ESCALATION.NOT_IN_KNOWLEDGE);
   if (decision.plan === REPLY_PLAN.OFFER && !slots.length && !escalations.includes(REPLY_ESCALATION.TIME_UNAVAILABLE)) escalations.push(REPLY_ESCALATION.TIME_UNAVAILABLE);
-  const toAddress = replyAddress(thread, { testRecipient: testRecipient() });
+  // Answered on the channel they wrote on: a LinkedIn reply gets a LinkedIn message to their profile
+  const channel = inbound.channel === "linkedin" ? "linkedin" : "email";
+  const toAddress = channel === "linkedin"
+    ? linkedinAddress(thread) || inbound.fromAddress || null
+    : replyAddress(thread, { testRecipient: testRecipient() });
   if (!toAddress) escalations.push("no_recipient");
 
   return {
     reading, decision, intentLine, escalations,
     draft: {
       userId: lead.userId, leadId: lead.id, campaignId: lead.campaignId,
-      direction: "out", channel: "email", kind: "reply", status: "draft",
-      fromAddress: process.env.SENDER_EMAIL || null, toAddress,
-      subject: replySubject(thread), body: composed.body,
-      inReplyTo: inbound.emailMessageId,
+      direction: "out", channel, kind: "reply", status: "draft",
+      fromAddress: channel === "email" ? process.env.SENDER_EMAIL || null : null, toAddress,
+      subject: channel === "email" ? replySubject(thread) : null, body: composed.body,
+      inReplyTo: channel === "email" ? inbound.emailMessageId : null,
       meta: {
         repliesTo: inbound.id,
         plan: decision.plan,
@@ -88,7 +110,7 @@ export async function prepareReply({ lead, inbound, thread, settings, senderName
           .map((p) => ({ id: p.id, title: p.title, category: p.category, similarity: p.similarity, excerpt: p.content.slice(0, 300) })),
         slots: slots.map((s) => ({ start: new Date(s.start).toISOString(), end: new Date(s.end).toISOString() })),
         meetingStart: decision.start ? decision.start.toISOString() : null,
-        attendee: { name: reading.contactName || lead.name || null, email: toAddress },
+        attendee: { name: reading.contactName || lead.name || null, email: channel === "email" ? toAddress : null },
       },
       createdAt: now,
       updatedAt: now,
@@ -124,23 +146,32 @@ export async function sendDraft({ draft, lead, thread, settings, senderName }, d
   const now = deps.now || new Date();
   const emailFn = deps.emailFn || sendSalesEmail;
   const notifyFn = deps.notifyFn || notify;
-  if (!draft.toAddress) throw new Error("No email address for this lead: add one before sending");
+  const onLinkedIn = draft.channel === "linkedin";
+  if (!draft.toAddress) throw new Error(onLinkedIn ? "No LinkedIn profile for this lead" : "No email address for this lead: add one before sending");
+  if (onLinkedIn && !deps.linkedinFn) throw new Error("No LinkedIn account to send this message: choose one when you start the agent");
   const meta = draft.meta || {};
 
   let meeting = null;
   let calendar = null;
   if (meta.plan === REPLY_PLAN.CONFIRM && meta.meetingStart) {
     meeting = await confirmMeeting({ lead, start: meta.meetingStart, settings, attendee: meta.attendee, conversationMessageId: draft.id }, { database, now });
-    calendar = meetingInvite(meeting, {
+    // LinkedIn can't carry a calendar invite: the message itself has the time and the link
+    if (!onLinkedIn) calendar = meetingInvite(meeting, {
       organizer: { name: settings.companyName || senderName, email: process.env.SENDER_EMAIL },
       description: `${meeting.title}${meeting.location ? `\nJoin: ${meeting.location}` : ""}`,
     });
   }
 
-  const references = threadReferences(thread);
+  const references = onLinkedIn ? null : threadReferences(thread);
   let sent;
   try {
-    sent = await emailFn({ to: draft.toAddress, subject: draft.subject, body: draft.body, senderName, inReplyTo: draft.inReplyTo, references, calendar });
+    if (onLinkedIn) {
+      const result = await deps.linkedinFn({ url: draft.toAddress, message: draft.body, name: lead.name });
+      if (!result?.success) throw new Error(result?.error || "The LinkedIn message wasn't sent");
+      sent = { delivered: "linkedin", to: draft.toAddress, messageId: null };
+    } else {
+      sent = await emailFn({ to: draft.toAddress, subject: draft.subject, body: draft.body, senderName, inReplyTo: draft.inReplyTo, references, calendar });
+    }
   } catch (error) {
     // Not booked if the client never got the confirmation
     if (meeting) await database.update(meetings).set({ status: "proposed", updatedAt: now }).where(eq(meetings.id, meeting.id));
@@ -148,7 +179,7 @@ export async function sendDraft({ draft, lead, thread, settings, senderName }, d
   }
   await recordOutbound({
     lead, kind: draft.kind, subject: draft.subject, body: draft.body, toAddress: draft.toAddress, sent,
-    draftId: draft.id, inReplyTo: draft.inReplyTo, references, followUpDays: settings.followUpDays,
+    draftId: draft.id, inReplyTo: draft.inReplyTo, references, followUpDays: settings.followUpDays, channel: draft.channel || "email",
   }, { database, now });
 
   if (draft.kind === "reply") {

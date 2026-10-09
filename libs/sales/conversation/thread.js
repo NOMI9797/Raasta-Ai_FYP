@@ -20,10 +20,10 @@ export function nextFollowUpAt(sentAt, followUpsSent, followUpDays = DEFAULT_FOL
  * Record an email we sent in the lead's thread and move the conversation on.
  * kind: outreach | reply | follow_up. For a reply or follow-up, pass the draft row's id to update it.
  */
-export async function recordOutbound({ lead, kind, subject, body, toAddress, sent, draftId = null, inReplyTo = null, references = null, followUpDays }, { database = db, now = new Date() } = {}) {
+export async function recordOutbound({ lead, kind, subject, body, toAddress, sent, draftId = null, inReplyTo = null, references = null, followUpDays, channel = "email" }, { database = db, now = new Date() } = {}) {
   const values = {
     status: "sent",
-    fromAddress: process.env.SENDER_EMAIL || null,
+    fromAddress: channel === "email" ? process.env.SENDER_EMAIL || null : null,
     toAddress,
     subject,
     body,
@@ -43,7 +43,7 @@ export async function recordOutbound({ lead, kind, subject, body, toAddress, sen
       leadId: lead.id,
       campaignId: lead.campaignId,
       direction: "out",
-      channel: "email",
+      channel,
       kind,
       meta: sent?.redirected ? { testRedirectedTo: sent.to } : null,
       createdAt: now,
@@ -63,6 +63,18 @@ export async function recordOutbound({ lead, kind, subject, body, toAddress, sen
   }
   await database.update(leads).set(leadChanges).where(eq(leads.id, lead.id));
   return row;
+}
+
+/** The channel the conversation is on: the one of our last sent message (email by default). */
+export function threadChannel(thread) {
+  const last = [...(thread || [])].reverse().find((m) => m.direction === "out" && m.status === "sent");
+  return last?.channel === "linkedin" ? "linkedin" : "email";
+}
+
+/** The LinkedIn profile we write to in a LinkedIn conversation. */
+export function linkedinAddress(thread) {
+  const last = [...(thread || [])].reverse().find((m) => m.channel === "linkedin" && m.direction === "out" && m.toAddress);
+  return last?.toAddress || null;
 }
 
 /** The whole thread, oldest first, without discarded drafts. */

@@ -70,6 +70,15 @@ function CompanyCard({ lead, busy, onResearch }) {
             ) : (
               <p className="text-base-content/50 flex items-center gap-1.5"><Globe className="h-3.5 w-3.5" /> No website found</p>
             )}
+            {research.website && research.websiteConfirmed === false && (
+              <p className="flex items-start gap-1.5 rounded-md bg-warning/15 px-2 py-1 text-xs text-warning-content">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+                Check this is the company&apos;s website: nothing on it points to Pakistan. The agent asks you before emailing it.
+              </p>
+            )}
+            {research.emailSource === "web search" && research.emails.length > 0 && (
+              <p className="text-xs text-base-content/50">Emails found on the web (not on their website)</p>
+            )}
             {research.emails.map((email) => (
               <a key={email} href={`mailto:${email}`} className="flex items-center gap-1.5 hover:text-primary">
                 <Mail className="h-3.5 w-3.5" /> {email}
@@ -173,8 +182,7 @@ export default function CompanyResearch({ campaignId, platform }) {
     }
   };
 
-  const researchAll = async () => {
-    const todo = leads.filter((l) => !l.sourceData?.research && companyNameOf(l));
+  const runResearch = async (todo, doneText) => {
     if (!todo.length) return;
     // Free search blocks quickly, so go one at a time without a search key
     const parallel = status?.searchProvider === "serper" ? 3 : 1;
@@ -189,8 +197,13 @@ export default function CompanyResearch({ campaignId, platform }) {
     };
     await Promise.all(Array.from({ length: parallel }, worker));
     setBatch(null);
-    toast.success("Research finished");
+    toast.success(doneText);
   };
+  const researchAll = () => runResearch(leads.filter((l) => !l.sourceData?.research && companyNameOf(l)), "Research finished");
+  // Researched before the wider email search existed (more pages, "@domain" on the web): look again
+  const missingEmail = (leads || []).filter((l) => l.sourceData?.research && !l.sourceData.research.emails?.length && !l.sourceData.research.contacts?.length && companyNameOf(l));
+  const onLinkedInOnly = missingEmail.filter((l) => l.sourceData.research.decisionMakers?.length).length;
+  const lookAgain = () => runResearch(missingEmail, "Looked again for missing emails");
 
   const combine = async () => {
     setMerging(true);
@@ -251,13 +264,25 @@ export default function CompanyResearch({ campaignId, platform }) {
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm">
-          <span className="font-semibold">{researched}</span> of <span className="font-semibold">{leads.length}</span> companies researched
-        </p>
-        <button className="btn btn-primary btn-sm gap-2" onClick={researchAll} disabled={Boolean(batch) || researched === leads.length}>
-          {batch ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-          {batch ? `Researching ${batch.done} of ${batch.total}…` : "Research the rest"}
-        </button>
+        <div className="text-sm">
+          <p><span className="font-semibold">{researched}</span> of <span className="font-semibold">{leads.length}</span> companies researched</p>
+          {missingEmail.length > 0 && (
+            <p className="text-xs text-base-content/60">
+              {missingEmail.length} without an email: {onLinkedInOnly} can be reached on LinkedIn (decision-maker found), {missingEmail.length - onLinkedInOnly} need a contact
+            </p>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {missingEmail.length > 0 && (
+            <button className="btn btn-outline btn-sm gap-2" onClick={lookAgain} disabled={Boolean(batch)} title="Reads more of their website and searches the web for addresses on their domain">
+              <Mail className="h-4 w-4" /> Look again for {missingEmail.length} missing email{missingEmail.length === 1 ? "" : "s"}
+            </button>
+          )}
+          <button className="btn btn-primary btn-sm gap-2" onClick={researchAll} disabled={Boolean(batch) || researched === leads.length}>
+            {batch ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+            {batch ? `Researching ${batch.done} of ${batch.total}…` : "Research the rest"}
+          </button>
+        </div>
       </div>
       {batch && <progress className="progress progress-primary w-full" value={batch.done} max={batch.total} />}
 

@@ -6,48 +6,27 @@ import { chatJSON } from "../ai/llm";
 export const CHANNELS = { linkedin: "LinkedIn", email: "Email" };
 const LINKEDIN_MAX = 600;
 
-const HIRING_TITLE = /\b(hr|human resources?|talent|recruit|people)\b/i;
-const LEADER_TITLE = /\b(ceo|founder|owner|managing director|director|president|cto|head)\b/i;
+// Who to write to and on which channel live in contact-route.js (shared with the Messages page)
+export { defaultChannel, pickRecipient } from "./contact-route";
 
 /**
- * Who a company message goes to on a channel. Email: a named contact (Hunter) in HR or leadership first,
- * then any named contact, then the company's own address. LinkedIn: the first decision-maker found.
- * @returns {{ address: string, name: string|null, title: string|null } | null}
+ * What we sell, for the prompt: the campaign's offer, else the company's services from the knowledge
+ * base (`company`: { name, services }). A campaign with no offer made the AI write as if we were the
+ * ones needing help (found by the LinkedIn end-to-end test).
  */
-export function pickRecipient(research, channel) {
-  if (!research) return null;
-  if (channel === "linkedin") {
-    const person = research.decisionMakers?.[0];
-    return person ? { address: person.linkedinUrl, name: person.name, title: person.title } : null;
-  }
-  const contacts = research.contacts || [];
-  const named =
-    contacts.find((c) => HIRING_TITLE.test(c.title || "")) ||
-    contacts.find((c) => LEADER_TITLE.test(c.title || "")) ||
-    contacts.find((c) => c.name);
-  if (named) return { address: named.email, name: named.name, title: named.title };
-  const email = research.emails?.[0];
-  return email ? { address: email, name: null, title: null } : null;
-}
-
-/** Email when we have an address, LinkedIn when we only found a person, else email (an address can be added by hand). */
-export function defaultChannel(research) {
-  if (pickRecipient(research, "email")) return "email";
-  if (pickRecipient(research, "linkedin")) return "linkedin";
-  return "email";
-}
-
-function offerContext(campaign) {
+export function offerContext(campaign, company = null) {
   const icp = campaign?.icpConfig || {};
+  const notes = String(campaign?.description || "").trim();
   const lines = [
-    icp.serviceType ? `What we offer: ${icp.serviceType}` : null,
+    company?.name ? `Our company: ${company.name}` : null,
+    icp.serviceType ? `What we offer: ${icp.serviceType}` : company?.services ? `What we offer (from our knowledge base): ${company.services}` : null,
     icp.industry ? `Industries we target: ${icp.industry}` : null,
     icp.targetRole ? `Roles we usually talk to: ${icp.targetRole}` : null,
-    campaign?.description ? `Campaign notes: ${campaign.description}` : null,
+    notes.length >= 12 ? `Campaign notes: ${notes}` : null, // short scribbles ("fwhf") aren't notes
   ].filter(Boolean);
   return lines.length
     ? lines.join("\n")
-    : "What we offer is not specified: keep the offer general (a short call to see whether we can help).";
+    : "What we offer is not specified: keep the offer general (a short call to see whether we can help with their work).";
 }
 
 // Only the first name, and only for the sign-off: a full account name ("QA Tester") gets read as a job title
@@ -57,6 +36,7 @@ function senderLine(senderName) {
 }
 
 const RULES = [
+  "You are the seller: you offer OUR services to them. Never write as if you were a customer, a job seeker or someone asking them for help.",
   "Write like a real person, not a template. Plain, warm, specific; no buzzwords, no flattery overload.",
   "Never invent facts that are not in the information given. Never use placeholders like [Name] or [Your Name].",
   "Greet the recipient by first name when you know it.",
@@ -64,7 +44,7 @@ const RULES = [
 ];
 
 /** @returns {{ system: string, user: string }} */
-export function personPrompt({ lead, posts = [], campaign, senderName }) {
+export function personPrompt({ lead, posts = [], campaign, senderName, company }) {
   const postLines = posts.slice(0, 5).map((p, i) => `${i + 1}. ${String(p.content || "").slice(0, 600)}`).join("\n");
   return {
     system: [
@@ -75,7 +55,7 @@ export function personPrompt({ lead, posts = [], campaign, senderName }) {
     ].join("\n"),
     user: [
       senderLine(senderName),
-      offerContext(campaign),
+      offerContext(campaign, company),
       "",
       `Recipient: ${lead.name || "unknown"}${lead.title ? `, ${lead.title}` : ""}${lead.company ? ` at ${lead.company}` : ""}`,
       postLines ? `Their recent LinkedIn posts (refer to one naturally):\n${postLines}` : "No recent posts available: open from their role instead.",
@@ -84,7 +64,7 @@ export function personPrompt({ lead, posts = [], campaign, senderName }) {
 }
 
 /** @returns {{ system: string, user: string }} */
-export function companyPrompt({ company, jobs = [], research, campaign, channel, recipient, senderName }) {
+export function companyPrompt({ company, jobs = [], research, campaign, channel, recipient, senderName, ourCompany }) {
   const roles = jobs.map((j) => j.title).filter(Boolean).slice(0, 6);
   const about = [research?.description, research?.title].filter(Boolean)[0];
   const greeting = recipient?.name ? `Address ${recipient.name.split(" ")[0]} by first name.` : `Address the ${company} team.`;
@@ -101,7 +81,7 @@ export function companyPrompt({ company, jobs = [], research, campaign, channel,
     ].join("\n"),
     user: [
       senderLine(senderName),
-      offerContext(campaign),
+      offerContext(campaign, ourCompany),
       "",
       `Company: ${company}`,
       roles.length ? `Open roles: ${roles.join("; ")}` : null,

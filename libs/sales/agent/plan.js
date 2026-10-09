@@ -8,6 +8,7 @@
 import { PLATFORM_KIND } from "../stages";
 import { companyNameOf } from "../companies";
 import { isEmailAddress } from "../send/email";
+import { CONTACT_ROUTE, contactRoute } from "../contact-route";
 import { DEFAULTS, ROUTE, SALES_ACTION, SALES_ESCALATION, decideSales } from "./policy";
 
 export const LEAD_STAGE = {
@@ -18,6 +19,7 @@ export const LEAD_STAGE = {
   AWAITING_APPROVAL: "awaiting_approval",
   AWAITING_ACCEPTANCE: "awaiting_acceptance",
   BLOCKED: "blocked",
+  NEEDS_CONTACT: "needs_contact", // researched, but no email and no one on LinkedIn: a person adds a contact
   SKIPPED: "skipped",
   DONE: "done",
   STOPPED: "stopped", // a person rejected the send, or it failed
@@ -26,6 +28,7 @@ export const LEAD_STAGE = {
 export const keyFor = (action, leadId) => `${action}:${leadId}`;
 
 const isCompany = (lead) => PLATFORM_KIND[lead.source] === "company";
+
 
 /** Has this lead been prepared enough to write to them? */
 export function isResearched(lead) {
@@ -40,7 +43,9 @@ export function fitOf(lead) {
 /** Which outreach action is due for a lead whose message is written, or a waiting stage. */
 function outreachStep(lead, message, { linkedinReady }) {
   if (message.channel === "email") return { action: SALES_ACTION.SEND_EMAIL };
-  if (!linkedinReady) return { stage: LEAD_STAGE.BLOCKED, reason: "No LinkedIn account selected for this agent" };
+  if (!linkedinReady) {
+    return { stage: LEAD_STAGE.BLOCKED, reason: isCompany(lead) ? "No email found: choose a LinkedIn account to message the decision-maker" : "No LinkedIn account selected for this agent" };
+  }
   if (!lead.inviteSent) return { action: SALES_ACTION.SEND_INVITE };
   if (lead.inviteStatus === "accepted") return { action: SALES_ACTION.SEND_LINKEDIN_MESSAGE };
   if (["failed", "rejected"].includes(lead.inviteStatus)) return { stage: LEAD_STAGE.STOPPED, reason: "Invite not accepted" };
@@ -55,6 +60,8 @@ function escalationsFor(action, { lead, message, fit, config, contactedElsewhere
   if (action === SALES_ACTION.SEND_LINKEDIN_MESSAGE && (message.content || "").length > config.linkedinMessageMax) out.push(SALES_ESCALATION.TOO_LONG);
   if (fit && fit.score < config.minFitScore + config.borderlineMargin) out.push(SALES_ESCALATION.BORDERLINE_FIT);
   if (contactedElsewhere.has(lead.id)) out.push(SALES_ESCALATION.CONTACTED_ELSEWHERE);
+  // The address came from a website research couldn't tie to this company (found by the end-to-end run)
+  if (action === SALES_ACTION.SEND_EMAIL && lead.sourceData?.research?.websiteConfirmed === false) out.push(SALES_ESCALATION.WEBSITE_UNCONFIRMED);
   return out;
 }
 
@@ -73,11 +80,17 @@ export function buildSalesPlan(state, { mode, config: overrides = {} }) {
   const allowance = { email: 0, invite: 0, linkedinMessage: 0, ...state.allowance };
   const capOf = { [SALES_ACTION.SEND_EMAIL]: "email", [SALES_ACTION.SEND_INVITE]: "invite", [SALES_ACTION.SEND_LINKEDIN_MESSAGE]: "linkedinMessage" };
 
-  const plan = { research: [], score: [], write: [], skip: [], sends: [], deferred: [], stages: {}, blocked: [] };
+  const plan = { research: [], score: [], write: [], rewrite: [], needsContact: [], dropDrafts: [], staleActions: [], skip: [], sends: [], deferred: [], stages: {}, blocked: [] };
   const setStage = (lead, stage) => (plan.stages[lead.id] = stage);
 
   for (const lead of leads) {
     const message = messages.get(lead.id) || null;
+    // A send request for the other channel (the message moved between Email and LinkedIn): withdrawn
+    for (const action of [SALES_ACTION.SEND_EMAIL, SALES_ACTION.SEND_INVITE, SALES_ACTION.SEND_LINKEDIN_MESSAGE]) {
+      const open = actions.get(keyFor(action, lead.id));
+      if (!open || !["pending", "approved"].includes(open.status) || !message || message.status === "sent") continue;
+      if ((action === SALES_ACTION.SEND_EMAIL) !== (message.channel === "email")) plan.staleActions.push(open.id);
+    }
     if (lead.messageSent || message?.status === "sent") {
       setStage(lead, LEAD_STAGE.DONE);
       continue;
@@ -112,8 +125,25 @@ export function buildSalesPlan(state, { mode, config: overrides = {} }) {
       setStage(lead, LEAD_STAGE.SKIPPED);
       continue;
     }
+    // Sorted after research: email, LinkedIn, or no contact. With no contact nothing is written (an
+    // unaddressed draft from before is withdrawn) until a person adds an address or a profile.
+    const contact = isCompany(lead) ? contactRoute(lead, message) : null;
+    if (contact === CONTACT_ROUTE.NO_CONTACT) {
+      if (message?.status === "draft") plan.dropDrafts.push(lead.id);
+      plan.needsContact.push(lead.id);
+      setStage(lead, LEAD_STAGE.NEEDS_CONTACT);
+      continue;
+    }
     if (!message?.content) {
       plan.write.push(lead.id);
+      setStage(lead, LEAD_STAGE.WRITE);
+      continue;
+    }
+    // An email draft with no address, for a company research can now reach (an address, or a
+    // decision-maker on LinkedIn): written again for that channel. A person's edits (approved) are kept.
+    if (isCompany(lead) && message.status === "draft" && message.channel === "email" && !message.recipient) {
+      plan.write.push(lead.id);
+      plan.rewrite.push(lead.id);
       setStage(lead, LEAD_STAGE.WRITE);
       continue;
     }
@@ -125,7 +155,9 @@ export function buildSalesPlan(state, { mode, config: overrides = {} }) {
       continue;
     }
 
-    const existing = actions.get(keyFor(step.action, lead.id));
+    // A withdrawn request (the message was rewritten, say) doesn't count: the new message is proposed afresh
+    const found = actions.get(keyFor(step.action, lead.id));
+    const existing = found?.status === "superseded" || plan.staleActions.includes(found?.id) ? null : found;
     if (existing) {
       // Already proposed: waiting for a person, waiting to be carried out, or finished
       const stage = existing.status === "pending" ? LEAD_STAGE.AWAITING_APPROVAL

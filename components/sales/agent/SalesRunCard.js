@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import toast from "react-hot-toast";
 import {
   AlertTriangle, ArrowRight, Ban, CalendarCheck, Check, CheckCircle2, ChevronDown, Circle, Clock, Hand, Loader2,
-  MailCheck, MessagesSquare, Pause, Play, Square, XCircle,
+  Linkedin, MailCheck, MessagesSquare, Pause, Play, Square, XCircle,
 } from "lucide-react";
 import { useDialog } from "@/components/ui/DialogProvider";
 
@@ -48,7 +48,10 @@ export function activityLine(run) {
   if (c.awaiting_acceptance) parts.push(`waiting for ${c.awaiting_acceptance} to accept on LinkedIn`);
   if (r.deferred) parts.push(`${r.deferred} waiting for tomorrow's email limit`);
   if (conv.open) parts.push(`watching ${conv.open} conversation${conv.open === 1 ? "" : "s"} for replies`);
-  return parts.length ? `${parts.join(" · ").replace(/^./, (s) => s.toUpperCase())}.` : `${c.done || 0} contacted so far. Watching for new work.`;
+  if (parts.length) return `${parts.join(" · ").replace(/^./, (s) => s.toUpperCase())}.`;
+  return r.allDoneAt
+    ? `Every lead contacted (${c.done || 0}). Answering replies and sending follow-ups until you stop it.`
+    : `${c.done || 0} contacted so far. Watching for new work.`;
 }
 
 // ─── Pieces ───
@@ -81,7 +84,7 @@ function stepNote(step) {
   switch (step.stepKey) {
     case "research": return o.left ? `${o.left} left` : null;
     case "score": return o.left ? `${o.left} left` : o.skipped ? `${o.skipped} skipped` : null;
-    case "write_messages": return o.left ? `${o.left} left` : null;
+    case "write_messages": return [o.left ? `${o.left} left` : null, o.noContact ? `${o.noContact} no contact` : null].filter(Boolean).join(" · ") || null;
     case "approvals": return o.pending ? `${o.pending} waiting` : null;
     case "outreach": return o.sent ? `${o.sent} sent` : o.queued ? `${o.queued} queued` : null;
     case "follow_up": return o.open ? `${o.open} open` : o.replied ? `${o.replied} replied` : null;
@@ -163,15 +166,45 @@ export default function SalesRunCard({ run, stepLabels, onChanged, onOpenApprova
     }
   };
 
-  const toggleLog = async () => {
-    const next = !showLog;
-    setShowLog(next);
-    if (next) {
-      const res = await fetch(`/api/agents/runs/${run.id}`);
+  const toggleLog = () => setShowLog((v) => !v);
+
+  // Accepted invites and LinkedIn replies are checked on the agent's next tick, at once
+  const [checking, setChecking] = useState(false);
+  const checkLinkedIn = async () => {
+    setChecking(true);
+    try {
+      const res = await fetch(`/api/agents/runs/${run.id}/check-linkedin`, { method: "POST" });
       const data = await res.json();
-      setLog(data.actions || []);
+      if (!res.ok) throw new Error(data.error || "Could not check LinkedIn");
+      toast.success("Checking LinkedIn: new connections and replies show in the activity log in a minute");
+      onChanged?.();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setChecking(false);
     }
   };
+
+  // The log follows the agent while it works (it used to be read once, when opened)
+  useEffect(() => {
+    if (!showLog) return undefined;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/agents/runs/${run.id}`);
+        const data = await res.json();
+        if (!cancelled && res.ok) setLog(data.actions || []);
+      } catch {
+        // keep the last log; the next refresh tries again
+      }
+    };
+    load();
+    const timer = active ? setInterval(load, 5000) : null;
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [showLog, run.id, active]);
 
   const started = run.startedAt || run.createdAt;
   const startedText = started ? new Date(started).toLocaleDateString([], { day: "numeric", month: "short" }) : null;
@@ -241,6 +274,13 @@ export default function SalesRunCard({ run, stepLabels, onChanged, onOpenApprova
             hint={counts.blocked && r.blocked ? `Blocked: ${r.blocked}` : "Skipped: poor fit or no company name"}
           />
         </div>
+        {counts.needs_contact > 0 && (
+          <p className="flex items-start gap-1.5 text-xs text-base-content/60">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+            {counts.needs_contact} {counts.needs_contact === 1 ? "company has" : "companies have"} no email or LinkedIn contact: nothing was written.
+            <Link href={`/dashboard/sales/messages?campaign=${run.campaignId}&view=no_contact`} className="link link-primary">Move them to Email or LinkedIn</Link>
+          </p>
+        )}
         {counts.blocked > 0 && r.blocked && (
           <p className="flex items-start gap-1.5 text-xs text-base-content/60"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-error" /> {counts.blocked} blocked: {r.blocked}</p>
         )}
@@ -260,6 +300,11 @@ export default function SalesRunCard({ run, stepLabels, onChanged, onOpenApprova
           <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showLog ? "rotate-180" : ""}`} /> Activity log
         </button>
         <span className="flex-1" />
+        {active && run.status !== "paused" && run.config?.accountId && (
+          <button className="btn btn-ghost btn-xs gap-1 !normal-case" disabled={checking} onClick={checkLinkedIn} title="Check accepted invites and new LinkedIn replies now">
+            {checking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Linkedin className="h-3.5 w-3.5" />} Check LinkedIn now
+          </button>
+        )}
         {conv.total > 0 && (
           <Link href="/dashboard/sales/conversations" className="btn btn-ghost btn-xs gap-1 !normal-case"><MessagesSquare className="h-3.5 w-3.5" /> Conversations</Link>
         )}

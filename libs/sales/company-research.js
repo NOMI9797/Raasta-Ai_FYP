@@ -15,6 +15,9 @@ const NOT_COMPANY_SITES = [
   "bayt.com", "naukri.com", "wikipedia.org", "crunchbase.com", "zoominfo.com", "apollo.io", "rocketreach.co",
   "branches.pk", "worldorgs.com", "top10place.com", "yelp.com", "clutch.co", "goodfirms.co", "google.com",
   "bing.com", "duckduckgo.com", "github.com", "medium.com", "dnb.com", "opencorporates.com", "trustpilot.com",
+  // Registries, profile and job sites the end-to-end run picked as company websites (9 Oct 2026)
+  "company-information.service.gov.uk", "gov.uk", "bebee.com", "globaldata.com", "bloomberg.com", "pitchbook.com",
+  "secp.gov.pk", "mustakbil.pk", "jooble.org", "careerjet.com.pk", "pk.jooble.org", "wellfound.com", "ambitionbox.com",
 ];
 
 export class SearchBlockedError extends Error {}
@@ -37,19 +40,31 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = PAGE_TIMEOUT_MS) 
   }
 }
 
-async function serperSearch(query, num) {
+// Serper's free plan refuses more than 10 results per search ("Query pattern not allowed for free
+// accounts"); more results come from the next page instead
+export const SERPER_MAX_RESULTS = Number(process.env.SERPER_MAX_RESULTS) || 10;
+
+async function serperSearch(query, num, page = 1) {
   const res = await fetchWithTimeout("https://google.serper.dev/search", {
     method: "POST",
     headers: { "X-API-KEY": process.env.SERPER_API_KEY, "Content-Type": "application/json" },
-    body: JSON.stringify({ q: query, gl: "pk", num }),
+    body: JSON.stringify({ q: query, gl: "pk", num: Math.min(num, SERPER_MAX_RESULTS), ...(page > 1 ? { page } : {}) }),
   });
-  if (!res.ok) throw new Error(`Serper search failed (${res.status})`);
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    throw new Error(`Serper search failed (${res.status}${detail?.message ? `: ${detail.message}` : ""})`);
+  }
   const data = await res.json();
   return (data.organic || []).map((r) => ({ title: r.title || "", link: r.link || "", snippet: r.snippet || "" }));
 }
 
 const decodeHtml = (s) =>
-  s.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"').replace(/\s+/g, " ").trim();
+  s.replace(/<[^>]+>/g, "")
+    // Numeric entities too: "Dextrologix &#8211; Trusted…" (seen on the Research page)
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
+    .replace(/&nbsp;/g, " ").replace(/&ndash;/g, "–").replace(/&mdash;/g, "—")
+    .replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/\s+/g, " ").trim();
 
 async function duckDuckGoSearch(query) {
   const res = await fetchWithTimeout("https://html.duckduckgo.com/html/", {
@@ -73,9 +88,10 @@ async function duckDuckGoSearch(query) {
   return results;
 }
 
-/** Web search through the configured provider. Returns [{ title, link, snippet }]. */
-export async function webSearch(query, { num = 8 } = {}) {
-  return process.env.SERPER_API_KEY ? serperSearch(query, num) : duckDuckGoSearch(query);
+/** Web search through the configured provider. Returns [{ title, link, snippet }]. `page` is Serper only. */
+export async function webSearch(query, { num = 8, page = 1 } = {}) {
+  if (process.env.SERPER_API_KEY) return serperSearch(query, num, page);
+  return page > 1 ? [] : duckDuckGoSearch(query);
 }
 
 export function hostOf(url) {
@@ -104,13 +120,87 @@ function nameToken(companyName) {
   return words[0] || null;
 }
 
-/** Pick the company's own website from search results: skip listing sites, prefer a domain that contains its name. */
-export function pickWebsite(results, companyName) {
-  const token = nameToken(companyName);
+// Name words that many companies share: they never identify a company on their own
+const COMMON_NAME_WORDS = new Set([
+  "global", "systems", "system", "solutions", "solution", "technologies", "technology", "tech", "software", "labs", "digital",
+  "house", "computer", "computers", "services", "group", "international", "enterprises", "enterprise", "consulting",
+  "the", "and", "pvt", "ltd", "limited", "private", "inc", "llc", "company", "pakistan", "studio", "studios", "it", "web",
+]);
+const LEGAL_WORDS = /\b(pvt|private|ltd|limited|llc|inc|incorporated|corp|corporation|co|smc|plc)\b/g;
+const letters = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+// Another country's domain (alphabetglobal.in, brightbench.sg): the same name, most likely another company
+const foreignDomain = (host) => /\.[a-z]{2}$/.test(host) && !/\.(pk|io|ai|co|me|tv|ly|so|to|gg)$/.test(host);
+
+/** The ways a company's name shows up in a domain: the whole name, and its distinctive words. */
+export function nameParts(companyName) {
+  const words = String(companyName || "").toLowerCase().replace(LEGAL_WORDS, " ").replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(Boolean);
+  return { full: words.join(""), words, distinct: words.filter((w) => w.length >= 3 && !COMMON_NAME_WORDS.has(w)) };
+}
+
+/** Does a search result point at Pakistan or the company's city? */
+const localSignal = (r, city) => {
+  const text = `${r.title || ""} ${r.snippet || ""}`.toLowerCase();
+  return /\.pk$/.test(r.host) || /\bpakistan\b/.test(text) || (city && text.includes(String(city).toLowerCase()));
+};
+
+/**
+ * The company's own website from search results, with how sure we are:
+ * { url, match: "exact" | "full" | "words" | "partial", local } or null.
+ * The domain must carry the company's name: the whole name ("primasystems"), all its distinctive words,
+ * or (only with a sign it's in Pakistan / the city) its first distinctive word. No name, no website:
+ * a wrong website is worse than none, because its emails get written to (found by the end-to-end run).
+ */
+export function pickWebsiteDetail(results, companyName, { city } = {}) {
+  const { full, words, distinct } = nameParts(companyName);
+  if (!full) return null;
   const candidates = results.map((r) => ({ ...r, host: hostOf(r.link) })).filter((r) => r.host && !isListingSite(r.host));
-  const named = token && candidates.find((r) => r.host.replace(/[^a-z0-9]/g, "").includes(token));
-  const chosen = named || candidates[0];
-  return chosen ? originOf(chosen.link) : null;
+  // A site counts as local when any of its results is (its contact page may name the city, not its home page)
+  const localHosts = new Set(candidates.filter((r) => localSignal(r, city)).map((r) => r.host));
+  let best = null;
+  for (const r of candidates) {
+    const name = letters(r.host.split(".").slice(0, -1).join("") || r.host);
+    let match = null;
+    if (full.length >= 3 && (name === full || letters(r.host) === full)) match = "exact"; // rfzdigital.com, prima.systems
+    else if (full.length >= 3 && (name.includes(full) || letters(r.host).includes(full))) match = "full";
+    else if (words.length > 1 && words.every((w) => letters(r.host).includes(w))) match = "words"; // IR-Tech Solutions: irsolutions.tech
+    else if (distinct.length > 1 && distinct.every((w) => name.includes(w))) match = "words";
+    else if (distinct[0]?.length >= 4 && name.includes(distinct[0])) match = "partial";
+    if (!match) continue;
+    const local = localHosts.has(r.host);
+    const foreign = foreignDomain(r.host);
+    if (match === "partial" && !local) continue;
+    const score = { exact: 4, full: 3, words: 2, partial: 1 }[match] + (local ? 1 : 0) - (foreign && !local ? 2 : 0);
+    if (!best || score > best.score) best = { url: originOf(r.link), match, local, foreign, score };
+  }
+  return best && { url: best.url, match: best.match, local: best.local, ...(best.foreign ? { foreign: true } : {}) };
+}
+
+/** Pick the company's own website from search results (see pickWebsiteDetail). */
+export function pickWebsite(results, companyName, options) {
+  return pickWebsiteDetail(results, companyName, options)?.url || null;
+}
+
+const FREE_MAIL = /^(gmail|googlemail|yahoo|ymail|hotmail|outlook|live|msn|icloud|me|proton|protonmail|zoho|aol|yandex)\./;
+const PLACEHOLDER_EMAIL = /^(your|youremail|your-email|your\.email|yourname|email|name|user|username|test|someone|john\.?doe)@|@(mail|email|domain|example|test)\.(com?|net|org)$/;
+
+/**
+ * The emails worth writing to: placeholders and stray characters out, and only the company's own
+ * domain (or a free mailbox): a site can show other firms' addresses, e.g. bewerber.hotline@bmw.de
+ * on alphabet.com (found by the end-to-end run).
+ */
+export function cleanEmails(emails, website) {
+  const site = letters((hostOf(website) || "").split(".").slice(0, -1).join(""));
+  const out = [];
+  for (const raw of emails || []) {
+    // Cut at leftover page code first: "x@gmail.com&quot;" must not become "x@gmail.comquot" (seen on Approvals)
+    const email = String(raw).toLowerCase().split(/[&?#;"'<>\s]/)[0].replace(/[^a-z0-9@._+-]/g, "");
+    if (!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,12}$/.test(email) || PLACEHOLDER_EMAIL.test(email) || /\.(com|net|org|pk)(quot|amp|gt|lt|nbsp)$/.test(email)) continue;
+    const domain = email.split("@")[1];
+    const own = letters(domain.split(".").slice(0, -1).join(""));
+    const shared = site && own && (own.startsWith(site.slice(0, 3)) || site.startsWith(own.slice(0, 3)) || own.includes(site) || site.includes(own));
+    if ((FREE_MAIL.test(domain) || !site || shared) && !out.includes(email)) out.push(email);
+  }
+  return out;
 }
 
 // ─── Reading the website ───
@@ -206,7 +296,9 @@ export async function readWebsite(origin) {
   result.description = homeData.description;
 
   const base = originOf(home.finalUrl) || origin;
-  const extra = [...homeData.links, `${base}/contact`, `${base}/contact-us`, `${base}/about`].filter((u, i, all) => all.indexOf(u) === i).slice(0, 3);
+  // Contact and about pages first; careers and privacy pages often carry the only address (HR, data officer)
+  const extra = [...homeData.links, `${base}/contact`, `${base}/contact-us`, `${base}/about`, `${base}/careers`, `${base}/privacy-policy`]
+    .filter((u, i, all) => all.indexOf(u) === i).slice(0, 5);
   for (const url of extra) {
     const page = await fetchHtml(url).catch(() => null);
     if (page) add(extractContacts(page.html, page.finalUrl));
@@ -268,6 +360,27 @@ async function hunterContacts(domain) {
 }
 
 /**
+ * Addresses on the company's domain that the web shows anywhere (directories, PDFs, job ads):
+ * a search for "@domain.com". Only the company's own domain is kept. One search (one Serper credit).
+ */
+export function emailsOnDomain(results, domain) {
+  const host = String(domain || "").replace(/^www\./, "").toLowerCase();
+  if (!host) return [];
+  const re = new RegExp(`[a-z0-9._%+-]+@(?:[a-z0-9-]+\\.)*${host.replace(/[.]/g, "\\.")}(?!\\.?[a-z0-9-])`, "gi"); // not "@x.com.pk"
+  const found = new Set();
+  for (const r of results || []) {
+    for (const m of `${r.title || ""} ${r.snippet || ""}`.matchAll(re)) found.add(m[0].toLowerCase().replace(/^[._-]+/, ""));
+  }
+  return [...found];
+}
+
+export async function searchDomainEmails(domain) {
+  const host = String(domain || "").replace(/^www\./, "").toLowerCase();
+  if (!host) return [];
+  return emailsOnDomain(await webSearch(`"@${host}"`, { num: 10 }), host);
+}
+
+/**
  * Research one company.
  * @param {{ name: string, location?: string, knownWebsite?: string }} company
  * @returns research object stored on the lead as sourceData.research
@@ -279,9 +392,11 @@ export async function researchCompany({ name, location, knownWebsite }) {
 
   let website = originOf(knownWebsite);
   let websiteSource = website ? "job board" : null;
+  let picked = null;
   if (!website && name) {
     try {
-      website = pickWebsite(await webSearch(`${name} ${city} official website`), name);
+      picked = pickWebsiteDetail(await webSearch(`${name} ${city} official website`), name, { city });
+      website = picked?.url || null;
       websiteSource = website ? "web search" : null;
       if (!website) notes.push("No website found in search results.");
     } catch (error) {
@@ -314,14 +429,37 @@ export async function researchCompany({ name, location, knownWebsite }) {
     }
   }
 
-  const found = Boolean(site?.emails.length || site?.phones.length || decisionMakers.length || contacts.length);
+  let emails = cleanEmails(site?.emails, site?.url || website);
+  let emailSource = emails.length ? "website" : null;
+  // Nothing on the website: look for the domain's addresses elsewhere on the web
+  if (!emails.length && !contacts.length && website) {
+    try {
+      emails = cleanEmails(await searchDomainEmails(hostOf(site?.url || website)), site?.url || website);
+      if (emails.length) emailSource = "web search";
+    } catch (error) {
+      notes.push(`Email search: ${error.message}`);
+    }
+  }
+  if (!emails.length && !contacts.length) {
+    notes.push(decisionMakers.length ? "No email found: the agent writes to the decision-maker on LinkedIn instead." : "No email found.");
+  }
+  // Is it the right company? Sure when the job board gave the site, or the site / its results point at
+  // Pakistan (a .pk domain, +92 or UAN phone, a .pk email). Otherwise a person checks before it's emailed.
+  const pkContact = (site?.phones || []).some((p) => /^(\+92|0092|111)/.test(p)) || emails.some((e) => e.endsWith(".pk"));
+  const websiteConfirmed = !website ? null
+    : websiteSource === "job board" || (picked?.match === "exact" && !picked.foreign) || Boolean(picked?.local) || /\.pk$/.test(hostOf(website) || "") || pkContact;
+  if (website && !websiteConfirmed) notes.push("Check the website is this company's: nothing on it points to Pakistan.");
+  const found = Boolean(emails.length || site?.phones.length || decisionMakers.length || contacts.length);
   return {
     status: found ? "done" : website ? "partial" : "not_found",
     website: site?.url || website || null,
     websiteSource,
+    websiteMatch: picked?.match || null,
+    websiteConfirmed,
     title: site?.title || null,
     description: site?.description || null,
-    emails: site?.emails || [],
+    emails,
+    emailSource,
     phones: site?.phones || [],
     socials: site?.socials || {},
     decisionMakers,

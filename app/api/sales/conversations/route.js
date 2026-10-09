@@ -24,7 +24,7 @@ export const GET = withAuth(async (request, { user }) => {
     const [msgs, pending] = ids.length
       ? await Promise.all([
           db.select({
-            leadId: conversationMessages.leadId, direction: conversationMessages.direction, kind: conversationMessages.kind,
+            leadId: conversationMessages.leadId, direction: conversationMessages.direction, kind: conversationMessages.kind, channel: conversationMessages.channel,
             status: conversationMessages.status, body: conversationMessages.body, intent: conversationMessages.intent,
             handledAt: conversationMessages.handledAt, createdAt: conversationMessages.createdAt,
           }).from(conversationMessages).where(inArray(conversationMessages.leadId, ids)).orderBy(desc(conversationMessages.createdAt)),
@@ -62,6 +62,7 @@ export const GET = withAuth(async (request, { user }) => {
         followUpsSent: lead.followUpsSent,
         messages: t.count || 0,
         lastMessage: t.last ? { direction: t.last.direction, kind: t.last.kind, status: t.last.status, preview: t.last.body.slice(0, 160), at: t.last.createdAt } : null,
+        channel: t.last?.channel || "email", // how the conversation runs: email or LinkedIn messages
         intent: t.intent || null,
         pendingApprovals: pendingByLead.get(lead.id) || 0,
         needsYou: Boolean(pendingByLead.get(lead.id)) || (t.unanswered && status === CONVERSATION_STATUS.REPLIED),

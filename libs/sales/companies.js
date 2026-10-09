@@ -2,18 +2,27 @@
 // A job post is the buying signal; the company is who we sell to. Relative imports only.
 
 const LEGAL_SUFFIXES = /\b(pvt|private|ltd|limited|llc|inc|incorporated|corp|corporation|co|company|plc|gmbh|smc|pakistan|pk)\b/g;
+// Words a company drops or adds to its name: "Nessovo", "Nessovo Solutions" and "Nessovo Technologies"
+// are one company (found by the end-to-end agent run). Only trailing ones, and never the whole name.
+const DESCRIPTORS = new Set(["solution", "solutions", "technology", "technologies", "tech", "systems", "services", "software", "labs", "global", "international", "group", "consulting", "consultants", "enterprises", "studio", "studios"]);
 
-/** "Cubix Inc." and "CUBIX (Pvt) Ltd" → "cubix". Null when there is no usable name. */
+/** "Cubix Inc.", "CUBIX (Pvt) Ltd" and "Cubix Technologies" → "cubix". Null when there is no usable name. */
 export function companyKey(name) {
   if (!name || typeof name !== "string") return null;
-  const key = name
+  const words = name
     .toLowerCase()
     .replace(/&/g, " and ")
     .replace(/[^a-z0-9 ]+/g, " ")
     .replace(LEGAL_SUFFIXES, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  return key || null;
+    .split(/\s+/)
+    .filter(Boolean);
+  while (words.length > 1 && DESCRIPTORS.has(words[words.length - 1]) && words.slice(0, -1).join(" ").length >= 4) words.pop();
+  return words.join(" ") || null;
+}
+
+/** A lead's company key, worked out from its name now (keys stored by older versions may differ). */
+export function leadCompanyKey(lead) {
+  return companyKey(companyNameOf(lead)) || lead?.sourceData?.companyKey || null;
 }
 
 /** The company name of a lead: job-board leads keep it in `company`, older ones only in `name`. */
@@ -80,7 +89,7 @@ export function groupProfilesByCompany(profiles) {
 export function findDuplicateCompanies(leads) {
   const groups = new Map();
   for (const lead of leads) {
-    const key = lead.sourceData?.companyKey || companyKey(companyNameOf(lead));
+    const key = leadCompanyKey(lead);
     if (!key) continue;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(lead);

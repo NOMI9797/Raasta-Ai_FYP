@@ -7,7 +7,7 @@ import { ACTION_STATUS, markExecuted, markFailed, proposeAction, supersedeAction
 import { searchKnowledge } from "../knowledge/search";
 import { testRecipient } from "../send/email";
 import { CONVERSATION_STATUS } from "../conversation/status";
-import { loadThread, nextFollowUpAt, replySubject } from "../conversation/thread";
+import { linkedinAddress, loadThread, nextFollowUpAt, replySubject, threadChannel } from "../conversation/thread";
 import { REPLY_PLAN, replyAddress } from "../conversation/decide";
 import { readReply } from "../conversation/read-reply";
 import { composeFollowUp, composeReply } from "../conversation/compose";
@@ -163,12 +163,16 @@ async function handleFollowUps(ctx) {
       const outreach = thread.find((m) => m.kind === "outreach");
       const { results: passages } = await ctx.c.searchFn({ userId: run.userId, query: outreach?.body || lead.company || "services", limit: 4 });
       const { body } = await ctx.c.followUpFn({ number, total, thread, passages, companyName: settings.companyName, senderName: ctx.senderName });
+      // A nudge goes on the channel the conversation is on (a LinkedIn conversation gets a LinkedIn message)
+      const channel = threadChannel(thread);
+      const onLinkedIn = channel === "linkedin";
       const [draft] = await d.database.insert(conversationMessages).values({
         userId: lead.userId, leadId: lead.id, campaignId: lead.campaignId,
-        direction: "out", channel: "email", kind: "follow_up", status: "draft",
-        fromAddress: process.env.SENDER_EMAIL || null, toAddress: replyAddress(thread, { testRecipient: testRecipient() }),
-        subject: replySubject(thread), body,
-        inReplyTo: [...thread].reverse().find((m) => m.emailMessageId)?.emailMessageId || null,
+        direction: "out", channel, kind: "follow_up", status: "draft",
+        fromAddress: onLinkedIn ? null : process.env.SENDER_EMAIL || null,
+        toAddress: onLinkedIn ? linkedinAddress(thread) : replyAddress(thread, { testRecipient: testRecipient() }),
+        subject: onLinkedIn ? null : replySubject(thread), body,
+        inReplyTo: onLinkedIn ? null : [...thread].reverse().find((m) => m.emailMessageId)?.emailMessageId || null,
         meta: { number, total },
         createdAt: now, updatedAt: now,
       }).returning();
@@ -244,7 +248,11 @@ export async function executeConversationSend(ctx, action) {
     const thread = await loadThread(lead.id, { database: d.database });
     const { sent, meeting } = await sendDraft(
       { draft, lead, thread, settings: ctx.settings, senderName: ctx.senderName },
-      { ...opts(ctx), emailFn: d.emailFn, notifyFn: d.notifyFn },
+      {
+        ...opts(ctx), emailFn: d.emailFn, notifyFn: d.notifyFn,
+        // LinkedIn conversations are answered from the agent's connected account
+        linkedinFn: ctx.account ? (msg) => d.linkedin.sendLinkedInMessage(ctx.account, msg) : undefined,
+      },
     );
     await markExecuted(action.id, { to: sent.to, intendedTo: sent.intendedTo, redirected: sent.redirected, messageId: sent.messageId, meetingId: meeting?.id || null }, opts(ctx));
     ctx.out.done.push(`${draft.kind === "follow_up" ? "Followed up with" : "Replied to"} ${who(lead)}${meeting ? " and booked the meeting" : ""}${sent.redirected ? ` (test: sent to ${sent.to})` : ""}`);

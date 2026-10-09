@@ -91,6 +91,24 @@ export async function resumeRun(runId, user, { database = db } = {}) {
   return updated;
 }
 
+/**
+ * "Check LinkedIn now": the sales agent checks accepted invites and new LinkedIn replies on its next
+ * tick, straight away, instead of waiting for its regular checks (every 4 hours / 15 minutes).
+ */
+export async function checkLinkedInNow(runId, user, { database = db } = {}) {
+  const run = await loadOwnRun(runId, user, database);
+  if (!ACTIVE_RUN_STATUSES.includes(run.status) || run.status === RUN_STATUS.PAUSED) {
+    throw new RunError("Start or resume the agent first", { status: 409, code: "invalid_state" });
+  }
+  if (!run.config?.accountId) throw new RunError("This agent has no LinkedIn account: start one with an account selected", { status: 409, code: "no_account" });
+  const results = { ...(run.results || {}) };
+  delete results.lastAcceptanceCheckAt;
+  delete results.lastLinkedInReplyCheckAt;
+  const [updated] = await database.update(agentRuns).set({ results }).where(eq(agentRuns.id, run.id)).returning();
+  await requestAgentTick(run.id, { delayMs: 0 });
+  return updated;
+}
+
 /** Stop a run for good. Its open requests are withdrawn from the inbox. */
 export async function stopRun(run, { database = db, now = new Date() } = {}) {
   if (FINISHED_RUN_STATUSES.includes(run.status)) {

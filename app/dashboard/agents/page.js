@@ -32,12 +32,17 @@ function SalesAgentPage() {
     if (session.user?.role !== "admin" && !modes.includes("sales")) router.replace("/dashboard/home");
   }, [session, status, router]);
 
+  // Also runs every 5 s while an agent works: a failed refresh is skipped quietly (no runtime error)
   const load = useCallback(async () => {
-    const res = await fetch("/api/sales/agent");
-    const json = await res.json();
-    if (res.ok) {
-      setData(json);
-      setPending(json.runs.reduce((n, r) => n + (ACTIVE.includes(r.status) ? r.results?.pendingApprovals || 0 : 0), 0));
+    try {
+      const res = await fetch("/api/sales/agent");
+      const json = await res.json();
+      if (res.ok) {
+        setData(json);
+        setPending(json.runs.reduce((n, r) => n + (ACTIVE.includes(r.status) ? r.results?.pendingApprovals || 0 : 0), 0));
+      }
+    } catch {
+      // keep what's on screen; the next refresh tries again
     }
   }, []);
 
@@ -135,7 +140,6 @@ function SalesAgentPage() {
                 )}
                 <LaunchSalesAgent
                   setup={data.setup}
-                  policy={data.policy}
                   defaults={data.defaults}
                   onStarted={() => {
                     setShowLaunch(false);

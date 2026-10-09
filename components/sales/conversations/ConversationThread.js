@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import SourceTag from "@/components/sales/SourceTag";
 import toast from "react-hot-toast";
 import {
   AlertTriangle, BookOpen, CalendarCheck, CalendarClock, Clock, ExternalLink, Globe, Loader2, MoreHorizontal, Send, Sparkles, Trash2,
@@ -163,21 +164,30 @@ export default function ConversationThread({ leadId, onChanged }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const scroller = useRef(null);
 
-  const load = useCallback(async () => {
-    const res = await fetch(`/api/sales/conversations/${leadId}`);
-    const json = await res.json();
-    if (res.ok) setData(json);
-    else toast.error(json.error || "Could not load the conversation");
+  const load = useCallback(async ({ quiet = false } = {}) => {
+    try {
+      const res = await fetch(`/api/sales/conversations/${leadId}`);
+      const json = await res.json();
+      if (res.ok) setData(json);
+      else if (!quiet) toast.error(json.error || "Could not load the conversation");
+    } catch {
+      if (!quiet) toast.error("Could not load the conversation");
+    }
   }, [leadId]);
 
+  // The agent answers in the background: the open thread follows it (it used to load once, so the
+  // agent's answer to a second reply only showed after reopening the conversation)
   useEffect(() => {
     load();
+    const timer = setInterval(() => load({ quiet: true }), 15000);
+    return () => clearInterval(timer);
   }, [load]);
 
-  // Newest at the bottom, like an inbox thread
+  // Newest at the bottom, like an inbox thread (only when a message arrives, not on every refresh)
+  const messageCount = data?.thread?.length || 0;
   useEffect(() => {
     if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
-  }, [data]);
+  }, [messageCount]);
 
   const changed = () => {
     load();
@@ -253,7 +263,8 @@ export default function ConversationThread({ leadId, onChanged }) {
             <span className={`badge badge-sm ${status.tone}`}>{status.label}</span>
             {lead.fit?.score != null && <span className="badge badge-ghost badge-sm">Fit {lead.fit.score}</span>}
           </div>
-          <p className="mt-0.5 flex flex-wrap items-center gap-x-3 text-xs text-base-content/55">
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-base-content/55">
+            <SourceTag source={lead.source} channel={[...thread].reverse().find((m) => m.direction === "out" && m.status === "sent")?.channel || "email"} size="sm" />
             <span>{lead.campaignName}</span>
             {lead.website && <a href={lead.website} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:text-primary"><Globe className="h-3 w-3" /> Website <ExternalLink className="h-2.5 w-2.5" /></a>}
             {lead.nextFollowUpAt && !closed && <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" /> Follow-up {when(lead.nextFollowUpAt)} if no reply</span>}

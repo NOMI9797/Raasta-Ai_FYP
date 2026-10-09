@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
-import { AlertTriangle, BookOpen, Building2, CalendarClock, Check, Linkedin, Loader2, Mail, MessageSquareReply, User, X } from "lucide-react";
+import { AlertTriangle, BookOpen, Building2, CalendarClock, Check, Linkedin, Loader2, Mail, MessageSquareReply, RefreshCw, User, X } from "lucide-react";
 import { INTENT_LABELS } from "@/libs/sales/conversation/status";
 
 const ACTION_ICON = { send_email: Mail, send_invite: Linkedin, send_linkedin_message: Linkedin, send_reply: MessageSquareReply, send_follow_up: Mail };
@@ -12,15 +12,54 @@ const isEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || "").trim())
 function ApprovalCard({ item, onDone }) {
   const { message } = item;
   const [draft, setDraft] = useState({ recipient: message?.recipient || "", subject: message?.subject || "", content: message?.content || "" });
+  const [saved, setSaved] = useState(message); // what the database holds (changes when regenerated)
   const [busy, setBusy] = useState(false);
-  const isEmailAction = EMAIL_ACTIONS.includes(item.action);
+  const [regenerating, setRegenerating] = useState(false);
+  const [needsAddress, setNeedsAddress] = useState(false);
+  const recipientRef = useRef(null);
+  // A reply or follow-up in a LinkedIn conversation goes to their profile, not an email address
+  const isEmailAction = EMAIL_ACTIONS.includes(item.action) && message?.channel !== "linkedin";
   const isConversation = message?.kind === "conversation";
-  const dirty = message && (draft.recipient !== (message.recipient || "") || draft.subject !== (message.subject || "") || draft.content !== (message.content || ""));
-  const canApprove = draft.content.trim() && (!isEmailAction || isEmail(draft.recipient));
+  const dirty = saved && (draft.recipient !== (saved.recipient || "") || draft.subject !== (saved.subject || "") || draft.content !== (saved.content || ""));
+  const missingAddress = isEmailAction && !isEmail(draft.recipient);
+  // First messages can be rewritten; replies and follow-ups carry the meeting times offered, so they're edited by hand
+  const canRegenerate = Boolean(message) && !isConversation && Boolean(item.lead?.id);
   const Icon = ACTION_ICON[item.action] || Mail;
   const LeadIcon = item.lead.source === "linkedin" ? User : Building2;
 
+  const regenerate = async () => {
+    setRegenerating(true);
+    try {
+      const res = await fetch("/api/sales/messages/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadId: item.lead.id, channel: saved?.channel }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not rewrite the message");
+      const m = data.message;
+      setSaved({ ...saved, recipient: m.recipient, subject: m.subject, content: m.content });
+      // An address you typed is kept when the AI still has none
+      setDraft((d) => ({ recipient: m.recipient || d.recipient, subject: m.subject || "", content: m.content || "" }));
+      toast.success("Rewritten: check it, then approve");
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setRegenerating(false);
+    }
+  };
+
   const decide = async (decision) => {
+    if (decision === "approve" && missingAddress) {
+      setNeedsAddress(true);
+      recipientRef.current?.focus();
+      toast.error("Add the email address to send it to, then approve");
+      return;
+    }
+    if (decision === "approve" && !draft.content.trim()) {
+      toast.error("The message is empty");
+      return;
+    }
     setBusy(true);
     try {
       // Edits go into the message first, so what is approved is exactly what gets sent
@@ -96,7 +135,14 @@ function ApprovalCard({ item, onDone }) {
         <div className="space-y-2">
           <label className="form-control">
             <span className="label-text text-xs mb-1">{isEmailAction ? "To (email address)" : "To (LinkedIn profile)"}</span>
-            <input className="input input-bordered input-sm" placeholder={isEmailAction ? "name@company.com" : ""} value={draft.recipient} onChange={(e) => setDraft({ ...draft, recipient: e.target.value })} />
+            <input
+              ref={recipientRef}
+              className={`input input-bordered input-sm ${needsAddress && missingAddress ? "input-error" : ""}`}
+              placeholder={isEmailAction ? "name@company.com" : ""}
+              value={draft.recipient}
+              onChange={(e) => setDraft({ ...draft, recipient: e.target.value })}
+            />
+            {needsAddress && missingAddress && <span className="label-text-alt text-error mt-1">Type the address this email goes to</span>}
           </label>
           {isEmailAction && (
             <label className="form-control">
@@ -122,8 +168,13 @@ function ApprovalCard({ item, onDone }) {
       )}
 
       <div className="flex flex-wrap justify-end gap-2">
-        <button className="btn btn-ghost btn-sm gap-1" disabled={busy} onClick={() => decide("reject")}><X className="h-4 w-4" /> Don&apos;t send</button>
-        <button className="btn btn-success btn-sm gap-1" disabled={busy || !canApprove} onClick={() => decide("approve")} title={canApprove ? "" : "Add an email address first"}>
+        {canRegenerate && (
+          <button className="btn btn-ghost btn-sm gap-1 mr-auto" disabled={busy || regenerating} onClick={regenerate} title="Ask the AI to write this message again">
+            {regenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Regenerate
+          </button>
+        )}
+        <button className="btn btn-ghost btn-sm gap-1" disabled={busy || regenerating} onClick={() => decide("reject")}><X className="h-4 w-4" /> Don&apos;t send</button>
+        <button className="btn btn-success btn-sm gap-1" disabled={busy || regenerating} onClick={() => decide("approve")} title={missingAddress ? "Add an email address first" : ""}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} {dirty ? "Save & approve" : "Approve"}
         </button>
       </div>
@@ -140,19 +191,18 @@ export default function SalesApprovals({ onCountChange }) {
     const res = await fetch("/api/sales/agent/inbox");
     const data = await res.json();
     setItems(data.items || []);
-    onCountChange?.((data.items || []).length);
-  }, [onCountChange]);
+  }, []);
 
   useEffect(() => {
     load().catch(() => setItems([]));
   }, [load]);
 
-  const removeItem = (id) =>
-    setItems((prev) => {
-      const next = prev.filter((i) => i.id !== id);
-      onCountChange?.(next.length);
-      return next;
-    });
+  // The page's tab badge follows the list (told after rendering, not while updating the list)
+  useEffect(() => {
+    if (items) onCountChange?.(items.length);
+  }, [items, onCountChange]);
+
+  const removeItem = (id) => setItems((prev) => prev.filter((i) => i.id !== id));
 
   const clean = (items || []).filter((i) => i.escalations.length === 0);
   const approveClean = async () => {
