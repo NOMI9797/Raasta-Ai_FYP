@@ -8,7 +8,7 @@ import { campaigns, leads } from "../schema";
 import { detectPlatformFromUrl } from "../platform-urls";
 import { PLATFORM_ORDER } from "../platforms/meta";
 import { PLATFORM_KIND } from "./stages";
-import { companyKey, companyNameOf, groupProfilesByCompany, jobFromProfile, jobsOf, mergeJobs } from "./companies";
+import { groupProfilesByCompany, leadCompanyKey, jobFromProfile, jobsOf, mergeJobs } from "./companies";
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
@@ -91,7 +91,7 @@ export async function importLeadProfiles({ userId, campaign, profiles }, { datab
   const companyLeadsHere = existing.filter((l) => l.campaignId === campaign.id && PLATFORM_KIND[l.source] === "company");
   for (const group of groupProfilesByCompany(fresh.filter((r) => PLATFORM_KIND[r.source] === "company"))) {
     const jobs = group.profiles.map((p) => jobFromProfile(p, p.source));
-    const match = group.key && companyLeadsHere.find((l) => (l.sourceData?.companyKey || companyKey(companyNameOf(l))) === group.key);
+    const match = group.key && companyLeadsHere.find((l) => leadCompanyKey(l) === group.key);
     if (match) {
       const merged = mergeJobs(jobsOf(match), jobs);
       jobsAddedToExisting += merged.length - jobsOf(match).length;

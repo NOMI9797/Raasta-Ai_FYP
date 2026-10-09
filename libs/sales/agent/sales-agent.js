@@ -11,9 +11,11 @@ import { FINISHED_RUN_STATUSES, RUN_STATUS } from "../../agent/runs";
 import { requestAgentTick } from "../../agent/triggers";
 import { getAdapter, PLATFORM_META } from "../../platforms";
 import { PLATFORM_KIND } from "../stages";
-import { companyNameOf } from "../companies";
+import { companyNameOf, leadCompanyKey } from "../companies";
 import { importLeadProfiles } from "../import-leads";
 import { researchCompanyLead, topPosts, writeLeadMessage } from "../lead-actions";
+import { PROFILE_READS_PER_DAY, readLinkedInProfiles } from "../linkedin-research";
+import { syncLinkedInReplies } from "../linkedin-inbox";
 import { sendSalesEmail, isEmailAddress } from "../send/email";
 import { checkAcceptances, getLinkedInAccount, linkedInAllowance, sendInvites, sendLinkedInMessage } from "../send/linkedin";
 import { CONVERSATION_SENDS, DEFAULTS, ROUTE, SALES_ACTION, SALES_PIPELINE, normaliseMode } from "./policy";
@@ -30,7 +32,7 @@ export const SALES_APPROVALS_LINK = "/dashboard/agents?tab=approvals";
 
 // Work done per tick, so one tick stays well inside the worker's 5-minute limit.
 // When more is left, the agent queues its next tick straight away.
-const TICK_BUDGET = { research: 4, score: 8, write: 6 };
+const TICK_BUDGET = { research: 4, score: 8, write: 6, profiles: 3 };
 const FIND_REPEAT_MS = 24 * 3600 * 1000;
 
 export const SALES_STEPS = [
@@ -54,6 +56,8 @@ function defaults(deps = {}) {
     // Job boards that need no account for lead search: Indeed (JobSpy) and Rozee.pk (search engine)
     searchFn: deps.searchFn || ((filters) => getAdapter(filters.platform || "indeed").search(null, filters)),
     researchFn: deps.researchFn || researchCompanyLead,
+    profileFn: deps.profileFn || readLinkedInProfiles,
+    linkedinRepliesFn: deps.linkedinRepliesFn || syncLinkedInReplies,
     scoreFn: deps.scoreFn || scoreLead,
     writeFn: deps.writeFn || writeLeadMessage,
     emailFn: deps.emailFn || sendSalesEmail,
@@ -111,6 +115,7 @@ export async function advanceSalesRun(runId, deps = {}) {
     await findLeads(ctx);
     await executeApproved(ctx);
     await maybeCheckAcceptance(ctx);
+    await maybeCheckLinkedInReplies(ctx);
     // Replies first: a client waiting for an answer matters more than a new lead
     const conversationsLeft = await handleConversations(ctx);
 
@@ -135,11 +140,15 @@ export async function advanceSalesRun(runId, deps = {}) {
     // The AI's rate limit (Groq free tier) resets within a minute: come back then rather than at the sweep
     if (moreWork && ctx.out.rateLimited) await d.tick(run.id, { delayMs: 60 * 1000 });
     else if (moreWork && ctx.out.progress > 0) await d.tick(run.id, { delayMs: 1000 });
-    // Done when every lead is dealt with and no conversation can still need an answer or a follow-up
-    const finished = !moreWork && isCampaignFinished(plan) && !ctx.config.repeatSearch && ctx.conversations.open === 0 && !ctx.pendingApprovals;
-    await saveRun(ctx, finished ? RUN_STATUS.COMPLETED : RUN_STATUS.WAITING, plan);
+    // Every lead dealt with and nothing open. The agent still doesn't finish: it keeps answering new
+    // replies and sending follow-ups until a person stops it (a run that finished on its own left a
+    // later reply unanswered). The person is told once that the outreach part is done.
+    const allDone = !moreWork && isCampaignFinished(plan) && ctx.conversations.open === 0 && !ctx.pendingApprovals;
+    const firstTimeDone = allDone && !run.results?.allDoneAt;
+    if (firstTimeDone) ctx.allDoneAt = d.now().toISOString();
+    await saveRun(ctx, RUN_STATUS.WAITING, plan);
     await notifyApprovals(ctx);
-    if (finished) await notifyFinished(ctx, plan);
+    if (firstTimeDone) await notifyFinished(ctx, plan);
     return { runId, counts: plan.counts, more: moreWork, ...ctx.out };
   } catch (error) {
     await finishRun(ctx, RUN_STATUS.FAILED, error.message);
@@ -163,21 +172,34 @@ async function loadState(ctx) {
   for (const a of [...acts].sort((x, y) => new Date(x.createdAt) - new Date(y.createdAt))) if (a.leadId) actions.set(keyFor(a.action, a.leadId), a);
 
   // The same company (or person) already contacted from another campaign of this user
-  const keys = rows.map((l) => l.sourceData?.companyKey).filter(Boolean);
+  const keys = rows.map(leadCompanyKey).filter(Boolean);
   const urls = rows.map((l) => l.url);
-  const contacted = await d.database.select({ url: leads.url, sourceData: leads.sourceData }).from(leads)
+  const contacted = await d.database.select({ url: leads.url, name: leads.name, company: leads.company, sourceData: leads.sourceData }).from(leads)
     .where(and(eq(leads.userId, run.userId), ne(leads.campaignId, campaign.id), eq(leads.messageSent, true)));
-  const contactedKeys = new Set(contacted.map((l) => l.sourceData?.companyKey).filter((k) => keys.includes(k)));
+  const contactedKeys = new Set(contacted.map(leadCompanyKey).filter((k) => keys.includes(k)));
   const contactedUrls = new Set(contacted.map((l) => l.url).filter((u) => urls.includes(u)));
-  const contactedElsewhere = new Set(rows.filter((l) => contactedKeys.has(l.sourceData?.companyKey) || contactedUrls.has(l.url)).map((l) => l.id));
+  const contactedElsewhere = new Set(rows.filter((l) => contactedKeys.has(leadCompanyKey(l)) || contactedUrls.has(l.url)).map((l) => l.id));
 
   // Research this run tried and couldn't do: the lead waits for a person (or a search key)
+  // A profile that couldn't be read only because no account could read it is tried again once there is one
+  const retryWithAccount = (a) => ctx.account && /doesn't read profiles yet|choose a LinkedIn account/.test(a.summary || "");
   const researchBlocked = new Map(
-    acts.filter((a) => a.action === SALES_ACTION.RESEARCH && a.status === ACTION_STATUS.FAILED && a.leadId)
+    acts.filter((a) => a.action === SALES_ACTION.RESEARCH && a.status === ACTION_STATUS.FAILED && a.leadId && !retryWithAccount(a))
       .map((a) => [a.leadId, a.summary])
   );
 
   return { leads: rows, messages: latest, actions, contactedElsewhere, researchBlocked, allowance: await allowance(ctx), linkedinReady: Boolean(ctx.account) };
+}
+
+/** LinkedIn profiles this campaign's agent read today (the account's daily safety limit). */
+async function profileReadsToday(ctx) {
+  const [{ n }] = await ctx.d.database.select({ n: sql`count(*)::int` }).from(agentActions).where(and(
+    eq(agentActions.campaignId, ctx.campaign.id),
+    eq(agentActions.action, SALES_ACTION.RESEARCH),
+    sql`${agentActions.result}->>'profile' = 'true'`,
+    gte(agentActions.createdAt, startOfDay(ctx.d.now())),
+  ));
+  return n;
 }
 
 async function countExecutedToday(ctx, action) {
@@ -251,13 +273,50 @@ async function prepare(ctx, plan) {
     ctx.out.progress++;
   }
 
-  for (const id of plan.research.slice(0, TICK_BUDGET.research)) {
-    const lead = byId.get(id);
-    if (PLATFORM_KIND[lead.source] !== "company") {
-      // Reading LinkedIn profiles from the agent comes with the LinkedIn flow; for now it's done in Research
-      await record(SALES_ACTION.RESEARCH, lead, `Read ${labelOf(lead)}'s profile in Research › LinkedIn (the agent doesn't read profiles yet)`, null, true);
-      continue;
+  // LinkedIn people: their profile and recent posts are read with the connected LinkedIn account,
+  // a few per tick and a small number per day, in one browser session
+  const people = plan.research.map((id) => byId.get(id)).filter((l) => l && PLATFORM_KIND[l.source] !== "company");
+  if (people.length) {
+    if (!ctx.account) {
+      for (const lead of people.slice(0, TICK_BUDGET.research)) {
+        await record(SALES_ACTION.RESEARCH, lead, `Can't read ${labelOf(lead)}'s profile: choose a LinkedIn account when you start the agent`, null, true);
+      }
+    } else {
+      const readToday = await profileReadsToday(ctx);
+      const batch = people.slice(0, Math.max(0, Math.min(TICK_BUDGET.profiles, PROFILE_READS_PER_DAY - readToday)));
+      if (!batch.length) ctx.out.done.push(`Today's ${PROFILE_READS_PER_DAY} LinkedIn profile reads are used: the rest are read tomorrow`);
+      try {
+        // Old "couldn't read without an account" entries are withdrawn so the new result is logged
+        if (batch.length) {
+          const old = await d.database.select({ id: agentActions.id, summary: agentActions.summary }).from(agentActions)
+            .where(and(eq(agentActions.agentRunId, run.id), eq(agentActions.action, SALES_ACTION.RESEARCH), eq(agentActions.status, ACTION_STATUS.FAILED),
+              inArray(agentActions.leadId, batch.map((l) => l.id))));
+          const retry = old.filter((a) => /doesn't read profiles yet|choose a LinkedIn account/.test(a.summary || "")).map((a) => a.id);
+          // supersedeActions only withdraws open requests; these are failed entries, so mark them directly
+          if (retry.length) {
+            await d.database.update(agentActions).set({ status: ACTION_STATUS.SUPERSEDED, result: { reason: "retried with the LinkedIn account" }, updatedAt: d.now() })
+              .where(inArray(agentActions.id, retry));
+          }
+        }
+        const results = await d.profileFn(ctx.account, batch, { database: d.database });
+        for (const r of results) {
+          const lead = byId.get(r.leadId);
+          if (r.ok) {
+            await record(SALES_ACTION.RESEARCH, lead, `Read ${r.name || labelOf(lead)}'s LinkedIn profile${r.headline ? ` (${r.headline.slice(0, 60)})` : ""}: ${r.posts} recent post${r.posts === 1 ? "" : "s"}`, { profile: true, posts: r.posts });
+            ctx.out.progress++;
+          } else {
+            await record(SALES_ACTION.RESEARCH, lead, `Couldn't read ${labelOf(lead)}'s LinkedIn profile: ${r.error}`, { profile: true, error: r.error }, true);
+          }
+        }
+      } catch (error) {
+        // The session itself failed (signed out, LinkedIn check): nothing is marked, the next tick tries again
+        ctx.out.done.push(`LinkedIn profile reading failed: ${error.message}`);
+      }
     }
+  }
+
+  for (const id of plan.research.filter((rid) => PLATFORM_KIND[byId.get(rid)?.source] === "company").slice(0, TICK_BUDGET.research)) {
+    const lead = byId.get(id);
     try {
       const updated = await d.researchFn(lead, { database: d.database });
       const r = updated.sourceData.research;
@@ -287,17 +346,41 @@ async function prepare(ctx, plan) {
     }
   }
 
+  if (plan.staleActions?.length) await supersedeActions(plan.staleActions, "the message moved to the other channel", opts);
+
+  // No email and no one on LinkedIn: an unaddressed draft from before is withdrawn, so the company
+  // sits under "No contact" on the Messages step until a person adds a contact
+  for (const id of plan.dropDrafts || []) {
+    const lead = byId.get(id);
+    if (!lead) continue;
+    const stale = await d.database.select({ id: agentActions.id }).from(agentActions)
+      .where(and(eq(agentActions.leadId, id), inArray(agentActions.action, [SALES_ACTION.SEND_EMAIL, SALES_ACTION.SEND_INVITE, SALES_ACTION.SEND_LINKEDIN_MESSAGE]),
+        inArray(agentActions.status, [ACTION_STATUS.PENDING, ACTION_STATUS.APPROVED])));
+    if (stale.length) await supersedeActions(stale.map((a) => a.id), "no contact found: moved to No contact", opts);
+    await d.database.delete(messages).where(and(eq(messages.leadId, id), eq(messages.status, "draft")));
+    await record(SALES_ACTION.WRITE_MESSAGE, lead, `No email or LinkedIn found for ${labelOf(lead)}: moved to No contact (nothing written)`, { noContact: true });
+    ctx.out.progress++;
+  }
+
   for (const id of plan.write.slice(0, TICK_BUDGET.write)) {
     const lead = byId.get(id);
-    // Without a LinkedIn account, companies are written to by email
-    const channel = PLATFORM_KIND[lead.source] === "company" && !ctx.account ? "email" : undefined;
+    // Sorted by research: email when an address was found, otherwise a LinkedIn message to the
+    // decision-maker (it waits for a LinkedIn account). Companies with neither aren't written to.
+    // (Forcing email without an account left ~60% of companies with an email and no address.)
     try {
-      const { message } = await d.writeFn({ lead, userId: run.userId, channel, database: d.database });
+      if (plan.rewrite?.includes(id)) {
+        // The old unaddressed email is replaced: withdraw its request from the approvals inbox
+        const stale = await d.database.select({ id: agentActions.id }).from(agentActions)
+          .where(and(eq(agentActions.agentRunId, run.id), eq(agentActions.leadId, id), eq(agentActions.action, SALES_ACTION.SEND_EMAIL),
+            inArray(agentActions.status, [ACTION_STATUS.PENDING, ACTION_STATUS.APPROVED])));
+        if (stale.length) await supersedeActions(stale.map((a) => a.id), "rewritten: research found a way to reach them", opts);
+      }
+      const { message } = await d.writeFn({ lead, userId: run.userId, database: d.database });
       await proposeAction(run, {
         action: SALES_ACTION.WRITE_MESSAGE, route: ROUTE.AUTO, status: ACTION_STATUS.EXECUTED, leadId: lead.id,
         summary: `Wrote ${message.channel === "email" ? "an email" : "a LinkedIn message"} for ${labelOf(lead)}`,
         result: { messageId: message.id, channel: message.channel },
-        dedupeKey: `${runKey(ctx, SALES_ACTION.WRITE_MESSAGE, lead.id)}:${message.id}`,
+        dedupeKey: `${runKey(ctx, SALES_ACTION.WRITE_MESSAGE, lead.id)}:${message.id}:${message.channel}:${message.recipient ? "addressed" : "unaddressed"}`,
       }, opts);
       ctx.out.progress++;
     } catch (error) {
@@ -421,7 +504,10 @@ async function executeSend(ctx, action) {
       if (result.limited) return;
       if (!result.success) throw new Error(result.error || "LinkedIn message failed");
       await markMessageSent(ctx, lead, message);
+      // Starts the lead's LinkedIn conversation: their replies are read into it, follow-ups timed from it
+      await recordOutbound({ lead, kind: "outreach", channel: "linkedin", subject: null, body: message.content, toAddress: message.recipient || lead.url, sent: { messageId: null }, followUpDays: ctx.settings.followUpDays }, opts);
       await markExecuted(action.id, { sent: true }, opts);
+      ctx.out.done.push(`Messaged ${labelOf(lead)} on LinkedIn`);
     }
   } catch (error) {
     await markFailed(action.id, error, opts);
@@ -433,6 +519,25 @@ async function markMessageSent(ctx, lead, message) {
   const now = ctx.d.now();
   await ctx.d.database.update(messages).set({ status: "sent", sentAt: now, updatedAt: now }).where(eq(messages.id, message.id));
   await ctx.d.database.update(leads).set({ messageSent: true, messageSentAt: now, messageError: null, updatedAt: now }).where(eq(leads.id, lead.id));
+}
+
+/**
+ * Read new LinkedIn replies every few minutes while LinkedIn conversations are open (or at once when a
+ * person pressed "Check LinkedIn now"). New replies land in the thread and are answered below.
+ */
+async function maybeCheckLinkedInReplies(ctx) {
+  if (!ctx.account) return;
+  const last = ctx.run.results?.lastLinkedInReplyCheckAt;
+  const minutes = ctx.config.linkedinReplyCheckMinutes || DEFAULTS.linkedinReplyCheckMinutes;
+  if (last && ctx.d.now() - new Date(last) < minutes * 60 * 1000) return;
+  ctx.linkedinReplyCheckAt = ctx.d.now().toISOString();
+  try {
+    const result = await ctx.d.linkedinRepliesFn(ctx.account, ctx.campaign.id, { database: ctx.d.database, now: ctx.d.now() });
+    if (result.replies) ctx.out.done.push(`LinkedIn: ${result.replies} new repl${result.replies === 1 ? "y" : "ies"}`);
+    if (result.replies) ctx.out.progress++;
+  } catch (error) {
+    ctx.out.done.push(`LinkedIn replies check failed: ${error.message}`);
+  }
 }
 
 /** Check LinkedIn acceptances when someone is waiting and the last check was a while ago. */
@@ -486,7 +591,7 @@ export function stepStatuses(plan, { searched, hasSearch, moreToPrepare, pending
     find_leads: { status: !hasSearch ? STEP.SKIPPED : searched ? STEP.COMPLETED : STEP.PENDING, output: { leads: total } },
     research: { status: prepDone([LEAD_STAGE.RESEARCH]), output: { left: n(LEAD_STAGE.RESEARCH) } },
     score: { status: prepDone([LEAD_STAGE.RESEARCH, LEAD_STAGE.SCORE]), output: { left: n(LEAD_STAGE.SCORE), skipped: n(LEAD_STAGE.SKIPPED) } },
-    write_messages: { status: prepDone([LEAD_STAGE.RESEARCH, LEAD_STAGE.SCORE, LEAD_STAGE.WRITE]), output: { left: n(LEAD_STAGE.WRITE) } },
+    write_messages: { status: prepDone([LEAD_STAGE.RESEARCH, LEAD_STAGE.SCORE, LEAD_STAGE.WRITE]), output: { left: n(LEAD_STAGE.WRITE), noContact: n(LEAD_STAGE.NEEDS_CONTACT) } },
     approvals: { status: pendingApprovals ? STEP.AWAITING_APPROVAL : total ? STEP.COMPLETED : STEP.PENDING, output: { pending: pendingApprovals } },
     outreach: { status: n(LEAD_STAGE.SEND) ? STEP.RUNNING : n(LEAD_STAGE.DONE) ? STEP.COMPLETED : STEP.PENDING, output: { sent: n(LEAD_STAGE.DONE), queued: n(LEAD_STAGE.SEND) } },
     follow_up: {
@@ -530,11 +635,18 @@ async function saveRun(ctx, status, plan) {
     lastDone: ctx.out.done.slice(-5),
     conversations: ctx.conversations,
     ...(ctx.findAt ? { lastFindAt: ctx.findAt } : {}),
+    ...(ctx.allDoneAt ? { allDoneAt: ctx.allDoneAt } : {}),
     ...(ctx.acceptanceCheckAt ? { lastAcceptanceCheckAt: ctx.acceptanceCheckAt } : {}),
+    ...(ctx.linkedinReplyCheckAt ? { lastLinkedInReplyCheckAt: ctx.linkedinReplyCheckAt } : {}),
   };
   await d.database.update(agentRuns)
     .set({ status, currentStep: ctx.currentStep, results, totalSteps: SALES_STEPS.length, ...(status === RUN_STATUS.COMPLETED ? { completedAt: d.now() } : {}) })
     .where(and(eq(agentRuns.id, run.id), inArray(agentRuns.status, [RUN_STATUS.QUEUED, RUN_STATUS.RUNNING, RUN_STATUS.WAITING, RUN_STATUS.PAUSED_AT_CHECKPOINT])));
+  // Paused while this tick ran: keep the pause, but the counts must match the steps, which were just
+  // updated (the card showed "11 need approval" next to "16 waiting", found by the end-to-end run)
+  await d.database.update(agentRuns)
+    .set({ results, currentStep: ctx.currentStep })
+    .where(and(eq(agentRuns.id, run.id), eq(agentRuns.status, RUN_STATUS.PAUSED)));
 }
 
 async function finishRun(ctx, status, errorMessage) {
@@ -570,8 +682,8 @@ async function notifyFinished(ctx, plan) {
   await ctx.d.notifyFn({
     userId: ctx.run.userId,
     type: NOTIFICATION_TYPES.AGENT_RUN_FINISHED,
-    title: "Sales agent finished",
-    body: `${ctx.campaign.name}: ${c[LEAD_STAGE.DONE] || 0} contacted, ${c[LEAD_STAGE.SKIPPED] || 0} skipped.`,
+    title: "Sales agent: every lead contacted",
+    body: `${ctx.campaign.name}: ${c[LEAD_STAGE.DONE] || 0} contacted, ${c[LEAD_STAGE.SKIPPED] || 0} skipped. It keeps answering replies until you stop it.`,
     link: SALES_AGENT_LINK,
   });
 }

@@ -27,7 +27,7 @@ export const GET = withAuth(async (request, { user }) => {
     // Replies and follow-ups are drafts in the lead's thread
     const draftIds = rows.map((r) => r.action.payload?.draftId).filter(Boolean);
     const drafts = draftIds.length ? await db.select().from(conversationMessages).where(inArray(conversationMessages.id, draftIds)) : [];
-    const draftById = new Map(drafts.map((d) => [d.id, { id: d.id, kind: "conversation", draftKind: d.kind, recipient: d.toAddress, subject: d.subject, content: d.body, meta: d.meta }]));
+    const draftById = new Map(drafts.map((d) => [d.id, { id: d.id, kind: "conversation", draftKind: d.kind, channel: d.channel, recipient: d.toAddress, subject: d.subject, content: d.body, meta: d.meta }]));
 
     const items = rows.map(({ action, lead, campaignName }) => ({
       id: action.id,

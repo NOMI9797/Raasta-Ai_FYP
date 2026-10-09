@@ -135,7 +135,6 @@ function SalesAgentPage() {
                 )}
                 <LaunchSalesAgent
                   setup={data.setup}
-                  policy={data.policy}
                   defaults={data.defaults}
                   onStarted={() => {
                     setShowLaunch(false);

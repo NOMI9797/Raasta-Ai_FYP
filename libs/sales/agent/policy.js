@@ -50,6 +50,7 @@ export const SALES_ESCALATION = {
   NO_RECIPIENT: "no_recipient",
   BORDERLINE_FIT: "borderline_fit",
   CONTACTED_ELSEWHERE: "contacted_elsewhere",
+  WEBSITE_UNCONFIRMED: "website_unconfirmed",
   TOO_LONG: "too_long",
 };
 
@@ -59,6 +60,7 @@ export const SALES_ESCALATION_LABELS = {
   [SALES_ESCALATION.NO_RECIPIENT]: "No email address or LinkedIn profile to send to",
   [SALES_ESCALATION.BORDERLINE_FIT]: "Fit score is close to the campaign's minimum",
   [SALES_ESCALATION.CONTACTED_ELSEWHERE]: "Already contacted in another campaign",
+  [SALES_ESCALATION.WEBSITE_UNCONFIRMED]: "Research found a website that may not be this company's: check the address",
   [SALES_ESCALATION.TOO_LONG]: "Message is longer than LinkedIn allows",
 };
 
@@ -69,6 +71,7 @@ export const DEFAULTS = {
   dailyInviteCap: 15,
   linkedinMessageMax: 600,
   acceptanceCheckHours: 4,
+  linkedinReplyCheckMinutes: 15, // while LinkedIn conversations are open
 };
 
 /** Route one action. An escalated action is never automatic. */

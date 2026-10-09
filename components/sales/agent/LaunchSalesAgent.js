@@ -1,18 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import toast from "react-hot-toast";
-import { AlertTriangle, Bot, Check, Hand, Loader2, Mail, Play, Search } from "lucide-react";
+import { Bot, Loader2, Play, Search } from "lucide-react";
 
-const OUTREACH = ["send_email", "send_invite", "send_linkedin_message", "send_reply", "send_follow_up"];
 const MODES = [
   { value: "semi_auto", key: "assisted", label: "Semi-auto", hint: "Asks you before anything is sent" },
   { value: "full_auto", key: "autopilot", label: "Auto", hint: "Sends on its own, within the daily limits" },
 ];
 
 /** Start the sales agent on a campaign. */
-export default function LaunchSalesAgent({ setup, policy, defaults, onStarted }) {
+export default function LaunchSalesAgent({ setup, defaults, onStarted }) {
   const [campaigns, setCampaigns] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [form, setForm] = useState({
@@ -44,8 +43,6 @@ export default function LaunchSalesAgent({ setup, policy, defaults, onStarted })
   const board = boards.includes(form.search.platform) ? form.search.platform : boards[0];
   const takesBoard = boards.length > 0;
   const isIndeed = board === "indeed";
-  const modeKey = MODES.find((m) => m.value === form.mode)?.key;
-  const outreachPolicy = useMemo(() => (policy?.[modeKey] || []).filter((p) => OUTREACH.includes(p.action)), [policy, modeKey]);
 
   const start = async (e) => {
     e.preventDefault();
@@ -85,7 +82,6 @@ export default function LaunchSalesAgent({ setup, policy, defaults, onStarted })
     }
   };
 
-  const email = setup?.email;
   const research = setup?.research;
 
   return (
@@ -94,24 +90,6 @@ export default function LaunchSalesAgent({ setup, policy, defaults, onStarted })
         <Bot className="h-5 w-5 text-primary" />
         <h2 className="font-semibold">Start the sales agent</h2>
       </div>
-
-      {email && (
-        <div className={`alert text-sm items-start ${email.testRecipient ? "alert-info" : email.transport === "smtp" ? "alert-success" : "alert-warning"}`}>
-          <Mail className="h-4 w-4 mt-0.5 shrink-0" />
-          <div>
-            {email.testRecipient ? (
-              <p><span className="font-semibold">Test mode:</span> every email goes to {email.testRecipient}, not to the companies. Remove SALES_EMAIL_TEST_RECIPIENT from .env.local to send for real.</p>
-            ) : email.transport === "smtp" ? (
-              <p>Emails are sent for real through your SMTP account.</p>
-            ) : (
-              <p>No SMTP account is set up: emails are saved to the local outbox folder, not sent.</p>
-            )}
-            {research?.searchProvider !== "serper" && (
-              <p className="text-xs opacity-80 mt-1">Research uses free search, which blocks after a few searches: add SERPER_API_KEY for websites and decision-makers.</p>
-            )}
-          </div>
-        </div>
-      )}
 
       <div className="grid gap-4 md:grid-cols-2">
         <label className="form-control">
@@ -151,17 +129,6 @@ export default function LaunchSalesAgent({ setup, policy, defaults, onStarted })
             </button>
           ))}
         </div>
-        <ul className="text-xs text-base-content/70 flex flex-wrap gap-x-4 gap-y-1">
-          <li className="flex items-center gap-1"><Check className="h-3 w-3 text-success" /> Finds, researches, scores and writes on its own</li>
-          {outreachPolicy.map((p) => (
-            <li key={p.action} className="flex items-center gap-1">
-              {p.route === "ask" ? <Hand className="h-3 w-3 text-warning" /> : <Check className="h-3 w-3 text-success" />}
-              {p.label}: {p.route === "ask" ? "asks you" : "automatic"}
-            </li>
-          ))}
-          <li className="flex items-center gap-1"><AlertTriangle className="h-3 w-3 text-warning" /> Always asks when there&apos;s no address, the fit is borderline or the lead was contacted before</li>
-          <li className="flex items-center gap-1"><AlertTriangle className="h-3 w-3 text-warning" /> Always asks before answering when the knowledge base doesn&apos;t cover it, the client is unhappy, or it&apos;s about discounts or contract terms</li>
-        </ul>
       </div>
 
       <div className="rounded-lg border border-base-300 p-3 space-y-3">
@@ -208,7 +175,7 @@ export default function LaunchSalesAgent({ setup, policy, defaults, onStarted })
       <label className="form-control max-w-md">
         <span className="label-text text-xs mb-1">LinkedIn account (for LinkedIn leads; not tested yet)</span>
         <select className="select select-bordered select-sm" value={form.accountId} onChange={(e) => set("accountId", e.target.value)}>
-          <option value="">None: companies are emailed, LinkedIn people wait</option>
+          <option value="">None: companies with an email are emailed; the rest wait for LinkedIn</option>
           {accounts.map((a) => (
             <option key={a.dbId || a.id} value={a.dbId || a.id}>{a.name || a.email}</option>
           ))}

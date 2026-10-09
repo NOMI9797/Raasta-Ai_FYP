@@ -59,13 +59,29 @@ export function splitSlug(slug, query) {
   let words = slug.split("-").filter(Boolean);
   const cities = [];
   while (words.length && CITY_SET.has(words[words.length - 1])) cities.unshift(titleCase(words.pop()));
-  // Split at the specific word searched for ("flutter"), not a generic one ("developer") that most slugs contain
+  // Relevant when the specific word searched for ("flutter") is there, not a generic one ("developer")
   const terms = searchTerms(query);
-  const at = words.findIndex((w) => terms.has(w));
-  if (at < 0) return { company: null, title: null, cities, relevant: false };
-  if (at === 0) return { company: null, title: titleCase(words.join("-")), cities, relevant: true };
-  return { company: titleCase(words.slice(0, at).join("-")), title: titleCase(words.slice(at).join("-")), cities, relevant: true };
+  const hit = words.findIndex((w) => terms.has(w) || [...terms].some((t) => t.length >= 4 && w.startsWith(t))); // "reactjs" is React
+  if (hit < 0) return { company: null, title: null, cities, relevant: false };
+  // The role starts at its first word: "jma-resources-javascript-developer-react-js" → "Javascript Developer React Js"
+  const roleAt = words.findIndex((w) => ROLE_START.has(w));
+  const at = roleAt >= 0 ? Math.min(roleAt, hit) : hit;
+  const title = titleCase(words.slice(at).join("-"));
+  if (at === 0) return { company: null, title, cities, relevant: true };
+  const company = words.slice(0, at).join("-");
+  return { company: SLUG_COMPANIES[company] || titleCase(company), title, cities, relevant: true };
 }
+
+// Words a job title starts with: seniority, technologies and roles (not words company names use, like "software")
+const ROLE_START = new Set([
+  "senior", "sr", "junior", "jr", "lead", "principal", "associate", "intern", "internship", "trainee", "fresh", "head",
+  "developer", "engineer", "programmer", "designer", "architect", "full", "front", "frontend", "back", "backend", "fullstack",
+  "javascript", "typescript", "java", "php", "python", "react", "reactjs", "node", "nodejs", "angular", "angularjs", "vue", "vuejs",
+  "next", "nextjs", "flutter", "android", "ios", "swift", "kotlin", "dot", "net", "dotnet", "asp", "laravel", "symfony", "drupal",
+  "wordpress", "mern", "mean", "django", "ruby", "rails", "golang", "devops", "qa", "sqa", "ui", "ux", "shopify", "unity", "game",
+]);
+// Slugs Rozee writes differently from the company's name
+const SLUG_COMPANIES = { rozeepk: "Rozee.pk" };
 
 const GENERIC = new Set(["developer", "developers", "engineer", "engineers", "job", "jobs", "senior", "junior", "lead", "the", "and", "for", "with"]);
 

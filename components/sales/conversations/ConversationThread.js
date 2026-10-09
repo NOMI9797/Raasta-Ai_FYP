@@ -163,21 +163,30 @@ export default function ConversationThread({ leadId, onChanged }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const scroller = useRef(null);
 
-  const load = useCallback(async () => {
-    const res = await fetch(`/api/sales/conversations/${leadId}`);
-    const json = await res.json();
-    if (res.ok) setData(json);
-    else toast.error(json.error || "Could not load the conversation");
+  const load = useCallback(async ({ quiet = false } = {}) => {
+    try {
+      const res = await fetch(`/api/sales/conversations/${leadId}`);
+      const json = await res.json();
+      if (res.ok) setData(json);
+      else if (!quiet) toast.error(json.error || "Could not load the conversation");
+    } catch {
+      if (!quiet) toast.error("Could not load the conversation");
+    }
   }, [leadId]);
 
+  // The agent answers in the background: the open thread follows it (it used to load once, so the
+  // agent's answer to a second reply only showed after reopening the conversation)
   useEffect(() => {
     load();
+    const timer = setInterval(() => load({ quiet: true }), 15000);
+    return () => clearInterval(timer);
   }, [load]);
 
-  // Newest at the bottom, like an inbox thread
+  // Newest at the bottom, like an inbox thread (only when a message arrives, not on every refresh)
+  const messageCount = data?.thread?.length || 0;
   useEffect(() => {
     if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
-  }, [data]);
+  }, [messageCount]);
 
   const changed = () => {
     load();

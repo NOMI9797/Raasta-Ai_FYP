@@ -142,7 +142,11 @@ export async function openMessageDialog(messageButton, page) {
         ? href
         : `https://www.linkedin.com${href}`;
       console.log(`🔁 Opening messaging compose via direct navigation: ${absoluteUrl}`);
-      await page.goto(absoluteUrl, { waitUntil: 'networkidle' });
+      // Not 'networkidle': LinkedIn keeps live connections open, so it never goes idle and the
+      // navigation timed out (found by the LinkedIn end-to-end test). Wait for the message box instead.
+      await page.goto(absoluteUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+      await page.locator('div[role="textbox"], div.msg-form__contenteditable, div[contenteditable="true"]').first()
+        .waitFor({ state: 'visible', timeout: 20000 }).catch(() => {});
       console.log('✅ Navigated to messaging compose page');
     } else {
       // Otherwise click the message button as usual
@@ -228,6 +232,12 @@ export async function fillMessageTextarea(page, messageContent, leadName) {
     
     // Type the message with slight delays between characters
     for (let i = 0; i < messageContent.length; i++) {
+      // A line break is Shift+Enter: with LinkedIn's "Press Enter to send" on, Enter would send half the message
+      if (messageContent[i] === '\n') {
+        await page.keyboard.press('Shift+Enter');
+        await page.waitForTimeout(40);
+        continue;
+      }
       await textarea.type(messageContent[i], { delay: Math.random() * 30 + 20 }); // 20-50ms per char
     }
 
@@ -258,21 +268,29 @@ export async function clickSendButton(page) {
       'button.artdeco-button--primary:has-text("Send")'
     ];
 
-    for (const selector of sendButtonSelectors) {
-      try {
-        const button = page.locator(selector).first();
-        if (await button.isVisible({ timeout: 2000 }).catch(() => false)) {
-          const isDisabled = await button.isDisabled().catch(() => false);
-          
-          if (!isDisabled) {
+    // Every match is checked, not just the first: the page also holds a hidden or inactive copy of the
+    // form (the messaging overlay), so the first "Send" was never the one to click (found by the
+    // LinkedIn end-to-end test). The active one inside the form we typed into comes first.
+    const candidates = ['form button[type="submit"]', ...sendButtonSelectors];
+    // LinkedIn turns Send on a moment after the last keystroke: look again for a few seconds
+    for (let attempt = 0; attempt < 8; attempt++) {
+      if (attempt > 0) await page.waitForTimeout(1000);
+      for (const selector of candidates) {
+        const buttons = await page.locator(selector).all().catch(() => []);
+        for (const button of buttons) {
+          try {
+            if (!(await button.isVisible().catch(() => false))) continue;
+            if (await button.isDisabled().catch(() => true)) continue;
+            const label = ((await button.innerText().catch(() => '')) || '').trim().toLowerCase();
+            if (label && label !== 'send') continue; // not "Open send options"
             await button.click({ timeout: 3000 });
-            console.log('✅ Clicked Send button');
+            console.log(`✅ Clicked Send button (${selector})`);
             await page.waitForTimeout(2000); // Wait for send to complete
             return true;
+          } catch (e) {
+            continue;
           }
         }
-      } catch (e) {
-        continue;
       }
     }
 
