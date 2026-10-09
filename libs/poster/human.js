@@ -14,6 +14,16 @@ export const SPEEDS = Object.freeze({
   off: { key: [0, 0], word: 1, punctuation: 1, newline: 1, think: [0, 0], thinkEvery: [1e9, 1e9], mouseStep: [0, 0], hold: [0, 0], beforeClick: [0, 0], settle: [0, 0], typoRate: 0 },
 });
 
+// Whether another element, not part of the target, is on top at a point of the page. Built with new Function, see page-tools.
+// Only something fixed or sticky to the window counts as covering (a cookie banner): an element drawn over a control by the page itself,
+// a label or a styled box, is part of that control, and a click on it is the control's own.
+const FIXED_OVER = "const fixed = (n) => { for (let e = n; e && e !== document.documentElement; e = e.parentElement) { const p = getComputedStyle(e).position; if (p === 'fixed' || p === 'sticky') return true; } return false; };";
+const COVERED = new Function("el", "p", FIXED_OVER + "const top = document.elementFromPoint(p.x, p.y); return Boolean(top) && !el.contains(top) && !top.contains(el) && fixed(top)");
+// A spot inside the element that nothing fixed covers: where the click can go when only part of the element is under a banner
+const CLEAR_SPOT = new Function("el", FIXED_OVER + "const r = el.getBoundingClientRect(); for (const fy of [0.5, 0.25, 0.75, 0.1, 0.9]) for (const fx of [0.5, 0.3, 0.7, 0.15, 0.85]) { const x = r.left + r.width * fx; const y = r.top + r.height * fy; const t = document.elementFromPoint(x, y); if (t && (el.contains(t) || t.contains(el) || !fixed(t))) return { x, y }; } return null");
+const CENTER = new Function("el", "el.scrollIntoView({ block: 'center', inline: 'nearest' })");
+const covered = (target, x, y) => (typeof target.evaluate === "function" ? target.evaluate(COVERED, { x, y }).catch(() => false) : Promise.resolve(false));
+
 export function speedFrom(value) {
   const name = String(value || "").trim().toLowerCase();
   return SPEEDS[name] ? name : "natural";
@@ -120,12 +130,35 @@ export function createHuman({ speed = "natural", rng = Math.random, sleep = defa
     /** Scrolls the element into view, travels to a spot inside it (not its exact middle) and clicks. */
     async click(page, target) {
       await target.scrollIntoViewIfNeeded();
-      const box = await target.boundingBox();
-      if (!box) throw new Error("The element to click has no position on the page");
-      const x = box.x + box.width * between(rng, [0.3, 0.7]);
-      const y = box.y + box.height * between(rng, [0.35, 0.65]);
+      let x = 0;
+      let y = 0;
+      // A cookie banner fixed to the bottom of the window may sit on the spot: a click there would land on the banner. First the part of the
+      // element that is in the clear is used (a box half under the banner is still clicked on its visible half, as before); if none is,
+      // the element is brought to the middle of the window, where nothing is fixed, and looked at again.
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const box = await target.boundingBox();
+        if (!box) throw new Error("The element to click has no position on the page");
+        x = box.x + box.width * between(rng, [0.3, 0.7]);
+        y = box.y + box.height * between(rng, [0.35, 0.65]);
+        if (!(await covered(target, x, y))) break;
+        const spot = typeof target.evaluate === "function" ? await target.evaluate(CLEAR_SPOT).catch(() => null) : null;
+        if (spot) {
+          x = spot.x;
+          y = spot.y;
+          break;
+        }
+        await target.evaluate(CENTER).catch(() => {});
+        await wait(between(rng, [120, 260]) * (name === "off" ? 0 : 1));
+      }
       await human.moveMouse(page, x, y);
       await wait(between(rng, profile.beforeClick));
+      // A last look before pressing: the page may have moved while the pointer travelled (seen in a real Chrome window, where the press
+      // landed on the banner). If something still covers the spot, Playwright finds one that receives the click.
+      if (await covered(target, x, y)) {
+        // Never press blindly: the thing on top could be a consent button
+        await target.click({ timeout: 5000 }).catch(() => { throw new Error("Something covers the element to click and it could not be scrolled clear"); });
+        return;
+      }
       await page.mouse.down();
       await wait(between(rng, profile.hold));
       await page.mouse.up();

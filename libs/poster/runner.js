@@ -16,6 +16,8 @@ export const DEFAULT_TIMING = Object.freeze({
   gateWaitMs: 10 * 60 * 1000, // how long the window waits for a person before the run stops
   pollMs: 1000,
   recheckMs: 1200, // a check must still be there this long after it was first seen (pages flicker while they load)
+  checkGraceMs: 8 * 1000, // a verification check is watched this long before a person is asked: most pass by themselves
+  maxChecks: 3, // a person completes the check this many times; when it comes back again the run ends (it is treating the window as automated)
   blockedWaitMs: 45 * 1000, // a block page with nothing on it to complete: waited on this long, then the run ends
   settleMs: 1500, // a page that has just opened may still be redirecting (a signed-out page becomes the sign-in page): wait before touching it
   continueWaitMs: 10 * 1000,
@@ -57,7 +59,7 @@ export function createMemoryReporter({ cancelAfter = null } = {}) {
  */
 export async function runPosting({ page, flow, kit, mode = RUN_MODE.REHEARSAL, options = {}, reporter, human, sleep = realSleep, timing = {} }) {
   const t = { ...DEFAULT_TIMING, ...timing };
-  const ctx = { page, human, values: kitValues(kit), options: { ...flow.defaults, ...(kit?.options || {}), ...options }, sleep };
+  const ctx = { page, human, values: kitValues(kit), options: { ...flow.defaults, ...(kit?.options || {}), ...options }, sleep, memo: {} }; // memo: what one step leaves for a later one (Rozee.pk: the skills it chose)
   let confirmed = false; // the person pressed the platform's final button
 
   const finish = (status, outcome) => ({ status, outcome });
@@ -111,6 +113,21 @@ export async function runPosting({ page, flow, kit, mode = RUN_MODE.REHEARSAL, o
     if (!first) return null;
     await sleep(t.recheckMs);
     return flow.blocker(page);
+  }
+
+  /**
+   * A person looking at a check that is still spinning waits a few seconds before doing anything, and most of Cloudflare's checks
+   * pass on their own. True when the check is gone (or turned into something else) within the grace time; nothing is touched meanwhile.
+   */
+  async function checkPassesByItself() {
+    const deadline = Date.now() + t.checkGraceMs;
+    while (Date.now() < deadline) {
+      await sleep(t.pollMs);
+      if (page.isClosed() || (await reporter.cancelled())) return false; // holdForPerson reports why the run ended
+      const now = await flow.blocker(page).catch(() => null);
+      if (!now || now.kind !== GATE.CHECK || now.blocked) return true;
+    }
+    return false;
   }
 
   async function handleConfirm(step, fields, from) {
@@ -213,15 +230,31 @@ export async function runPosting({ page, flow, kit, mode = RUN_MODE.REHEARSAL, o
     await page.goto(flow.startUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
     const handled = new Map(); // step id -> how many times it was filled in
     let startedOver = false;
+    let checksAsked = 0; // verification checks a person had to complete in this run
 
     for (let loop = 0; loop < t.maxLoops; loop += 1) {
       const stop = await stopReason();
       if (stop) return stop;
 
-      const blocker = await confirmedBlocker();
+      let blocker = await confirmedBlocker();
       if (blocker) {
+        // The window is for the account that is switched on in Raasta-AI: say which one to sign in as
+        if (blocker.kind === GATE.SIGN_IN && kit?.account?.name) {
+          blocker = { ...blocker, message: `${blocker.message} This window is for ${kit.account.name}, the ${flow.label} account switched on in Raasta-AI: sign in as that one.` };
+        }
         // An account the platform has paused cannot be posted to, and waiting would not change that
-        if (blocker.fatal) return finish(RUN_STATUS.FAILED, { code: blocker.code || "blocked", message: blocker.message });
+        if (blocker.fatal) return finish(RUN_STATUS.FAILED, { code: blocker.code || "blocked", message: kit?.account?.name ? `${blocker.message} This run was for ${kit.account.name}.` : blocker.message });
+        if (blocker.kind === GATE.CHECK && !blocker.blocked) {
+          if (await checkPassesByItself()) continue;
+          checksAsked += 1;
+          if (checksAsked > t.maxChecks) {
+            // Completed and asked for again, over and over: the platform is treating this window as automated, and more attempts only count against the account
+            return finish(RUN_STATUS.FAILED, {
+              code: "check_loop",
+              message: `${flow.label}'s verification check had to be completed ${t.maxChecks} times and has come back again, so it is treating this window as automated. Trying more will not help and can get the account restricted. Close the window and try again later, or post with Copy and open. ${confirmed ? `You had already pressed ${confirmLabel}, so check your ${flow.label} jobs list: the job may be there.` : "Nothing was posted."}`,
+            });
+          }
+        }
         const held = await holdForPerson(blocker, async () => !(await flow.blocker(page)), blocker.blocked
           ? { timeoutMs: t.blockedWaitMs, onTimeout: () => finish(RUN_STATUS.FAILED, { code: "blocked", message: blocker.message }) }
           : {});

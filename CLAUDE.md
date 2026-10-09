@@ -38,6 +38,8 @@ cd services/ai-engine && uvicorn main:app --port 8000   # Python AI engine
 docker compose up      # everything together
 npm run check:branding # fails if the legacy source name appears anywhere
 npm run mail:check     # which Mailgun settings are present (never the key); add an address to send a test email
+npm run demo:tests     # demo test script: stages 1-5 offline in ~5 s; add -- --db (real Postgres, cleans up) or -- --live (real LLM) (docs/ai-hiring/22-demo-test-cases.md)
+npm run demo:mutations # breaks the code on purpose in a temp copy and checks the demo cases notice
 npm run sync:mediapipe # once: puts the camera-tracking runtime and face model under public/mediapipe/ (git-ignored)
 ```
 
@@ -93,4 +95,5 @@ npm run sync:mediapipe # once: puts the camera-tracking runtime and face model u
 | New: speed (fast production mode, dev warm-up) | `scripts/serve.js`, `libs/system/dev-warmup.js`, `next.config.js` |
 | New: candidate interview room (incl. in-browser camera tracking: `lib/behavior-{tracker,features}.js`) | `app/interview/[token]/` |
 | New: recruiter Behaviour tab | `app/dashboard/recruiter/interviews/[interviewId]/components/BehaviorTab.js` |
+| Demo test script (hiring pipeline, 7 stages; expected values are hand-derived, see the doc before changing a case) | `tests/demo/`, `docs/ai-hiring/22-demo-test-cases.md` |
 | Feature docs | `docs/ai-hiring/` |

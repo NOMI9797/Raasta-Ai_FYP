@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   CHECKPOINT_COOLOFF_MS, INITIATED_BY, PUBLICATION_STATUS as S, PUBLISH_MODE, RETRY_BRAKE_MS,
-  autoPostAvailability, classifyFailure, evaluateGuard, getPublishLimits, isAllowedPostUrl, plainError, publishToPlatform,
+  autoPostAvailability, classifyFailure, evaluateGuard, getPublishLimits, isAllowedPostUrl, plainError, publishToPlatform, resolveAccount,
 } from "../../libs/hiring/publishing";
 
 const NOW = new Date("2026-10-05T12:00:00.000Z");
@@ -156,4 +156,36 @@ test("an automatic post to Indeed is refused up front, before any account or bro
   assert.equal(result.status, "refused");
   assert.equal(result.code, "auto_unavailable");
   assert.match(result.error, /Copy and open/);
+});
+
+// ── Which account is used ──
+
+const accountsDb = (rows) => ({ database: { select: () => ({ from: () => ({ orderBy: async () => rows }) }) } });
+const account = (id, userId, isActive, email = `${id}@example.com`) => ({ id, userId, userName: null, email, isActive });
+
+test("accounts: only an account that is switched on is chosen, even one the job was posted with before", async () => {
+  const d = accountsDb([account("off", "u1", false), account("on", "u1", true)]);
+  const chosen = await resolveAccount(d, "indeed", { ownerId: "u1", accountId: "off" });
+  assert.equal(chosen.status, "connected");
+  assert.equal(chosen.account.id, "on", "the switched-off account that was asked for is skipped");
+  assert.equal((await resolveAccount(d, "indeed", { ownerId: "u1", accountId: "on" })).account.id, "on");
+  assert.equal((await resolveAccount(d, "indeed", { ownerId: "u1" })).account.id, "on");
+});
+
+test("accounts: with every account switched off nothing is chosen, and with none connected it says so", async () => {
+  const off = await resolveAccount(accountsDb([account("a", "u1", false), account("b", "u1", false)]), "indeed", { ownerId: "u1", accountId: "a" });
+  assert.equal(off.status, "inactive");
+  assert.equal(off.account, null);
+  assert.equal(off.accounts.length, 2, "they are still listed, with their state, for the panel");
+  assert.equal((await resolveAccount(accountsDb([]), "indeed", { ownerId: "u1" })).status, "not_connected");
+});
+
+test("accounts: a teammate's account is used only when it is switched on and the owner has none of their own", async () => {
+  const team = account("team", "u2", true);
+  assert.equal((await resolveAccount(accountsDb([team]), "indeed", { ownerId: "u1" })).account.id, "team");
+  assert.equal((await resolveAccount(accountsDb([account("team", "u2", false)]), "indeed", { ownerId: "u1" })).status, "inactive");
+  // the owner has an account, switched off: the teammate's is not borrowed
+  assert.equal((await resolveAccount(accountsDb([account("mine", "u1", false), team]), "indeed", { ownerId: "u1" })).status, "inactive");
+  // an active account the recruiter asked for by name is honoured
+  assert.equal((await resolveAccount(accountsDb([account("mine", "u1", true), team]), "indeed", { ownerId: "u1", accountId: "team" })).account.id, "team");
 });

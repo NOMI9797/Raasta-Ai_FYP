@@ -62,7 +62,7 @@ async function start({ mock = {}, kit = kitFor(), mode = RUN_MODE.REHEARSAL, opt
   const page = await context.newPage();
   const done = runPosting({
     page, flow: ROZEE_FLOW, kit, mode, options, reporter, human: createHuman({ speed: "off" }),
-    timing: { pollMs: 40, recheckMs: 40, settleMs: 0, gateWaitMs: 20000, continueWaitMs: 4000, ...timing },
+    timing: { pollMs: 40, recheckMs: 40, settleMs: 0, checkGraceMs: 0, gateWaitMs: 20000, continueWaitMs: 4000, ...timing },
   });
   const gate = (kind) => until(() => reporter.state.gate?.kind === kind, { label: `the ${kind} gate` });
   const finish = async () => {
@@ -113,7 +113,11 @@ test("a rehearsal answers every question, swaps Rozee's AI description for the p
 
   const held = await run.held();
   assert.equal(held.title, "Test Engineer");
-  assert.deepEqual(held.skills.map((s) => `${s.name}:${s.level}`).sort(), ["Node.js:Required", "Test Automation:Required"]);
+  // the job's own skills are chosen, and so are suggestions as close to them (React is the same idea as Node.js); all as Required
+  const names = held.skills.map((skill) => skill.name);
+  assert.ok(names.includes("Test Automation") && names.includes("Node.js"), names.join(", "));
+  assert.ok(held.skills.every((skill) => skill.level === "Required"));
+  assert.ok(held.skills.length <= 6);
   assert.equal(held.years, "2");
   assert.equal(held.gender, "No Preference", "the wizard asks; the engine never narrows a job by gender");
   assert.equal(held.manage, "No");
@@ -158,17 +162,64 @@ test("in post mode the window waits for the person to publish: Publish Job, the 
   await run.context.close();
 });
 
-test("a skill Rozee does not suggest is not forced in: the run stops for the person", async () => {
-  const run = await start({ kit: kitFor({ requiredSkills: ["COBOL"], techStack: [] }) });
-  await run.gate(GATE.FIELD);
-  assert.match(run.reporter.state.gate.message, /None of Rozee's suggestions is one of this job's skills \(COBOL\)/);
-  assert.equal((await run.held()).skills.length, 0, "no unrelated skill was chosen for the job");
-  // the person picks a skill themselves and presses Continue
-  await run.page.click(".chip");
-  await run.page.click("[role=menu] label");
-  await run.page.click("#go");
-  const result = await run.finish();
+// Rozee.pk's own list for "Junior Devops Engineer", as recorded on 2026-10-08
+const DEVOPS = ["Continuous Integration", "Continuous Deployment", "Infrastructure As Code", "Containerization", "Configuration Management", "Cloud Computing Platforms", "Monitoring And Logging", "Automation Scripting", "Version Control Systems", "Collaboration Tools"];
+const DEVOPS_JOB = { title: "Junior Devops Engineer", requiredSkills: ["Linux", "Git", "Docker", "CI/CD", "Networking Basics", "Bash"], techStack: [] };
+
+test("none of the job's skills is worded like a Rozee suggestion: the closest suggestions are chosen, not a stop", async () => {
+  const run = await start({ mock: { skills: DEVOPS }, kit: kitFor(DEVOPS_JOB) });
+  const result = await run.done;
   assert.equal(result.status, RUN_STATUS.REHEARSED, result.outcome?.message);
+  const held = await run.held();
+  const names = held.skills.map((skill) => skill.name);
+  // Docker -> Containerization, Git -> Version Control Systems, CI/CD -> Continuous Integration and Deployment, Bash -> Automation Scripting
+  for (const wanted of ["Containerization", "Version Control Systems", "Continuous Integration", "Automation Scripting"]) assert.ok(names.includes(wanted), `${wanted} in ${names.join(", ")}`);
+  assert.ok(held.skills.every((skill) => skill.level === "Required"));
+  assert.ok(names.length >= 4 && names.length <= 6);
+  const chosen = fieldsOf(run.reporter, "skills").filter((f) => f.state === FIELD_STATE.VERIFIED);
+  assert.ok(chosen.find((f) => f.label === "Containerization").note.includes("closest to Docker"), "the panel says what each was chosen for");
+  assert.ok(!fieldsOf(run.reporter, "skills").some((f) => f.state === FIELD_STATE.UNVERIFIED), "nothing is left for the person");
+  await run.context.close();
+});
+
+test("a job with no skills at all gets the suggestions closest to its title, as nice to have", async () => {
+  const run = await start({ kit: kitFor({ requiredSkills: [], techStack: [] }) });
+  const result = await run.done;
+  assert.equal(result.status, RUN_STATUS.REHEARSED, result.outcome?.message);
+  const held = await run.held();
+  assert.equal(held.skills.length, 3, "the least the wizard needs");
+  assert.ok(held.skills.every((skill) => skill.level === "Nice to Have"), "a guess is never made a requirement");
+  assert.ok(held.skills.some((skill) => skill.name === "Test Automation"), held.skills.map((skill) => skill.name).join(", "));
+  await run.context.close();
+});
+
+test("suggestions Rozee shows only after some skills are chosen are looked at too", async () => {
+  const run = await start({ mock: { skills: DEVOPS, moreSkills: ["Docker", "Linux Administration", "Networking Fundamentals"] }, kit: kitFor(DEVOPS_JOB) });
+  const result = await run.done;
+  assert.equal(result.status, RUN_STATUS.REHEARSED, result.outcome?.message);
+  const names = (await run.held()).skills.map((skill) => skill.name);
+  assert.ok(names.includes("Docker"), `the exact match that loaded later was chosen: ${names.join(", ")}`);
+  assert.ok(names.length <= 6, "and the limit holds");
+  await run.context.close();
+});
+
+test("the dashboard's splash screen is waited out and Post A New Job is pressed by the engine", async () => {
+  const run = await start({ mock: { dashboardDelayMs: 3500 } });
+  const result = await run.done;
+  assert.equal(result.status, RUN_STATUS.REHEARSED, result.outcome?.message);
+  const open = fieldsOf(run.reporter, "dashboard")[0];
+  assert.equal(open.state, FIELD_STATE.VERIFIED, "nobody had to click it");
+  assert.ok((await run.log()).includes("click:Post A New Job"));
+  await run.context.close();
+});
+
+test("the gender list that opens by itself is used, not clicked shut, and No Preference is chosen", async () => {
+  const run = await start();
+  const result = await run.done;
+  assert.equal(result.status, RUN_STATUS.REHEARSED, result.outcome?.message);
+  assert.equal(fieldsOf(run.reporter, "gender")[0].state, FIELD_STATE.VERIFIED);
+  assert.ok((await run.log()).includes("gender:No Preference"));
+  await run.context.close();
 });
 
 test("a sign-in page stops the run for the person, who signs in themselves", async () => {

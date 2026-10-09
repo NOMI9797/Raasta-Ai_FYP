@@ -8,6 +8,7 @@
 
 import os from "node:os";
 import path from "node:path";
+import { automationLaunchOptions, openWithFallback, withSandbox } from "./browser-launch";
 import { DEFAULT_BROWSER_ARGS, restoreSessionToContext } from "./playwright-utils";
 
 export const INDEED_EMPLOYER_URL = "https://employers.indeed.com/";
@@ -87,6 +88,22 @@ export async function waitForCheckToClear(page, { timeoutMs, pollMs = 2000, stab
 }
 
 /**
+ * Open the browser Diagnose and the session test use: the person's own Chrome (Playwright's Chromium when there is none), not
+ * announcing itself as automated, because Cloudflare's check keeps coming back to a window that does (libs/browser-launch.js).
+ * `visible` shows the window. The profile folder is for Chrome only: a profile made by another browser is not reused. Exported for the tests.
+ */
+export async function openIndeedContext({ playwright, profileId, visible = false, env = process.env }) {
+  const hide = automationLaunchOptions(env);
+  const dir = path.join(os.tmpdir(), `indeed-test-chrome-${profileId}`);
+  const options = visible
+    ? { headless: false, viewport: null, slowMo: 300, ...hide }
+    : { headless: true, viewport: { width: 1280, height: 800 }, ...hide, args: [...DEFAULT_BROWSER_ARGS, ...hide.args] };
+  // A window the person watches has Chrome's sandbox on (no "--no-sandbox" warning bar); a hidden one keeps Playwright's default, which a server needs
+  const open = (sandbox, channel) => playwright.chromium.launchPersistentContext(dir, { ...options, ...sandbox, ...(channel ? { channel } : {}) });
+  return openWithFallback((channel) => (visible ? withSandbox((sandbox) => open(sandbox, channel)) : open({}, channel)), env);
+}
+
+/**
  * Open the employer area with a saved session and say whether it is signed in.
  * Options: `recorder` (libs/indeed-debug.js) records what the page looked like; `visible` shows the browser window
  * (only where the server has a screen) so a person can watch; `waitForCheckMs`, with the window shown, waits that
@@ -96,16 +113,8 @@ export async function testIndeedSession(sessionData, keepOpen = false, { recorde
   console.log("Testing Indeed session validity...");
 
   try {
-    const { chromium } = await import("playwright");
-
-    const context = await chromium.launchPersistentContext(
-      path.join(os.tmpdir(), `indeed-test-${sessionData.sessionId || Date.now()}`),
-      {
-        headless: !visible,
-        ...(visible ? { viewport: null, slowMo: 300 } : { viewport: { width: 1280, height: 800 } }),
-        args: visible ? [] : DEFAULT_BROWSER_ARGS,
-      }
-    );
+    const playwright = await import("playwright");
+    const { value: context } = await openIndeedContext({ playwright, profileId: sessionData.sessionId || Date.now(), visible });
 
     const page = context.pages()[0] || (await context.newPage());
     recorder?.attach(page);

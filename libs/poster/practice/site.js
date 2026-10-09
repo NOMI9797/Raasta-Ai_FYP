@@ -39,12 +39,13 @@ const SIGN_IN = `<!doctype html><html><head><meta charset="utf-8"><title>Sign in
 /**
  * Install the practice site on a context. Options: signedIn (default true), check (show a verification check until it is
  * cleared with its button or by clearCheck()), blocked (a block page with nothing to complete), paused (a paused account),
- * and the page options read by practice/app.js (chooseFlow, titlePrompt,
+ * and the page options read by practice/app.js (chooseFlow, autoFlow, workplaceVariant, cookieBanner, reviewDescription, titlePrompt,
  * noLocationSuggestions, requireLocationChoice, noSponsorConfirm, reviewTitle).
  */
 export async function installPracticeSite(context, options = {}) {
   const state = { signedIn: options.signedIn !== false, check: Boolean(options.check), requests: [] };
   const appOptions = JSON.stringify({
+    autoFlow: options.autoFlow, workplaceVariant: options.workplaceVariant, cookieBanner: options.cookieBanner, reviewDescription: options.reviewDescription,
     chooseFlow: options.chooseFlow, titlePrompt: options.titlePrompt, noLocationSuggestions: options.noLocationSuggestions,
     requireLocationChoice: options.requireLocationChoice, noSponsorConfirm: options.noSponsorConfirm, reviewTitle: options.reviewTitle,
   });

@@ -14,6 +14,7 @@
  * the durable result.
  */
 import { v4 as uuidv4 } from "uuid";
+import { automationLaunchOptions, openWithFallback, withSandbox } from "./browser-launch";
 import { IndeedSessionManager } from "./indeed-session";
 import { captureSessionFromContext } from "./playwright-utils";
 import { INDEED_EMPLOYER_URL, classifyIndeedUrl } from "./indeed-session-validator";
@@ -71,11 +72,20 @@ const finish = (attempt, status, message, extra = {}) => {
   Object.assign(attempt, { status, message, finishedAt: new Date().toISOString(), ...extra });
 };
 
-async function runAttempt(attempt, { limitMs, sessions }) {
+/**
+ * Open the sign-in window: the person's own Chrome (Playwright's Chromium when there is none), not announcing itself as
+ * automated, because Cloudflare's check keeps coming back to a window that does (libs/browser-launch.js). Exported for the tests.
+ */
+export async function openSignInBrowser({ playwright, env = process.env }) {
+  const hide = automationLaunchOptions(env);
+  const { value } = await openWithFallback((channel) => withSandbox((sandbox) => playwright.chromium.launch({ headless: false, ...hide, ...sandbox, ...(channel ? { channel } : {}) })), env);
+  return value;
+}
+
+async function runAttempt(attempt, { limitMs, sessions, env = process.env }) {
   let browser;
   try {
-    const { chromium } = await import("playwright");
-    browser = await chromium.launch({ headless: false });
+    browser = await openSignInBrowser({ playwright: await import("playwright"), env });
     attempt.cancel = () => browser.close().catch(() => {});
     const context = await browser.newContext({ viewport: null });
     const page = await context.newPage();
@@ -146,7 +156,7 @@ export function startIndeedConnect({ userId, email, env = process.env, sessions 
     cancel: null,
   };
   attempts.set(userId, attempt);
-  run(attempt, { limitMs, sessions }).catch((error) => finish(attempt, CONNECT_STATUS.FAILED, error.message));
+  run(attempt, { limitMs, sessions, env }).catch((error) => finish(attempt, CONNECT_STATUS.FAILED, error.message));
   return publicView(attempt);
 }
 

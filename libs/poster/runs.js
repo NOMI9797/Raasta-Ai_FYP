@@ -2,7 +2,7 @@
 // writes its progress as it works; the Publish panel reads it. The engine is the only writer of status, gate, steps and
 // outcome while a run is live, so those writes are plain updates; claiming and cancelling are compare-and-set.
 // Relative imports only (also used by the engine process).
-import { and, desc, eq, gte, inArray, lt } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import { db } from "../db";
 import { postingRuns } from "../schema";
 import { HEARTBEAT_STALE_MS, LIVE_STATUSES, QUEUE_EXPIRY_MS, RUN_STATUS, RunError } from "./run-model";
@@ -41,7 +41,7 @@ export async function listRuns({ jobId, platform, limit = 5 }, deps = {}) {
 /** The runs of one person on one platform since a time, for the posting limits. */
 export async function recentRuns({ userId, platform, since }, deps = {}) {
   return withDb(deps)
-    .select({ id: postingRuns.id, jobId: postingRuns.jobId, mode: postingRuns.mode, status: postingRuns.status, createdAt: postingRuns.createdAt, completedAt: postingRuns.completedAt, outcome: postingRuns.outcome })
+    .select({ id: postingRuns.id, jobId: postingRuns.jobId, mode: postingRuns.mode, status: postingRuns.status, createdAt: postingRuns.createdAt, completedAt: postingRuns.completedAt, outcome: postingRuns.outcome, accountId: sql`${postingRuns.kit}->'account'->>'id'` })
     .from(postingRuns)
     .where(and(eq(postingRuns.userId, userId), eq(postingRuns.platform, platform), gte(postingRuns.createdAt, since)));
 }

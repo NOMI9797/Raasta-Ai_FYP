@@ -5,13 +5,16 @@ import { db } from "../db";
 import { jobs } from "../schema";
 import { getPlatformSpec, jobApplyUrl, validatePost } from "../hiring/platform-content";
 import { KIT_PLATFORMS, buildPostingKit } from "../hiring/posting-kit";
-import { INITIATED_BY, PUBLICATION_STATUS, PUBLISH_MODE, evaluateGuard, recordEnginePost } from "../hiring/publishing";
+import { INITIATED_BY, PUBLICATION_STATUS, PUBLISH_MODE, evaluateGuard, recordEnginePost, resolveAccount } from "../hiring/publishing";
 import { ENGINE_PLATFORMS, RUN_MODE, RUN_STATUS, RunError } from "./run-model";
 import { createRun, recentRuns } from "./runs";
 
 const DAY = 24 * 60 * 60 * 1000;
 const HOUR = 60 * 60 * 1000;
 const MAX_OPENINGS = 50;
+
+// Platforms whose posting window belongs to a connected account: the one switched on under Platforms (Rozee.pk's window is the person's own sign-in)
+const ACCOUNT_PLATFORMS = ["indeed"];
 
 /**
  * Runs as the posting limits see them. Only runs that post count (a rehearsal posts nothing), and a run that is still
@@ -42,6 +45,7 @@ export function cooloffs(env = process.env) {
   return {
     account_paused: (Number.isFinite(hours) && hours > 0 ? hours : 24) * HOUR, // the platform paused the account
     blocked: 30 * 60 * 1000, // the platform's bot protection refused the window
+    check_loop: 30 * 60 * 1000, // its verification check kept coming back after it was completed
   };
 }
 
@@ -51,9 +55,12 @@ const waitText = (ms) => {
 };
 
 /** { code, retryAt, reason } when a recent run ended in a refusal that should be left alone for a while, else null. `runs` come from recentRuns(). */
-export function cooloffGuard(runs, now = new Date(), env = process.env, label = "Indeed") {
+export function cooloffGuard(runs, now = new Date(), env = process.env, label = "Indeed", { accountId = null } = {}) {
   const table = cooloffs(env);
   const hits = runs
+    // A paused account is that account's problem: a run for another account, or an older run that was not tied to one, says nothing about this one.
+    // A block page or a check that kept coming back is about the window and its address, so those hold for every account.
+    .filter((run) => run.outcome?.code !== "account_paused" || !accountId || run.accountId === accountId)
     .filter((run) => run.completedAt && table[run.outcome?.code] && new Date(run.completedAt).getTime() + table[run.outcome.code] > now.getTime())
     .sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt));
   const last = hits[0];
@@ -62,8 +69,10 @@ export function cooloffGuard(runs, now = new Date(), env = process.env, label = 
   const retryAt = new Date(new Date(last.completedAt).getTime() + table[code]);
   const wait = waitText(retryAt.getTime() - now.getTime());
   const reason = code === "account_paused"
-    ? `${label} paused this employer account, so the posting engine is leaving it alone. Sort it out in your own browser first; you can try again in ${wait} (POSTER_PAUSED_COOLOFF_HOURS changes this). Copy and open still works.`
-    : `${label}'s bot protection refused the last window, and trying again straight away makes that worse. Try again in ${wait}, or use Copy and open.`;
+    ? `${label} paused this employer account${accountId ? " (the one switched on in Raasta-AI)" : ""}, so the posting engine is leaving it alone. Sort it out in your own browser first; you can try again in ${wait} (POSTER_PAUSED_COOLOFF_HOURS changes this). Copy and open still works.`
+    : code === "check_loop"
+      ? `${label}'s verification check kept coming back during the last run, and trying again straight away makes that worse. Try again in ${wait}, or use Copy and open.`
+      : `${label}'s bot protection refused the last window, and trying again straight away makes that worse. Try again in ${wait}, or use Copy and open.`;
   return { code, retryAt, reason };
 }
 
@@ -102,12 +111,28 @@ export async function startPostingRun({ job, platform, mode = RUN_MODE.REHEARSAL
   if (problem) throw new RunError(problem, "invalid_post");
   const clean = cleanRunOptions(options, mode);
 
+  // The window signs in as the account that is switched on (Platforms, the Active switch); a switched-off account is never used. A practice run has no account.
+  let account = null;
+  if (mode !== RUN_MODE.PRACTICE && ACCOUNT_PLATFORMS.includes(platform)) {
+    const connection = await (deps.resolveAccount || resolveAccount)({ database }, platform, { ownerId: job.userId, accountId: job.indeedAccountId });
+    if (connection.status !== "connected") {
+      throw new RunError(
+        connection.status === "inactive"
+          ? `Your ${spec.label} account is switched off. Switch it on under Platforms: the posting engine only uses an account that is switched on, and signs in to it.`
+          : `No ${spec.label} account is connected. Connect one under Platforms and switch it on: the posting engine signs in to the account that is switched on.`,
+        "no_active_account",
+        409,
+      );
+    }
+    account = { id: connection.account.id, name: connection.account.name };
+  }
+
   // A practice run never reaches the platform, so neither the cool-off nor the posting limits apply to it
   if (mode !== RUN_MODE.PRACTICE) {
     const env = deps.env || process.env;
     const window = Math.max(DAY, ...Object.values(cooloffs(env)));
     const runs = await recentRuns({ userId: job.userId, platform, since: new Date(now.getTime() - window) }, deps.database ? { database } : {});
-    const rest = cooloffGuard(runs, now, env, spec.label);
+    const rest = cooloffGuard(runs, now, env, spec.label, { accountId: account?.id || null });
     if (rest) {
       const error = new RunError(rest.reason, rest.code, 429);
       error.retryAt = rest.retryAt;
@@ -123,7 +148,7 @@ export async function startPostingRun({ job, platform, mode = RUN_MODE.REHEARSAL
     }
   }
 
-  const kit = { ...buildPostingKit({ job, platform, postText: text, applyUrl: jobApplyUrl(job.id), now }), options: clean };
+  const kit = { ...buildPostingKit({ job, platform, postText: text, applyUrl: jobApplyUrl(job.id), now }), options: clean, ...(account ? { account } : {}) };
   return createRun({ jobId: job.id, userId: job.userId, platform, mode, kit, now }, deps.database ? { database } : {});
 }
 
@@ -137,6 +162,6 @@ export async function onRunFinished({ run, result, deps = {} }) {
   const [job] = await database.select().from(jobs).where(eq(jobs.id, run.jobId)).limit(1);
   if (!job) return false;
   const spec = getPlatformSpec(run.platform);
-  await recordEnginePost({ job, platform: run.platform, postUrl: result.outcome?.postUrl, content: String(job[spec.field] || ""), deps: deps.database ? { database } : {} });
+  await recordEnginePost({ job, platform: run.platform, postUrl: result.outcome?.postUrl, content: String(job[spec.field] || ""), accountId: run.kit?.account?.id || null, deps: deps.database ? { database } : {} });
   return true;
 }

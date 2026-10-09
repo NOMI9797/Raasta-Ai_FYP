@@ -22,6 +22,8 @@
     "mail:check": "tsx scripts/mail-check.js",
     "sync:mediapipe": "node scripts/sync-mediapipe.js",
     "test:hiring": "tsx --test tests/hiring/*.test.js",
+    "demo:tests": "tsx --tsconfig jsconfig.json tests/demo/run.js",
+    "demo:mutations": "tsx --tsconfig jsconfig.json tests/demo/mutation-check.js",
     "test:sales": "tsx --test tests/sales/*.test.js",
     "test:sales:unit": "tsx --test $(ls tests/sales/*.test.js | grep -v -e integration -e live-services)",
     "test:sales:integration": "tsx --test tests/sales/*.integration.test.js",
