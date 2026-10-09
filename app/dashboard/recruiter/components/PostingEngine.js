@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { AlertTriangle, CheckCircle2, Circle, ExternalLink, Hand, Image as ImageIcon, Loader2, Play, Square, Eye } from "lucide-react";
@@ -117,8 +118,20 @@ function Banner({ run, onStartEngine }) {
   return null;
 }
 
-function Result({ run, label }) {
+function Result({ run, label, currentAccount }) {
   const message = run.outcome?.message;
+  // A run that ended because Indeed had paused the account it was signed in to says nothing about another account
+  if (run.outcome?.code === "account_paused" && currentAccount && run.accountId !== currentAccount.id) {
+    return (
+      <div className="alert py-2 text-sm items-start">
+        <Hand className="h-4 w-4 mt-0.5 shrink-0" />
+        <div>
+          <p className="font-semibold">An earlier run stopped on a different account</p>
+          <p>{label} had paused {run.account ? run.account : "the account that run was using"}. That does not apply to {currentAccount.name}, which has not been tried since: Rehearse or Post will open its own window.</p>
+        </div>
+      </div>
+    );
+  }
   if (run.status === "published" && run.mode === "practice") {
     return (
       <div className="alert alert-success py-2 text-sm items-start">
@@ -205,6 +218,13 @@ export default function PostingEngine({ job, platform, text, over, onBeforeStart
   }, [run, onFinished]);
 
   const blocked = !text.trim() ? "Write or generate the post first." : over ? `The post is over the ${platform.maxChars} character limit.` : null;
+  // Indeed: the window signs in as the account that is switched on under Platforms, and a switched-off account is never used
+  const accountProblem = platform.id !== "indeed" || platform.connection?.status === "connected"
+    ? null
+    : platform.connection?.status === "inactive"
+      ? `Your ${platform.label} account is switched off. Switch it on under Platforms: the engine only uses an account that is switched on.`
+      : `No ${platform.label} account is connected. Connect one under Platforms and switch it on.`;
+  const liveBlocked = blocked || accountProblem;
 
   const start = async (mode) => {
     if (mode === "post") {
@@ -256,8 +276,16 @@ export default function PostingEngine({ job, platform, text, over, onBeforeStart
         </p>
       </div>
 
+      {platform.id === "indeed" && (
+        accountProblem ? (
+          <p className="text-xs text-warning">{accountProblem} <Link href="/dashboard/platforms" className="link">Open Platforms</Link></p>
+        ) : (
+          <p className="text-xs text-base-content/60">Signs in as <strong>{platform.connection.accountName}</strong>, the account switched on under Platforms. The first time, sign in in the window yourself; it is remembered for this account.</p>
+        )
+      )}
+
       {run && live && <Banner run={run} onStartEngine={startEngine} />}
-      {run && !live && <Result run={run} label={platform.label} />}
+      {run && !live && <Result run={run} label={platform.label} currentAccount={platform.id === "indeed" && platform.connection?.status === "connected" ? { id: platform.connection.accountId, name: platform.connection.accountName } : null} />}
 
       {!live && (
         <div className="flex flex-wrap items-end gap-2">
@@ -278,10 +306,10 @@ export default function PostingEngine({ job, platform, text, over, onBeforeStart
           <button type="button" className="btn !normal-case btn-outline btn-sm gap-1" onClick={() => start("practice")} disabled={Boolean(starting) || Boolean(blocked)} title={blocked || "Runs the whole thing on a practice site that stands in for the platform: no account, no network, nothing recorded"}>
             {starting === "practice" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Practice (no account)
           </button>
-          <button type="button" className="btn !normal-case btn-outline btn-sm gap-1" onClick={() => start("rehearsal")} disabled={Boolean(starting) || Boolean(blocked)} title={blocked || `Fills in every step and checks it, then stops before ${platform.id === "rozee" ? "Publish Job" : "the final Confirm"}. Nothing is posted.`}>
+          <button type="button" className="btn !normal-case btn-outline btn-sm gap-1" onClick={() => start("rehearsal")} disabled={Boolean(starting) || Boolean(liveBlocked)} title={liveBlocked || `Fills in every step and checks it, then stops before ${platform.id === "rozee" ? "Publish Job" : "the final Confirm"}. Nothing is posted.`}>
             {starting === "rehearsal" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />} Rehearse (posts nothing)
           </button>
-          <button type="button" className="btn !normal-case btn-primary btn-sm gap-1" onClick={() => start("post")} disabled={Boolean(starting) || Boolean(blocked)} title={blocked || `Opens the window; you press ${platform.label}'s ${platform.id === "rozee" ? "Publish Job" : "Confirm"} yourself`}>
+          <button type="button" className="btn !normal-case btn-primary btn-sm gap-1" onClick={() => start("post")} disabled={Boolean(starting) || Boolean(liveBlocked)} title={liveBlocked || `Opens the window; you press ${platform.label}'s ${platform.id === "rozee" ? "Publish Job" : "Confirm"} yourself`}>
             {starting === "post" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Post with the engine
           </button>
         </div>

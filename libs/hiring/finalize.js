@@ -77,7 +77,8 @@ export async function finalizeCandidate({ candidateId, interviewId }, deps) {
   const interviewScore = interview.interviewScore ?? computeInterviewScore(responses, questions);
   const communication = communicationScore(interview.analysis);
   const final = finalScore({ fitScore: candidate.fitScore, interviewScore, communicationScore: communication.score }, config.finalWeights);
-  const totalQuestions = questions.length || interview.totalQuestions || 0;
+  // Questions the interview planned to ask (fewer than the snapshot when the interview was short)
+  const totalQuestions = interview.state?.totalQuestions || interview.totalQuestions || questions.length || 0;
   const answered = countAnswered(responses);
   const suggestedDecision = suggestDecision({ score: final.score, threshold: config.finalThreshold, totalAnswers: answered, totalQuestions });
   const evidence = selectEvidence(responses);

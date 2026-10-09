@@ -20,7 +20,7 @@ export const DEFAULT_HIRING_CONFIG = {
   questionCount: 8,          // base questions in the bank
   personalisedQuestions: 0,  // extra per-candidate questions (0-2)
   maxFollowUps: 2,
-  interviewMaxMinutes: 25,
+  interviewMaxMinutes: 25,   // 5-120; the interviewer plans its questions and follow-ups around it (09, Time budget)
   resumeWindowMinutes: 15,   // reconnect window after disconnect
   recordVideo: true,
   finalWeights: { resume: 0.3, interview: 0.5, communication: 0.2 },
@@ -34,7 +34,7 @@ export function getHiringConfig(job) {
   return c;
 }
 ```
-Validate on save: thresholds 0–100, weights ≥ 0 and normalised to sum 1, `questionCount` 3–15, `interviewMaxMinutes` 5–60.
+Validate on save: thresholds 0–100, weights ≥ 0 and normalised to sum 1, `questionCount` 3–15 (the question pool), `interviewMaxMinutes` 5–120.
 
 ## 2. `candidates`: add columns
 
@@ -296,7 +296,7 @@ New table `indeed_accounts`, the Indeed employer session used to post jobs: `use
 
 ## 7f. Migration `drizzle/0015_posting_runs.sql` (posting engine)
 
-New table `posting_runs`, one row per run of the posting engine (19, section 5f): `job_id` and `user_id` (both `ON DELETE CASCADE`), `platform` (`indeed`), `mode` (`rehearsal` fills in every step and stops before the final confirm; `post` waits for the person to press it), `status` (`queued`, `running`, `needs_you`, `awaiting_confirm`, `published`, `rehearsed`, `failed`, `cancelled`), `gate` (why a person is needed right now: `{ kind, message, since }`), `steps` (the timeline: id, label, status, the fields with `verified`, `unverified` or `skipped`, the screenshot name), `kit` (the posting kit the engine types from, plus the per-run `options`; job text, never credentials), `outcome` (`{ message, code, postUrl, verification }`), `cancel_requested`, `engine_id`, `heartbeat_at` (a live run that stops reporting is ended), timestamps. Indexes: `(job_id, platform, created_at)`, `(status, created_at)` for the engine's queue, and a partial unique index so a job has at most one live run per platform. The times are written by the app, never by the column default: the database's own clock and the app's clock can be hours apart (a database that does not run on UTC), which made a default `created_at` read as five hours in the future. A finished post that reached the platform also writes a `job_publications` row with `mode = 'engine'`. Defined in `libs/schema.js` and `libs/schema.ts` too. Idempotent; apply it the same way as `0009`: `psql "$DATABASE_URL" -f drizzle/0015_posting_runs.sql`.
+New table `posting_runs`, one row per run of the posting engine (19, section 5f): `job_id` and `user_id` (both `ON DELETE CASCADE`), `platform` (`indeed`), `mode` (`rehearsal` fills in every step and stops before the final confirm; `post` waits for the person to press it), `status` (`queued`, `running`, `needs_you`, `awaiting_confirm`, `published`, `rehearsed`, `failed`, `cancelled`), `gate` (why a person is needed right now: `{ kind, message, since }`), `steps` (the timeline: id, label, status, the fields with `verified`, `unverified` or `skipped`, the screenshot name), `kit` (the posting kit the engine types from, plus the per-run `options`, and for Indeed `account`: `{ id, name }` of the account that was switched on when the run was queued; job text, never credentials), `outcome` (`{ message, code, postUrl, verification }`), `cancel_requested`, `engine_id`, `heartbeat_at` (a live run that stops reporting is ended), timestamps. Indexes: `(job_id, platform, created_at)`, `(status, created_at)` for the engine's queue, and a partial unique index so a job has at most one live run per platform. The times are written by the app, never by the column default: the database's own clock and the app's clock can be hours apart (a database that does not run on UTC), which made a default `created_at` read as five hours in the future. A finished post that reached the platform also writes a `job_publications` row with `mode = 'engine'`. Defined in `libs/schema.js` and `libs/schema.ts` too. Idempotent; apply it the same way as `0009`: `psql "$DATABASE_URL" -f drizzle/0015_posting_runs.sql`.
 
 ## 7g. Migrations `drizzle/0016`–`0020` (sales pipeline)
 

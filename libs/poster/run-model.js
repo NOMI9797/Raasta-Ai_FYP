@@ -103,6 +103,8 @@ export function publicRun(row, now = new Date()) {
     jobId: row.jobId,
     platform: row.platform,
     mode: row.mode,
+    account: row.kit?.account?.name || null, // the account the window signs in as (Indeed: the one switched on under Platforms)
+    accountId: row.kit?.account?.id || null,
     status: row.status,
     live,
     gate: row.gate || null,

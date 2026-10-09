@@ -42,13 +42,13 @@ export async function cancelInvite(interviewId)
 
 ## Email templates: `libs/hiring/emails.js`
 
-Plain, branded "Raasta-AI". HTML + text versions. Sender `config.mailgun.fromNoReply`. Recruiter's name/company if available (`users.name`), otherwise "the hiring team".
+Branded "Raasta-AI", HTML + plain text, sent through Mailgun ([Sending](#sending-through-mailgun)). The HTML is a table layout with inline styles (email clients ignore most modern CSS): a hidden preview line, a details box (role, format, language, length, deadline), the button, "Before you start, you will need", numbered "How it works" and a privacy note, then a footer ("You are receiving this email because you applied for …"). The text version has the same sections. Recruiter's name/company if available (`users.name`), otherwise "the hiring team". Replies go to the recruiter who owns the job (`Reply-To` = `users.email`), and the footer promises a reply only when there is one.
 
 **Invite**
 - Subject: `Your AI interview for {jobTitle}`
 - Body points:
   - Congratulations, you've been shortlisted for **{jobTitle}**.
-  - The next step is a ~{interviewMaxMinutes}-minute voice interview with the Raasta AI Interviewer, taken any time before **{expiresAt in candidate-friendly format, with timezone}**.
+  - The next step is a voice interview with the Raasta AI Interviewer, taken any time before **{expiresAt in candidate-friendly format, with timezone}**. Details box: Language **English only**, Length **up to {interviewMaxMinutes} minutes** (the job's setting, [09](09-interview-engine.md) Time budget).
   - Requirements: a quiet place, Chrome or Edge on a laptop/desktop, a working microphone (and camera if `recordVideo`), and a stable internet connection.
   - How it works: questions are asked aloud; answer by speaking; you can press "I've finished my answer".
   - Privacy: the interview is recorded and evaluated by AI and reviewed by the hiring team.
@@ -70,6 +70,7 @@ Plain, branded "Raasta-AI". HTML + text versions. Sender `config.mailgun.fromNoR
 | `POST /api/hiring/interviews/[interviewId]/cancel` | withAuth + owner | Cancel invite |
 
 ## Implementation notes (Phase 6)
+- **Sending through Mailgun** (`libs/mailgun.js`). Needs `MAILGUN_API_KEY` **and** `MAILGUN_DOMAIN` (the sending domain exactly as the Mailgun dashboard lists it). `MAILGUN_REGION=eu` for a domain created in the EU region (a key used against the wrong region is refused with 401), `MAILGUN_API_URL` to override, `MAILGUN_FROM` to change the default sender `Raasta-AI <noreply@MAILGUN_DOMAIN>`, `MAILGUN_REPLY_TO` for a default reply address. Open and click tracking are **off**: tracking rewrites links, and the interview link carries a secret token. Messages are tagged (`interview-invite`, `interview-outcome`) for filtering in Mailgun. A key without a domain is an error, not a silent fall back to the outbox. A failed send keeps `interviews.error_message = invite_email_failed: <what Mailgun said> — <what to fix>` (a sandbox domain only delivers to its authorized recipients; a 401/404 usually means the wrong region) and the worker retries. `npm run mail:check` prints which settings are present (never the key) and, with an address (`npm run mail:check -- you@example.com`), sends one real test email.
 - **Dev outbox:** without `MAILGUN_API_KEY` (and outside production), `deliverEmail` writes each email as `.html` + `.txt` to `STORAGE_LOCAL_DIR/outbox/`, so invite links can be opened locally. In production a missing key is an error, unless `EMAIL_OUTBOX=local` is set (`npm run serve` sets it, because a fast local run is not a deployment). Email bodies and links are never logged.
 - **Auto-invite:** `queueAfterShortlist` queues `send-invite` per candidate when `autoInvite` is on. This covers the automatic shortlist and a manual move to `shortlisted` (`PATCH /api/hiring/candidates/[id]`). If the job has no questions yet, `send-invite` re-queues itself every 30 s (up to 10 times) while `ensure-questions` runs.
 - **Email failure:** the interview row keeps `error_message = invite_email_failed: …` and the job is retried; the retry rotates the token (the failed email was never seen).

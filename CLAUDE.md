@@ -19,7 +19,7 @@ Start with `docs/ai-hiring/README.md`.
 - NextAuth (`libs/next-auth.js`), route protection via `withAuth()` in `libs/auth-middleware.js`.
 - Redis via `ioredis` (`libs/redis.js` → `getRedisClient()`, `RedisStreamManager`).
 - LLM: Groq through the OpenAI SDK (`baseURL: https://api.groq.com/openai/v1`).
-- Email: Mailgun (`libs/mailgun.js` → `sendEmail({to, subject, text, html})`).
+- Email: Mailgun (`libs/mailgun.js` → `sendEmail({to, subject, text, html})`; needs `MAILGUN_API_KEY` and `MAILGUN_DOMAIN`, `npm run mail:check` verifies them).
 - Playwright for LinkedIn/Rozee automation.
 
 ## Commands
@@ -37,6 +37,9 @@ npm run poster:engine  # posting engine: opens a visible browser window on THIS 
 cd services/ai-engine && uvicorn main:app --port 8000   # Python AI engine
 docker compose up      # everything together
 npm run check:branding # fails if the legacy source name appears anywhere
+npm run mail:check     # which Mailgun settings are present (never the key); add an address to send a test email
+npm run demo:tests     # demo test script: stages 1-5 offline in ~5 s; add -- --db (real Postgres, cleans up) or -- --live (real LLM) (docs/ai-hiring/22-demo-test-cases.md)
+npm run demo:mutations # breaks the code on purpose in a temp copy and checks the demo cases notice
 npm run sync:mediapipe # once: puts the camera-tracking runtime and face model under public/mediapipe/ (git-ignored)
 ```
 
@@ -83,7 +86,7 @@ npm run sync:mediapipe # once: puts the camera-tracking runtime and face model u
 | New: Indeed (sign-in window, diagnostics, debug recordings) | `libs/indeed-*.js`, `libs/platforms/indeed.js`, `app/api/indeed/**`, panel `app/dashboard/accounts/components/IndeedAccountsPanel.js`; not posted in the background (docs/ai-hiring/19 §5b): the posting engine (below) or Copy and open |
 | New: posting engine (visible window, human-like typing, hands over at every check and decision; Indeed and Rozee.pk; has a practice site per platform, no account needed) | `libs/poster/**`, `services/poster-engine/`, `app/api/hiring/jobs/[jobId]/posting-runs/`, `app/api/hiring/posting-runs/`, panel `app/dashboard/recruiter/components/PostingEngine.js`, table `posting_runs` (docs/ai-hiring/19 §5f) |
 | New: assisted posting (browser extension for Indeed and Rozee.pk) | `extensions/raasta-poster/`, `libs/hiring/posting-kit.js`, `libs/poster-bridge.js` (docs/ai-hiring/19 §5d) |
-| New: interview engine (WS) | `services/interview-engine/`; conversation hygiene (echo, STT junk, "end the interview", refusals) in `libs/interview/{echo-guard,intent}.js`, `libs/interview/stt/clean.js` (docs/ai-hiring/09) |
+| New: interview engine (WS) | `services/interview-engine/`; conversation hygiene (echo, STT junk, "end the interview", refusals) in `libs/interview/{echo-guard,intent}.js`, `libs/interview/stt/clean.js`; interview length → question plan, follow-up budget, warnings in `libs/interview/time-plan.js`; English-only (Urdu detection) in `libs/interview/language.js` (docs/ai-hiring/09) |
 | New: recording join and analysis (ffmpeg in the worker, voice metrics, camera behaviour) | `libs/interview/{analysis,media-tools,voice-metrics,behavior}.js`; needs `ffmpeg` on the worker's PATH (docs/ai-hiring/11) |
 | New: Python AI engine | `services/ai-engine/` |
 | New: background worker | `workers/hiring-worker.js` |
@@ -92,4 +95,5 @@ npm run sync:mediapipe # once: puts the camera-tracking runtime and face model u
 | New: speed (fast production mode, dev warm-up) | `scripts/serve.js`, `libs/system/dev-warmup.js`, `next.config.js` |
 | New: candidate interview room (incl. in-browser camera tracking: `lib/behavior-{tracker,features}.js`) | `app/interview/[token]/` |
 | New: recruiter Behaviour tab | `app/dashboard/recruiter/interviews/[interviewId]/components/BehaviorTab.js` |
+| Demo test script (hiring pipeline, 7 stages; expected values are hand-derived, see the doc before changing a case) | `tests/demo/`, `docs/ai-hiring/22-demo-test-cases.md` |
 | Feature docs | `docs/ai-hiring/` |

@@ -4,7 +4,8 @@
    It reproduces what the real flow was recorded to have (docs/ai-hiring/19, section 5d): the same paths, data-testids and
    ids, custom drop-downs, an autocomplete for the location, a rich-text description box, a review page, the "No thanks"
    confirmation on the sponsor page, and a single-page app that moves between steps without reloading.
-   Options come from window.__OPTIONS__. The page keeps what a test needs to look at in window.__log, __keys and __S. */
+   Options come from window.__OPTIONS__ (chooseFlow, autoFlow, workplaceVariant, cookieBanner, reviewDescription and the ones read below). The
+   page keeps what a test needs to look at in window.__log, __keys and __S. */
 (function () {
   var OPT = window.__OPTIONS__ || {};
   var S = { title: "", wtype: "In person", loc: "", types: [], timeline: "Select", hires: "0", ptype: "Range", min: "33,000", max: "200,000", period: "per month", desc: "", method: "Email" };
@@ -17,6 +18,7 @@
   function log(entry) { window.__log.push(entry); }
   function go(path) { history.pushState({}, "", path); render(); }
   window.addEventListener("popstate", render);
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeLists(); }); // an open list closes on Escape, as Indeed's do
 
   function closeLists() { document.querySelectorAll("[data-mock-list]").forEach(function (el) { el.remove(); }); }
   function openList(anchor, items, onPick) {
@@ -37,7 +39,7 @@
     document.body.appendChild(ul);
   }
   function dropdown(testid, label, getValue, setValue, options) {
-    var el = root.querySelector('[data-testid="' + testid + '"]');
+    var el = typeof testid === "string" ? root.querySelector('[data-testid="' + testid + '"]') : testid;
     el.addEventListener("click", function () { openList(el, options, function (text) { setValue(text); el.textContent = text; }); });
     el.setAttribute("aria-label", label);
     el.textContent = getValue();
@@ -60,22 +62,49 @@
   }
   function choose() {
     document.title = "Post a job - Indeed for Employers";
+    if (OPT.autoFlow) {
+      root.innerHTML = header();
+      setTimeout(function () { if (/choose-flow/.test(location.pathname)) { history.replaceState({}, "", "/job-posting/from-scratch/getting-started"); render(); } }, 900);
+      return;
+    }
     root.innerHTML = header() + '<main><h1>How do you want to create your job?</h1><button id="scratch">Start from scratch</button><button id="template">Use a template</button></main>';
     root.querySelector("#scratch").addEventListener("click", function () { log("click:scratch"); go("/job-posting/from-scratch/getting-started"); });
+  }
+
+  // The "Job location type" box. Default: the box the page report found (a test id). "renamed": the same custom list without that test id, found only by its
+  // label. "native": a real <select>. "stuck": a list that does not offer the job's type.
+  function workplaceMarkup() {
+    var v = OPT.workplaceVariant;
+    if (!v) return '<div data-testid="job-location-type-selector" role="combobox" tabindex="0"></div>';
+    if (v === "native") return '<label for="wt-9">Job location type *</label><select id="wt-9"><option>In person</option><option>Fully remote</option><option>Hybrid</option><option>On the road</option></select>';
+    return '<label for="wt-9">Job location type *</label><div id="wt-9" role="combobox" tabindex="0"></div>';
+  }
+  function workplaceBehaviour() {
+    var v = OPT.workplaceVariant;
+    if (!v) { dropdown("job-location-type-selector", "job location type *", function () { return S.wtype; }, function (val) { S.wtype = val; }, ["In person", "Fully remote", "Hybrid", "On the road"]); return; }
+    if (v === "native") {
+      var select = root.querySelector("#wt-9");
+      select.value = S.wtype;
+      select.addEventListener("change", function () { S.wtype = select.value; log("select:" + select.value); });
+      return;
+    }
+    dropdown(root.querySelector("#wt-9"), "job location type *", function () { return S.wtype; }, function (val) { S.wtype = val; }, v === "stuck" ? ["In person"] : ["In person", "Fully remote", "Hybrid", "On the road"]);
   }
 
   function basics() {
     document.title = "Add job basics - Indeed for Employers";
     root.innerHTML = header() + '<main><h1>Add job basics</h1>' +
       '<label for="job-title-input-7x">Job title *</label><input id="job-title-input-7x" type="text" role="combobox" aria-expanded="false" autocomplete="off">' +
-      '<div data-testid="job-location-type-selector" role="combobox" tabindex="0"></div>' +
+      (OPT.cookieBanner ? '<div style="height:460px"></div>' : "") +
+      workplaceMarkup() +
       '<label for="loc-1">What is the job location? *</label><input id="loc-1" data-testid="location-input-component" type="text" role="combobox" aria-expanded="false" autocomplete="off" placeholder="Enter a city or location">' +
-      '</main>' + footer();
+      '</main>' + footer() + (OPT.cookieBanner ? '<div style="height:400px"></div>' : "");
     var title = root.querySelector("#job-title-input-7x");
     title.value = S.title;
     title.addEventListener("keydown", function () { window.__keys.push(Math.round(performance.now())); });
     title.addEventListener("input", function () { S.title = title.value; });
-    dropdown("job-location-type-selector", "job location type *", function () { return S.wtype; }, function (v) { S.wtype = v; }, ["In person", "Fully remote", "Hybrid", "On the road"]);
+    workplaceBehaviour();
+    if (OPT.cookieBanner) document.body.insertAdjacentHTML("beforeend", '<div id="cookies" style="position:fixed;left:0;right:0;bottom:0;height:300px;z-index:200;background:#eef;border-top:1px solid #88a;padding:16px">We use cookies to personalize content and ads. <button>Cookies Settings</button> <button>Reject All</button> <button>Accept All Cookies</button></div>');
     var loc = root.querySelector("#loc-1");
     loc.value = S.loc;
     S.locChosen = false;
@@ -150,6 +179,8 @@
   function review() {
     document.title = "Review - Indeed for Employers";
     var shortDesc = S.desc.length > 120 ? S.desc.slice(0, 120) + "…" : S.desc;
+    if (OPT.reviewDescription === "start") shortDesc = S.desc.slice(0, 100); // cut without an ellipsis
+    if (OPT.reviewDescription === "other") shortDesc = "A description that is not the one that was typed: nothing here matches the post, the role or the people.";
     root.innerHTML = header() + "<main><h1>Review</h1><h2>Job details</h2>" +
       '<button data-testid="job-title-review-field-action">' + esc(OPT.reviewTitle || S.title) + "</button>" +
       '<button data-testid="number-of-openings-review-field-action">' + esc(S.hires) + "</button>" +
@@ -187,6 +218,7 @@
 
   function render() {
     closeLists();
+    if (OPT.cookieBanner) document.body.style.paddingBottom = "400px"; // a page can be scrolled clear of the banner, as on the real site
     var p = location.pathname;
     if (p === "/jobs") jobs();
     else if (/choose-flow/.test(p)) choose();

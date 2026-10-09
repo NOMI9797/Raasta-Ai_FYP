@@ -43,7 +43,7 @@
 
 **Flow.** `PATCH` loads the saved config → merges `{...saved, ...incoming, finalWeights: {...saved.finalWeights, ...incoming.finalWeights}}` → `validateHiringConfig(merged)` (`libs/hiring/config.js`) → on errors returns **400 with `details[]`**, else stores the *normalised* config. Everywhere else `getHiringConfig(job)` merges `DEFAULT_HIRING_CONFIG` with the stored values (so adding a new setting needs no migration).
 
-**Rules.** Booleans must be booleans; integers within range (`minFitScore` 0–100, `finalThreshold` 0–100, `questionCount` 3–15, `interviewMaxMinutes` 5–60, `personalisedQuestions` 0–2, `maxFollowUps` 0–5, `inviteExpiryHours` 1–720, `reminderAfterHours` 0–720, `resumeWindowMinutes` 0–120); `maxShortlist` ≥ 1 or `null` (no cap); weights ≥ 0 and not all zero, **normalised so they sum to 1** (rounded to 4 decimals). Unknown keys are dropped.
+**Rules.** Booleans must be booleans; integers within range (`minFitScore` 0–100, `finalThreshold` 0–100, `questionCount` 3–15, `interviewMaxMinutes` 5–120, `personalisedQuestions` 0–2, `maxFollowUps` 0–5, `inviteExpiryHours` 1–720, `reminderAfterHours` 0–720, `resumeWindowMinutes` 0–120); `maxShortlist` ≥ 1 or `null` (no cap); weights ≥ 0 and not all zero, **normalised so they sum to 1** (rounded to 4 decimals). Unknown keys are dropped.
 
 **Edge cases.** All weights zero → error and defaults restored for display; `maxShortlist: null` allowed; `autoFinalize` defaults **false** with a warning in the UI because it rejects without review.
 

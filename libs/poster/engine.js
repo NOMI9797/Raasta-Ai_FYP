@@ -7,6 +7,7 @@
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { automationLaunchOptions, hidesAutomationFlag, openWithFallback, withSandbox } from "../browser-launch";
 import { runtimeDir } from "../system/runtime-paths";
 import { INDEED_FLOW } from "./flow-indeed";
 import { ROZEE_FLOW } from "./flow-rozee";
@@ -36,33 +37,29 @@ export const enginePort = (env = process.env) => {
   return Number.isInteger(port) && port > 0 && port < 65536 ? port : DEFAULT_ENGINE_PORT;
 };
 
-/** The folder holding a person's browser profile for a platform: the sign-in and the passed checks live here. */
-export const profileDirFor = ({ userId, platform, cwd = process.cwd() }) => path.join(runtimeDir(cwd), "poster-profiles", safeName(userId), safeName(platform));
+/**
+ * The folder holding a person's browser profile for a platform: the sign-in and the passed checks live here. With an account
+ * (Indeed: the one switched on under Platforms) the folder is that account's own, so two accounts never share a sign-in.
+ */
+export const profileDirFor = ({ userId, platform, accountId = null, cwd = process.cwd() }) => path.join(runtimeDir(cwd), "poster-profiles", safeName(userId), safeName(accountId ? `${platform}-${accountId}` : platform));
+
+export { hidesAutomationFlag };
+
+/** The options the window is opened with (exported for the tests). The automation flag is hidden unless POSTER_STEALTH is false (libs/browser-launch.js). */
+export function launchOptions(env = process.env) {
+  const hide = automationLaunchOptions(env);
+  return { headless: false, viewport: null, ...hide, args: ["--start-maximized", ...hide.args] };
+}
 
 /**
  * Open the visible window. Prefers the browser the person already has (Chrome, or POSTER_BROWSER=msedge), falls back to
- * the one Playwright installs. Stealth measures stay off unless POSTER_STEALTH=true: the first things to try are a visible
- * window with a person and human-like input; stealth is for when a platform challenges those (docs/ai-hiring/19, section 5f).
+ * the one Playwright installs. The window is visible and a person is in it for every check; what is hidden is only the
+ * automation flag.
  */
 export async function launchBrowser({ playwright, profileDir, env = process.env }) {
-  const stealth = env.POSTER_STEALTH === "true";
-  const options = {
-    headless: false,
-    viewport: null,
-    args: stealth ? ["--start-maximized", "--disable-blink-features=AutomationControlled"] : ["--start-maximized"],
-    ...(stealth ? { ignoreDefaultArgs: ["--enable-automation"] } : {}),
-  };
-  const wanted = String(env.POSTER_BROWSER || "chrome").trim().toLowerCase();
-  let lastError;
-  for (const channel of wanted === "chromium" ? [null] : [wanted, null]) {
-    try {
-      const context = await playwright.chromium.launchPersistentContext(profileDir, { ...options, ...(channel ? { channel } : {}) });
-      return { context, browser: channel || "chromium" };
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw lastError;
+  const options = launchOptions(env);
+  const { value: context, browser } = await openWithFallback((channel) => withSandbox((sandbox) => playwright.chromium.launchPersistentContext(profileDir, { ...options, ...sandbox, ...(channel ? { channel } : {}) })), env);
+  return { context, browser };
 }
 
 function defaultLog(level, fields) {
@@ -95,7 +92,9 @@ export async function startEngine({ env = process.env, log = defaultLog, deps = 
     const timers = [];
     try {
       const playwright = deps.playwright || (await import("playwright"));
-      const launched = await launchBrowser({ playwright, profileDir: profileDirFor({ userId: run.userId, platform: practice ? `practice-${run.platform}` : run.platform }), env });
+      // Indeed: the window belongs to the account that was switched on when the run was queued (kit.account), so its sign-in is that account's
+      const profileDir = profileDirFor({ userId: run.userId, platform: practice ? `practice-${run.platform}` : run.platform, accountId: practice ? null : run.kit?.account?.id });
+      const launched = await launchBrowser({ playwright, profileDir, env });
       context = launched.context;
       if (practice) await installPractice(context, run.platform, { check: Boolean(run.kit?.options?.practiceCheck) });
       state.current = { id: run.id, context };
@@ -111,6 +110,10 @@ export async function startEngine({ env = process.env, log = defaultLog, deps = 
       timers.push(setInterval(() => saveProgress(run.id, {}).catch(() => {}), HEARTBEAT_MS));
 
       const page = context.pages()[0] || (await context.newPage());
+      // What every page is told about this window. true means Cloudflare's check is likely to keep asking (POSTER_STEALTH=false, or a browser that ignores the flag)
+      const announcesAutomation = await page.evaluate("navigator.webdriver === true").catch(() => null);
+      log(announcesAutomation ? "warn" : "info", { event: "browser_ready", runId: run.id, announcesAutomation });
+      if (announcesAutomation && !practice) reporter.log("This window tells every page it is automated (navigator.webdriver), so a verification check may keep coming back.");
       result = await runPosting({ page, flow, kit: run.kit, mode: run.mode, reporter, human: createHuman({ speed: speedFrom(env.POSTER_TYPING_SPEED) }) });
       if (practice && result.status === RUN_STATUS.PUBLISHED) {
         result = { status: RUN_STATUS.PUBLISHED, outcome: { code: "practice", message: `Practice finished: the form was filled in, you pressed ${flow.confirmLabel || "Confirm"}, and the practice site took it from there. Nothing was posted anywhere.`, verification: result.outcome?.verification } };
@@ -144,8 +147,8 @@ export async function startEngine({ env = process.env, log = defaultLog, deps = 
     if (req.method === "GET" && pathname === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
       // `modes` and `platforms` let the web app refuse to queue a run that an older engine, still running, does not know (it would mistake
-      // a practice run for a real post)
-      res.end(JSON.stringify({ ok: true, engineId, busy: Boolean(state.current), runId: state.current?.id || null, modes: Object.values(RUN_MODE), platforms: Object.keys(FLOWS) }));
+      // a practice run for a real post); `accountProfiles` says it opens a window per account (an older one would open the shared profile, which may be signed in to another account)
+      res.end(JSON.stringify({ ok: true, engineId, busy: Boolean(state.current), runId: state.current?.id || null, modes: Object.values(RUN_MODE), platforms: Object.keys(FLOWS), accountProfiles: true }));
       return;
     }
     res.writeHead(404, { "Content-Type": "application/json" });

@@ -36,7 +36,8 @@ Fake deps: `llm` returns scripted JSON, `tts` returns a tiny buffer, `repo` reco
 4. **Concurrency:** two STT finals arrive while processing → only one question is spoken.
 5. **Pre-speak guard:** the candidate keeps speaking (> 10 characters) during processing → no question is spoken, the follow-up depth is rolled back, and a reschedule happens.
 6. Follow-up cap: the analyzer always says follow-up → max 2 follow-ups, then the next base question.
-7. Time budget: at < 1.5 min left → closing instead of a new question; `time_warning` messages are sent.
+7. Time budget: at < 1.5 min left → closing instead of a new question; `time_warning` is sent at a quarter of the length and at 1 minute. A 10-minute interview asks 3 of 8 questions; follow-ups stop when the questions to come need the remaining time (`tests/hiring/interview-time-plan.test.js`, `session-engine.test.js`).
+7c. English only: Urdu before the first question, mid-question, mid-long-answer, repeated and after the cap (`session-engine.test.js`); text rules, audio identification, its budget and failure modes (`interview-language.test.js`).
 8. Questions exhausted → closing turn, `interview_complete`, `repo.complete` called, `enqueue('analyse-interview')`.
 9. Resume: `serializeState()` → new session from that state → re-asks the current question.
 10. Scoring: the score is written for a base question even after it left the queue (the regression from the legacy code).
@@ -60,6 +61,9 @@ Fake deps: `llm` returns scripted JSON, `tts` returns a tiny buffer, `repo` reco
 9. Optionally show the agent pipeline run with checkpoints.
 
 Have a backup: a pre-recorded completed interview in the seed data in case the network fails.
+
+## 4b. Demo test script
+`npm run demo:tests` runs 100 readable test cases in seven stages (offline, real database, live model) and is meant to be run in front of an audience. How its cases are chosen, judged and validated (including `npm run demo:mutations`) is in [22-demo-test-cases.md](22-demo-test-cases.md). It complements `npm run test:hiring`; it does not replace it.
 
 ## 5. Quality gates before merging to `main`
 - `npm run lint`, `npm run build`, `npm run check:branding`, `npm run test:hiring`, `pytest services/ai-engine/tests` all pass.

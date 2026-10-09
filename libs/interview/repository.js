@@ -144,11 +144,12 @@ export function computeInterviewScore(responses, questions) {
  * Finish the interview: statistics + interview score; candidate → interview_completed.
  * status is "completed" for a normal or ≥50%-answered partial interview.
  */
-export async function completeInterview(interview, { questions, state, endedAt = new Date(), database = db } = {}) {
+export async function completeInterview(interview, { questions, state, totalQuestions = null, endedAt = new Date(), database = db } = {}) {
   const responses = await database.select().from(interviewResponses).where(eq(interviewResponses.interviewId, interview.id));
   const startedAt = interview.startedAt || (state?.startedAt ? new Date(state.startedAt) : null);
   const stats = {
-    totalQuestions: questions.length,
+    // The questions the interviewer planned to ask, which fewer than the bank holds when the interview is short
+    totalQuestions: totalQuestions ?? state?.totalQuestions ?? questions.length,
     totalAnswers: responses.filter((r) => !r.isFollowUp).length,
     followUpCount: responses.filter((r) => r.isFollowUp).length,
     interviewScore: computeInterviewScore(responses, questions),

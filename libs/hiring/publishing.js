@@ -194,10 +194,12 @@ function defaultDeps(overrides = {}) {
 /**
  * The account used for a platform. Operators share the connected accounts (the Platforms page lists every
  * account to admins, sales operators and recruiters), so the choice is:
- *   1. the account asked for, if it exists (the recruiter picked it, or the job was posted with it before)
+ *   1. the account asked for, if it exists and is switched on (the recruiter picked it, or the job was posted with it before)
  *   2. the owner's own active account
  *   3. when the owner has none, the team's only active account
- * Returns { status: connected | inactive | not_connected, account?, accounts[] }. No session data leaves this module.
+ * Only an account that is switched on is ever chosen (Platforms, the Active switch): an account that was switched off is skipped
+ * even when the job was posted with it before. Returns { status: connected | inactive | not_connected, account?, accounts[] }.
+ * No session data leaves this module.
  */
 export async function resolveAccount(d, platform, { ownerId, accountId }) {
   const table = ACCOUNT_TABLES[platform];
@@ -210,7 +212,7 @@ export async function resolveAccount(d, platform, { ownerId, accountId }) {
 
   const own = rows.filter((r) => r.userId === ownerId);
   const teamActive = rows.filter((r) => r.isActive);
-  const chosen = (accountId && rows.find((r) => r.id === accountId))
+  const chosen = (accountId && rows.find((r) => r.id === accountId && r.isActive))
     || own.find((r) => r.isActive)
     || (own.length === 0 && teamActive.length === 1 ? teamActive[0] : null);
   if (!chosen) return { status: "inactive", account: null, accounts };
@@ -327,15 +329,15 @@ async function recordPublished(d, job, platform, { postUrl, accountId, content }
  * The posting engine got a job onto a platform (the recruiter pressed its final button in the engine's window): record it
  * in the history and on the job, the same way a hand-off the recruiter confirms is recorded.
  */
-export async function recordEnginePost({ job, platform, postUrl, content, deps = {} }) {
+export async function recordEnginePost({ job, platform, postUrl, content, accountId = null, deps = {} }) {
   const d = defaultDeps(deps);
   const now = d.now();
   const link = postUrl && isAllowedPostUrl(platform, postUrl) ? postUrl : null;
   await d.database.insert(jobPublications).values({
-    jobId: job.id, userId: job.userId, platform, mode: PUBLISH_MODE.ENGINE, status: PUBLICATION_STATUS.PUBLISHED,
+    jobId: job.id, userId: job.userId, platform, accountId, mode: PUBLISH_MODE.ENGINE, status: PUBLICATION_STATUS.PUBLISHED,
     initiatedBy: INITIATED_BY.USER, content: content || null, postUrl: link, createdAt: now, updatedAt: now, completedAt: now,
   });
-  await recordPublished(d, job, platform, { postUrl: link, accountId: null, content: content || String(job[getPlatformSpec(platform).field] || "") });
+  await recordPublished(d, job, platform, { postUrl: link, accountId, content: content || String(job[getPlatformSpec(platform).field] || "") });
   return { platform, ok: true, status: PUBLICATION_STATUS.PUBLISHED, mode: PUBLISH_MODE.ENGINE, postUrl: link };
 }
 

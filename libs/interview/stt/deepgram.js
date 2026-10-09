@@ -27,11 +27,14 @@ export function handleDeepgramMessage(message, { onPartial, onFinal, onActivity 
     return;
   }
   if (message?.type !== "Results") return;
-  const text = message.channel?.alternatives?.[0]?.transcript?.trim();
+  const alternative = message.channel?.alternatives?.[0];
+  const text = alternative?.transcript?.trim();
   if (!text) return;
   if (message.is_final) {
     const startMs = Math.round((message.start || 0) * 1000);
-    onFinal?.(text, { startMs, endMs: Math.round(startMs + (message.duration || 0) * 1000) });
+    // confidence (0–1) lets the engine doubt a transcript: speech in another language scores low
+    const confidence = typeof alternative.confidence === "number" ? alternative.confidence : null;
+    onFinal?.(text, { startMs, endMs: Math.round(startMs + (message.duration || 0) * 1000), confidence });
   } else {
     onActivity?.();
     onPartial?.(text);

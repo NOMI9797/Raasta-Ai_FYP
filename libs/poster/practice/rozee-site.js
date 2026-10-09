@@ -25,11 +25,11 @@ const SIGN_IN = `<!doctype html><html><head><meta charset="utf-8"><title>Login t
 
 /**
  * Install the practice site on a context. Options: signedIn (default true), check (a verification check until it is cleared with
- * its button or by clearCheck()), and the page options read by practice/rozee-app.js (skills, noCities, slowAi).
+ * its button or by clearCheck()), and the page options read by practice/rozee-app.js (skills, moreSkills, noCities, slowAi, dashboardDelayMs).
  */
 export async function installRozeePracticeSite(context, options = {}) {
   const state = { signedIn: options.signedIn !== false, check: Boolean(options.check), requests: [] };
-  const appOptions = JSON.stringify({ skills: options.skills, noCities: options.noCities, slowAi: options.slowAi });
+  const appOptions = JSON.stringify({ skills: options.skills, moreSkills: options.moreSkills, noCities: options.noCities, slowAi: options.slowAi, dashboardDelayMs: options.dashboardDelayMs });
   const ours = /^https:\/\/(www\.rozeegpt\.ai|hiring\.rozee\.pk)\//;
   // Registered first, so it is asked last: anything that is not the practice site is refused
   await context.route(/^(?!https:\/\/(www\.rozeegpt\.ai|hiring\.rozee\.pk)\/)/, (route) => route.abort());

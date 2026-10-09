@@ -8,6 +8,7 @@ const EVENT_LABEL = {
   tab_visible: "Came back to the tab",
   mic_muted: "Muted the microphone",
   net_offline: "Lost the internet connection",
+  non_english_speech: "Spoke a language other than English (reminded to answer in English)",
 };
 
 export default function IntegrityTab({ detail }) {
@@ -36,6 +37,7 @@ export default function IntegrityTab({ detail }) {
             ["Total time away", summary.tabHiddenSec != null ? `${summary.tabHiddenSec} s` : null],
             ["Microphone muted", summary.micMutedCount],
             ["Connection lost", summary.offlineCount],
+            ["Reminded to use English", summary.languageNoticeCount],
             ...(camera ? [["Face out of view", camera.faceAbsentCount], ["Second face in view", camera.multipleFacesCount]] : []),
           ].map(([label, value]) => (
             <div key={label} className="bg-base-200 border border-base-300 rounded-lg p-3">

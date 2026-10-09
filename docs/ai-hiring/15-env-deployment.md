@@ -25,6 +25,8 @@ Add these to `.env.local` (dev) and the deployment environment. Also create `.en
 | `TTS_VOICE` | engine | `am_michael` | |
 | `DEEPGRAM_API_KEY` | engine | – | live captions and the best transcripts. If empty, the Whisper fallback is used (chunked, no live captions) |
 | `STT_LANGUAGE` | engine | `en` | language of the interview. Locks Whisper to it (auto-detection invents Portuguese or Japanese from noise) and turns the foreign-script filter on for English; `auto` leaves Whisper to detect |
+| `LANGUAGE_GUARD` | engine | on | `off` stops the interviewer reminding candidates who speak Urdu that the interview is English only (09) |
+| `LANGUAGE_CHECK_CONFIDENCE` | engine | `0.8` | a transcript the recogniser is less sure of than this has its audio language-checked (Groq Whisper) |
 | `LLM_REASONING_EFFORT` | web, worker, engine | – | `low`, `medium` or `high`: default reasoning effort for `openai/gpt-oss-*` models when a caller doesn't choose. The interview paths use `low` |
 | `FFMPEG_PATH` | worker | `ffmpeg` | where ffmpeg is, when it isn't on PATH. The worker joins and decodes recordings with it; without it the AI engine is used for joining |
 | `AI_ENGINE_URL` | engine, worker | `http://localhost:8000` | |
@@ -35,16 +37,19 @@ Add these to `.env.local` (dev) and the deployment environment. Also create `.en
 | `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | storage | – | `S3_ENDPOINT` for R2/MinIO |
 | `HIRING_WORKER_CONCURRENCY` | worker | `3` | |
 | `WORKER_ID` | worker | hostname | consumer name |
-| `MAILGUN_API_KEY` | web, worker | existing | |
+| `MAILGUN_API_KEY` | web, worker | – | Mailgun private API key. Needed with `MAILGUN_DOMAIN` to send real email (08) |
+| `MAILGUN_DOMAIN` | web, worker | – | the sending domain as Mailgun lists it (`mg.example.com`, or `sandbox….mailgun.org`: authorized recipients only) |
+| `MAILGUN_REGION`, `MAILGUN_API_URL` | web, worker | `us` | `eu` for a domain created in the EU region; the URL overrides both |
+| `MAILGUN_FROM`, `MAILGUN_REPLY_TO` | web, worker | `Raasta-AI <noreply@MAILGUN_DOMAIN>` | sender and default reply address |
 | `EMAIL_OUTBOX` | web, worker | – | `local` writes emails to `.storage/outbox` when there is no Mailgun key, even in production (`npm run serve` sets it) |
 | `DEV_WARMUP`, `QUERY_DEVTOOLS` | `npm run dev` | – | `false` turns off the screen warm-up; `true` shows the React Query panel (see 21) |
 | `PUBLISH_DAILY_CAP_<PLATFORM>`, `PUBLISH_MIN_GAP_MINUTES_<PLATFORM>` | web, worker | LinkedIn 3 / 10, Rozee.pk 5 / 5, Indeed 3 / 10 | `<PLATFORM>` is `LINKEDIN`, `ROZEE` or `INDEED`; automatic posts per account per 24 hours, and the pause between two (see 19) |
 | `INDEED_AUTO_POST` | web, worker | – | `true` would offer posting to Indeed in the background (a saved session, nobody watching). Nothing is built behind it: Indeed is posted with the posting engine or Copy and open (see 19, sections 5b and 5f) |
 | `POSTER_ENGINE_PORT` | web, posting engine | `8095` | the posting engine's health address, on this machine only. A second engine on the same port refuses to start |
 | `POSTER_TYPING_SPEED` | posting engine | `natural` | `natural`, `fast` or `off`: how quickly the engine types in its window (see 19, section 5f) |
-| `POSTER_BROWSER` | posting engine | `chrome` | the browser the engine opens: `chrome` (falls back to Chromium), `msedge` or `chromium`. It has a profile of its own under `.runtime/poster-profiles/` |
-| `POSTER_PAUSED_COOLOFF_HOURS` | web | `24` | how long the posting engine leaves a person's Indeed alone after Indeed paused the account (a block page is always 30 minutes); see 19, section 5f |
-| `POSTER_STEALTH` | posting engine | – | `true` adds stealth launch flags. Off by default: a visible window with a person and human-like typing come first (see CLAUDE.md conventions and 19, section 5) |
+| `POSTER_BROWSER` | posting engine, Indeed sign-in window, Diagnose | `chrome` | the browser they open: `chrome` (falls back to Chromium), `msedge` or `chromium`. The engine has a profile of its own per person and account under `.runtime/poster-profiles/` |
+| `POSTER_PAUSED_COOLOFF_HOURS` | web | `24` | how long the posting engine leaves an Indeed account alone after Indeed paused it (the cool-off belongs to that account; a block page is always 30 minutes, for every account); see 19, section 5f |
+| `POSTER_STEALTH` | posting engine, Indeed sign-in window, Diagnose | – | On unless set to `false`: the window does not announce itself as automated (`--enable-automation` dropped, `navigator.webdriver` false, and `--test-type` so Chrome shows no warning bar for it). Without it Cloudflare's check kept coming back (19, section 5f). Nothing else is changed: no fingerprint or user-agent changes |
 | `POSTER_SHOTS_DIR` | web, posting engine | `./.runtime/poster-runs` | where each run's step screenshots are written (git-ignored, the newest 15 runs kept); the web app reads them from here |
 | `INDEED_DEBUG` | web, worker | – | `true` records every automatic Indeed post attempt (screenshots, page structure, errors) in `debug-indeed/` |
 | `INDEED_DEBUG_DIR` | web, worker | `./debug-indeed` | where Indeed debug runs are written (gitignored; the newest 20 are kept) |

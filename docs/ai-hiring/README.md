@@ -31,6 +31,7 @@ These docs specify how to build Raasta-AI's **AI Hiring Pipeline**. They are wri
 | 19 | [19-platform-publishing.md](19-platform-publishing.md) | Posting a job to LinkedIn and Rozee.pk: one post per platform, limits, hand-off, review of the platform connection |
 | 20 | [20-setup-and-services.md](20-setup-and-services.md) | Setup guide: see, start and stop the four programs from the app, and the on-screen guidance |
 | 21 | [21-performance.md](21-performance.md) | Why `npm run dev` is slow, `npm run serve` (fast production mode), the dev warm-up |
+| 22 | [22-demo-test-cases.md](22-demo-test-cases.md) | The demo test script (`npm run demo:tests`): 100 cases across the pipeline, how each case is judged, and how the tests themselves were checked |
 
 ## One-time setup
 
