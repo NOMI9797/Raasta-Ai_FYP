@@ -79,6 +79,7 @@ export async function prepareReply({ lead, inbound, thread, settings, senderName
     plan: decision.plan, reply: inbound.body, reading, thread, passages,
     companyName: settings.companyName, senderName, timeZone: settings.timezone,
     slots, meeting: meetingInfo, wrongTime: decision.escalations.includes(REPLY_ESCALATION.TIME_UNAVAILABLE),
+    channel: inbound.channel === "linkedin" ? "linkedin" : "email",
   });
 
   const escalations = [...decision.escalations];

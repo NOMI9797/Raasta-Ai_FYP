@@ -6,6 +6,7 @@ import toast from "react-hot-toast";
 import { CalendarCheck, Hand, Inbox, Loader2, MailCheck, MessagesSquare, RefreshCw, Search, Send } from "lucide-react";
 import SalesStageShell from "@/components/sales/SalesStageShell";
 import ConversationThread, { Avatar } from "@/components/sales/conversations/ConversationThread";
+import SourceTag from "@/components/sales/SourceTag";
 import { CLOSED_STATUSES, CONVERSATION_STATUS, INTENT_LABELS, conversationLabel } from "@/libs/sales/conversation/status";
 
 const FILTERS = [
@@ -85,7 +86,10 @@ function ConversationItem({ c, selected, showCampaign, onSelect }) {
             <span className="truncate">{s.label}{c.intent ? ` · ${INTENT_LABELS[c.intent] || c.intent}` : ""}</span>
           </div>
           <p className={`mt-1 truncate text-xs ${c.needsYou ? "text-base-content/80" : "text-base-content/50"}`}>{preview}</p>
-          {showCampaign && <p className="mt-0.5 truncate text-[10px] uppercase tracking-wide text-base-content/35">{c.campaignName}</p>}
+          <div className="mt-1 flex min-w-0 items-center gap-2">
+            <SourceTag source={c.source} channel={c.channel} />
+            {showCampaign && <span className="truncate text-[10px] uppercase tracking-wide text-base-content/35">{c.campaignName}</span>}
+          </div>
         </div>
         {c.needsYou && <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-warning" title="Needs you" />}
       </button>
@@ -104,10 +108,16 @@ function Conversations({ campaigns }) {
   const [data, setData] = useState(null);
   const [syncing, setSyncing] = useState(false);
 
+  // Also runs every 20 s in the background: a failed refresh (server restarting, network blip) is
+  // skipped quietly and the next one tries again, instead of showing a runtime error
   const load = useCallback(async () => {
-    const res = await fetch(`/api/sales/conversations${campaignId ? `?campaign=${campaignId}` : ""}`);
-    const json = await res.json();
-    if (res.ok) setData(json);
+    try {
+      const res = await fetch(`/api/sales/conversations${campaignId ? `?campaign=${campaignId}` : ""}`);
+      const json = await res.json();
+      if (res.ok) setData(json);
+    } catch {
+      // keep what's on screen
+    }
   }, [campaignId]);
 
   useEffect(() => {
@@ -159,7 +169,7 @@ function Conversations({ campaigns }) {
     <div className="space-y-5">
       {/* Overview: each tile filters the inbox */}
       {data && <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat icon={Send} label="Emailed" value={sentCount} active={filter === "all"} onClick={() => setFilter("all")} />
+        <Stat icon={Send} label="Contacted" value={sentCount} active={filter === "all"} onClick={() => setFilter("all")} />
         <Stat icon={Hand} label="Needs you" value={counts.needs_you} tone={counts.needs_you ? "text-warning" : ""} active={filter === "needs_you"} onClick={() => setFilter("needs_you")} />
         <Stat icon={MessagesSquare} label="Replied" value={sentCount ? `${repliedCount} · ${Math.round((repliedCount / sentCount) * 100)}%` : 0} active={filter === "replied"} onClick={() => setFilter("replied")} />
         <Stat icon={CalendarCheck} label="Meetings" value={counts.meetings} tone={counts.meetings ? "text-success" : ""} active={filter === "meetings"} onClick={() => setFilter("meetings")} />

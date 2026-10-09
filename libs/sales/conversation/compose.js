@@ -35,13 +35,18 @@ function senderSignOff(senderName) {
 }
 
 /** @returns {{ system: string, user: string }} */
-export function replyPrompt({ plan, reply, reading, thread = [], passages = [], companyName, senderName, timeZone, wrongTime = false }) {
+export function replyPrompt({ plan, reply, reading, thread = [], passages = [], companyName, senderName, timeZone, wrongTime = false, channel = "email" }) {
+  const onLinkedIn = channel === "linkedin";
   return {
     system: [
       `You write email replies to clients for ${companyName || "our company"}, continuing a sales conversation.`,
+      onLinkedIn ? "This reply is sent as a LinkedIn message, not an email: keep it conversational and a little shorter." : "",
       GROUNDING_RULES,
       ...STYLE,
-      PLAN_INSTRUCTIONS[plan],
+      // A LinkedIn message can't carry a calendar invite: the time and link are in the text itself
+      onLinkedIn && plan === REPLY_PLAN.CONFIRM
+        ? PLAN_INSTRUCTIONS[plan].replace(" Say a calendar invite is attached.", " Never mention a calendar invite or an attachment: the time and link in the message are all they need.")
+        : PLAN_INSTRUCTIONS[plan],
       wrongTime ? "The time they asked for isn't available: say so briefly and kindly before offering other times." : "",
       `Our time zone is ${zoneLabel(timeZone)}.`,
       senderSignOff(senderName),
@@ -83,9 +88,9 @@ export function fillPlaceholders(body, { plan, slots = [], meeting = null, timeZ
   return text.replace(/ ?\{\{(TIMES|MEETING)\}\}\n?/g, "").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-export async function composeReply({ plan, reply, reading, thread, passages, companyName, senderName, timeZone, slots, meeting, wrongTime }) {
+export async function composeReply({ plan, reply, reading, thread, passages, companyName, senderName, timeZone, slots, meeting, wrongTime, channel }) {
   const out = await chatJSON({
-    ...replyPrompt({ plan, reply, reading, thread, passages, companyName, senderName, timeZone, wrongTime }),
+    ...replyPrompt({ plan, reply, reading, thread, passages, companyName, senderName, timeZone, wrongTime, channel }),
     model: getModel(),
     temperature: 0.4,
     maxTokens: 1500,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import SourceTag from "@/components/sales/SourceTag";
 import toast from "react-hot-toast";
 import {
   AlertTriangle, BookOpen, CalendarCheck, CalendarClock, Clock, ExternalLink, Globe, Loader2, MoreHorizontal, Send, Sparkles, Trash2,
@@ -262,7 +263,8 @@ export default function ConversationThread({ leadId, onChanged }) {
             <span className={`badge badge-sm ${status.tone}`}>{status.label}</span>
             {lead.fit?.score != null && <span className="badge badge-ghost badge-sm">Fit {lead.fit.score}</span>}
           </div>
-          <p className="mt-0.5 flex flex-wrap items-center gap-x-3 text-xs text-base-content/55">
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-base-content/55">
+            <SourceTag source={lead.source} channel={[...thread].reverse().find((m) => m.direction === "out" && m.status === "sent")?.channel || "email"} size="sm" />
             <span>{lead.campaignName}</span>
             {lead.website && <a href={lead.website} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:text-primary"><Globe className="h-3 w-3" /> Website <ExternalLink className="h-2.5 w-2.5" /></a>}
             {lead.nextFollowUpAt && !closed && <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" /> Follow-up {when(lead.nextFollowUpAt)} if no reply</span>}
