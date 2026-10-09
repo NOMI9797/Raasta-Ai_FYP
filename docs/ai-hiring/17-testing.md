@@ -62,6 +62,9 @@ Fake deps: `llm` returns scripted JSON, `tts` returns a tiny buffer, `repo` reco
 
 Have a backup: a pre-recorded completed interview in the seed data in case the network fails.
 
+## 4b. Demo test script
+`npm run demo:tests` runs 100 readable test cases in seven stages (offline, real database, live model) and is meant to be run in front of an audience. How its cases are chosen, judged and validated (including `npm run demo:mutations`) is in [22-demo-test-cases.md](22-demo-test-cases.md). It complements `npm run test:hiring`; it does not replace it.
+
 ## 5. Quality gates before merging to `main`
 - `npm run lint`, `npm run build`, `npm run check:branding`, `npm run test:hiring`, `pytest services/ai-engine/tests` all pass.
 - No new hard-coded status strings; no secrets in the diff (`git diff main --stat` + review).
