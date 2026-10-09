@@ -195,7 +195,10 @@ test("Semi-auto: a question with a time is answered from the knowledge base, and
   assert.equal(meeting.location, "https://meet.example.com/test-room");
   assert.equal((await getLead(lead.id)).conversationStatus, "meeting_booked");
   assert.ok(notify.all.some((n) => n.type === "meeting_booked"));
-  assert.equal((await getRun(run.id)).status, "completed", "nothing left open: the run finishes");
+  // Nothing left open, but the agent keeps watching for replies until a person stops it
+  const after = await getRun(run.id);
+  assert.equal(after.status, "waiting", "still active: a later reply is answered too");
+  assert.ok(after.results.allDoneAt, "the person was told the outreach is done");
 });
 
 test("Auto: interest gets three free times; picking one books it without asking", async (t) => {
@@ -323,7 +326,7 @@ test("Follow-ups: two nudges in the same thread, then the lead is closed as no r
   assert.equal(email.sent.length, 2, "no third email");
   saved = await getLead(lead.id);
   assert.equal(saved.conversationStatus, "no_response");
-  assert.equal((await getRun(run.id)).status, "completed");
+  assert.equal((await getRun(run.id)).status, "waiting", "stays active until stopped by hand");
 });
 
 test("A reply withdraws a follow-up that was waiting for approval", async (t) => {

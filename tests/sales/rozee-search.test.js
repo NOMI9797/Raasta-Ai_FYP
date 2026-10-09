@@ -98,6 +98,12 @@ test("company, role and city from a slug, using the words searched for", () => {
   // Found live: "developer" alone must not decide the split, or the role becomes just "Developer"
   assert.equal(splitSlug("innovative-software-solution-angularjs-developer-lahore", "flutter developer").relevant, false, "not a Flutter job");
   assert.deepEqual(splitSlug("4xp-tech-pvt-ltd-flutter-developer-lahore", "flutter developer"), { company: "4xp Tech Pvt Ltd", title: "Flutter Developer", cities: ["Lahore"], relevant: true });
+  // Found by the end-to-end agent run (9 Oct 2026): the role's first words went into the company name
+  assert.deepEqual(splitSlug("jma-resources-javascript-developer-react-js-lahore", "React developer"), { company: "Jma Resources", title: "Javascript Developer React Js", cities: ["Lahore"], relevant: true });
+  assert.deepEqual(splitSlug("technodevs-senior-reactjs-front-end-developer-lahore", "React developer"), { company: "Technodevs", title: "Senior Reactjs Front End Developer", cities: ["Lahore"], relevant: true });
+  assert.equal(splitSlug("rozeepk-php-symfony-developer-react-js-lahore", "React developer").company, "Rozee.pk");
+  assert.equal(splitSlug("systems-ltd-senior-reactjs-developer-lahore", "React developer").company, "Systems Ltd", "\"reactjs\" counts as React");
+  assert.equal(splitSlug("abacus-consulting-technology-drupal-developer-lahore", "React developer").relevant, false);
 });
 
 test("listing snippets name jobs and companies; noise is dropped", () => {

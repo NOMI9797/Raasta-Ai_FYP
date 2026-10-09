@@ -219,3 +219,13 @@ test("our next email keeps the thread: Re: subject and every Message-ID", () => 
   assert.equal(replySubject([{ subject: "[TEST] Faster hiring" }]), "Re: Faster hiring");
   assert.deepEqual(threadReferences(thread), ["<a@x>", "<b@y>"]);
 });
+
+test("we never greet the client with our own name; on LinkedIn their profile name is used (greeted Nouman as 'Hi QA')", async () => {
+  const { contactNameFor } = await import("../../libs/sales/conversation/reply");
+  const lead = { source: "linkedin", name: "Nouman Ahmed", sourceData: { profile: { name: "Nouman Ahmed" } } };
+  const inbound = { channel: "linkedin" };
+  assert.equal(contactNameFor({ reading: { contactName: "QA" }, lead, inbound, senderName: "QA Tester" }), "Nouman", "our sign-off isn't their name");
+  assert.equal(contactNameFor({ reading: { contactName: null }, lead, inbound, senderName: "QA Tester" }), "Nouman");
+  assert.equal(contactNameFor({ reading: { contactName: "Ali" }, lead: { source: "rozee", company: "Acme" }, inbound: { channel: "email" }, senderName: "QA" }), "Ali", "a name they signed with is kept");
+  assert.equal(contactNameFor({ reading: { contactName: "QA" }, lead: { source: "rozee", company: "Acme" }, inbound: { channel: "email" }, senderName: "QA" }), null, "an email with no name: no name");
+});
